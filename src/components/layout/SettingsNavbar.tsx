@@ -10,6 +10,7 @@ import {
   AppShell, Badge, Box, Divider, Group, Image, NativeSelect, ActionIcon,
   NavLink, ScrollArea, Stack, Text,
 } from '@mantine/core';
+import { WindowDragRegion } from './WindowDragRegion';
 import { StatusDot } from '../ui/StatusDot';
 import {
   settingsAtom,
@@ -62,6 +63,8 @@ const navSections: NavSection[] = [
     ],
   },
 ];
+
+const TRAFFIC_LIGHTS_SAFE_AREA = 72;
 
 function isExactRoute(pathname: string, to: string) {
   const norm = pathname.replace(/\/+$/, '') || '/';
@@ -129,19 +132,21 @@ export function SettingsNavbar() {
   return (
     <>
       {/* ── Branding + Status ── */}
-      <AppShell.Section px="md" pt={40} pb="sm" className="buttervoice-drag-region">
-        <Stack align="center" gap={6}>
-          <Image src="/logo.png" alt="ButterVoice" w="80%" h="auto" />
-          <Group gap={6}>
+      <AppShell.Section px="md" pt="2px" pb="sm">
+        <WindowDragRegion className="buttervoice-drag-region">
+          <Group gap={6} pl={TRAFFIC_LIGHTS_SAFE_AREA} h={28} align="center">
             <StatusDot state={dictationState} />
             <Text size="xs" c="dimmed" fw={500}>{stateLabels[dictationState]}</Text>
           </Group>
-          {setupIssue && (
-            <Badge color="orange" variant="light" size="xs">
-              Action: {setupIssue}
-            </Badge>
-          )}
-        </Stack>
+          <Stack align="center" gap={4} pt={4}>
+            <Image src="/logo.png" alt="ButterVoice" w="80%" h="auto" />
+            {setupIssue && (
+              <Badge color="orange" variant="light" size="xs">
+                Action: {setupIssue}
+              </Badge>
+            )}
+          </Stack>
+        </WindowDragRegion>
       </AppShell.Section>
 
       <Divider mx="sm" mb="xs" />

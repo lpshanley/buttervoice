@@ -55,6 +55,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "resources": [
       "resources/whispercpp/manifest.json",
       "resources/whispercpp/lib/*",
@@ -71,6 +72,14 @@
     ],
     "macOS": {
       "minimumSystemVersion": "13.0"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/lpshanley/buttervoice/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIyOUZCQTlENTM4ODRFNjEKUldSaFRvaFRuYnFmc2xoRFNxdHpFZ3IzUTM1d1p0TWZ1cmtoWXFNK3JlbTdHOHk4MXdLSEg4OUoK"
     }
   }
 }

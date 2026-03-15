@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changeset:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require a changeset or release:none label
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+        run: |
+          set -euo pipefail
+
+          git fetch origin "${BASE_REF}" --depth=1
+
+          if [[ " ${LABELS} " == *" release:none "* ]]; then
+            echo "release:none label present; skipping changeset requirement."
+            exit 0
+          fi
+
+          CHANGED_FILES="$(git diff --name-only "origin/${BASE_REF}"...HEAD)"
+          echo "Changed files:"
+          printf '%s\n' "${CHANGED_FILES}"
+
+          RELEASE_RELEVANT_FILES="$(printf '%s\n' "${CHANGED_FILES}" | grep -Ev '^(\\.changeset/|\\.github/|docs/|README\\.md$|\\.gitignore$|\\.vscode/|\\.claude/|buona\\.json$)' || true)"
+          CHANGESET_FILES="$(printf '%s\n' "${CHANGED_FILES}" | grep -E '^\\.changeset/.+\\.md$' || true)"
+
+          if [[ -z "${RELEASE_RELEVANT_FILES}" ]]; then
+            echo "Only repo-only files changed; no changeset required."
+            exit 0
+          fi
+
+          if [[ -n "${CHANGESET_FILES}" ]]; then
+            echo "Changeset found."
+            exit 0
+          fi
+
+          echo "This PR changes release-relevant files but does not include a changeset."
+          echo "Add a changeset with 'pnpm changeset' or apply the release:none label if this should not ship."
+          exit 1
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify synchronized versions
+        run: pnpm release:check
+
+      - name: Build frontend
+        run: pnpm build
+
+  backend:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Run Rust tests
+        run: cargo test --locked

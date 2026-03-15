@@ -7,7 +7,7 @@ INSTALL_DIR="/Applications"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_OUTPUT="$PROJECT_DIR/src-tauri/target/release/bundle/macos/${APP_NAME}.app"
-DMG_OUTPUT="$PROJECT_DIR/src-tauri/target/release/bundle/dmg/${APP_NAME}_0.1.0_aarch64.dmg"
+APP_VERSION="$(node -p "JSON.parse(require('node:fs').readFileSync(process.argv[1], 'utf8')).version" "$PROJECT_DIR/package.json")"
 
 BUILD_MODE="${1:-app}"
 case "$BUILD_MODE" in
@@ -65,10 +65,15 @@ if [[ ! -d "$BUILD_OUTPUT" ]]; then
 fi
 ok "Build succeeded."
 if [[ "$BUILD_MODE" == release || "$BUILD_MODE" == dmg || "$BUILD_MODE" == all ]]; then
-    if [[ -f "$DMG_OUTPUT" ]]; then
-        ok "DMG output: $DMG_OUTPUT"
+    shopt -s nullglob
+    DMG_OUTPUTS=("$PROJECT_DIR"/src-tauri/target/release/bundle/dmg/"${APP_NAME}_${APP_VERSION}"_*.dmg)
+    shopt -u nullglob
+    if (( ${#DMG_OUTPUTS[@]} > 0 )); then
+        for dmg in "${DMG_OUTPUTS[@]}"; do
+            ok "DMG output: $dmg"
+        done
     else
-        warn "DMG was requested but no DMG artifact was found at expected path: $DMG_OUTPUT"
+        warn "DMG was requested but no DMG artifact was found for version ${APP_VERSION} under $PROJECT_DIR/src-tauri/target/release/bundle/dmg"
     fi
 fi
 echo ""

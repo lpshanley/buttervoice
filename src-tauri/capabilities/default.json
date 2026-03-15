@@ -8,7 +8,9 @@
     "opener:default",
     "store:default",
     "autostart:default",
+    "updater:default",
     "core:window:allow-hide",
+    "core:window:allow-start-dragging",
     "core:window:allow-show",
     "core:event:default"
   ]

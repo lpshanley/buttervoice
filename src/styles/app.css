@@ -50,6 +50,7 @@ body {
 .buttervoice-drag-region button,
 .buttervoice-drag-region input,
 .buttervoice-drag-region select,
+.buttervoice-drag-region textarea,
 .buttervoice-drag-region [role="button"] {
   -webkit-app-region: no-drag;
 }
