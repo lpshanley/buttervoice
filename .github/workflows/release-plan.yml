@@ -34,9 +34,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Create or update release PR
+        id: changesets
         uses: changesets/action@v1
         with:
           version: pnpm release:version
+          publish: node ./scripts/tag-release.mjs
           commit: "chore: version packages"
           title: "chore: release"
         env:
