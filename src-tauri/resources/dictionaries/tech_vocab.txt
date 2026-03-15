@@ -1,0 +1,253 @@
+# Technical vocabulary — common programming and tech terms that should not
+# be "corrected" by spell checking.  Each word is loaded with a high
+# frequency so SymSpell treats them as valid dictionary entries.
+#
+# Format: word frequency
+
+# Rust keywords / identifiers
+async 500000000
+await 500000000
+enum 500000000
+struct 500000000
+impl 500000000
+const 500000000
+mut 500000000
+crate 500000000
+Vec 500000000
+println 500000000
+eprintln 500000000
+serde 500000000
+tokio 500000000
+anyhow 500000000
+tauri 500000000
+
+# General programming keywords
+boolean 500000000
+nullable 500000000
+iterable 500000000
+typedef 500000000
+sizeof 500000000
+malloc 500000000
+calloc 500000000
+ifdef 500000000
+endif 500000000
+elif 500000000
+args 500000000
+kwargs 500000000
+stdin 500000000
+stdout 500000000
+stderr 500000000
+regex 500000000
+unicode 500000000
+codec 500000000
+endian 500000000
+tuple 500000000
+tuple 500000000
+dict 500000000
+substring 500000000
+lookup 500000000
+hashmap 500000000
+mutex 500000000
+semaphore 500000000
+async 500000000
+coroutine 500000000
+runtime 500000000
+lifecycle 500000000
+middleware 500000000
+callback 500000000
+webhook 500000000
+cron 500000000
+daemon 500000000
+init 500000000
+config 500000000
+env 500000000
+
+# Web / networking
+http 500000000
+https 500000000
+tcp 500000000
+udp 500000000
+dns 500000000
+ssl 500000000
+tls 500000000
+oauth 500000000
+jwt 500000000
+cors 500000000
+csrf 500000000
+websocket 500000000
+graphql 500000000
+restful 500000000
+api 500000000
+url 500000000
+uri 500000000
+cdn 500000000
+nginx 500000000
+localhost 500000000
+hostname 500000000
+subnet 500000000
+firewall 500000000
+proxy 500000000
+
+# Data formats
+json 500000000
+yaml 500000000
+toml 500000000
+csv 500000000
+xml 500000000
+protobuf 500000000
+msgpack 500000000
+parquet 500000000
+avro 500000000
+
+# Dev tools / CLI
+cli 500000000
+sdk 500000000
+npm 500000000
+yarn 500000000
+bun 500000000
+pnpm 500000000
+pip 500000000
+cargo 500000000
+gradle 500000000
+maven 500000000
+cmake 500000000
+makefile 500000000
+dockerfile 500000000
+kubectl 500000000
+docker 500000000
+podman 500000000
+terraform 500000000
+ansible 500000000
+vagrant 500000000
+homebrew 500000000
+brew 500000000
+apt 500000000
+dpkg 500000000
+systemd 500000000
+systemctl 500000000
+grep 500000000
+sed 500000000
+awk 500000000
+xargs 500000000
+chmod 500000000
+chown 500000000
+sudo 500000000
+curl 500000000
+wget 500000000
+rsync 500000000
+ssh 500000000
+tmux 500000000
+
+# Build tools / CI
+webpack 500000000
+vite 500000000
+rollup 500000000
+eslint 500000000
+prettier 500000000
+babel 500000000
+swc 500000000
+esbuild 500000000
+turbopack 500000000
+linter 500000000
+linting 500000000
+transpile 500000000
+transpiler 500000000
+minify 500000000
+minifier 500000000
+bundler 500000000
+
+# Frameworks / libraries
+react 500000000
+redux 500000000
+nextjs 500000000
+nuxt 500000000
+svelte 500000000
+vue 500000000
+angular 500000000
+fastapi 500000000
+django 500000000
+flask 500000000
+express 500000000
+nestjs 500000000
+laravel 500000000
+symfony 500000000
+pytorch 500000000
+tensorflow 500000000
+numpy 500000000
+pandas 500000000
+scipy 500000000
+sklearn 500000000
+matplotlib 500000000
+opencv 500000000
+
+# Version control
+git 500000000
+github 500000000
+gitlab 500000000
+bitbucket 500000000
+gitignore 500000000
+rebase 500000000
+squash 500000000
+stash 500000000
+diff 500000000
+changelog 500000000
+
+# Databases
+sql 500000000
+mysql 500000000
+postgres 500000000
+postgresql 500000000
+sqlite 500000000
+mongodb 500000000
+redis 500000000
+elasticsearch 500000000
+dynamodb 500000000
+cassandra 500000000
+memcached 500000000
+
+# Cloud / infra
+aws 500000000
+gcp 500000000
+azure 500000000
+heroku 500000000
+vercel 500000000
+netlify 500000000
+kubernetes 500000000
+linux 500000000
+ubuntu 500000000
+debian 500000000
+centos 500000000
+macos 500000000
+
+# General tech terms
+localhost 500000000
+backend 500000000
+frontend 500000000
+fullstack 500000000
+devops 500000000
+microservice 500000000
+monorepo 500000000
+serverless 500000000
+idempotent 500000000
+serialization 500000000
+deserialization 500000000
+polymorphism 500000000
+encapsulation 500000000
+refactor 500000000
+refactoring 500000000
+boilerplate 500000000
+namespace 500000000
+timestamp 500000000
+metadata 500000000
+changelog 500000000
+readme 500000000
+versioning 500000000
+deprecate 500000000
+deprecated 500000000
+hotfix 500000000
+payload 500000000
+endpoint 500000000
+throughput 500000000
+latency 500000000
+bottleneck 500000000
+deadlock 500000000

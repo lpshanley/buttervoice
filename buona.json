@@ -1,0 +1,8 @@
+{
+  "$schema": "https://raw.githubusercontent.com/lpshanley/buona/refs/heads/main/schemas/buona.schema.json",
+  "commands": {
+    "dev": { "exec": ["pnpm", "run", "tauri", "dev"] },
+    "install": { "exec": ["./scripts/build-install.sh", "app"] },
+    "install:release": { "exec": ["./scripts/build-install.sh", "release"] }
+  }
+}

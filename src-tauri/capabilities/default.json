@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability for the settings and HUD windows.",
+  "windows": ["settings", "hud"],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "store:default",
+    "autostart:default",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:event:default"
+  ]
+}

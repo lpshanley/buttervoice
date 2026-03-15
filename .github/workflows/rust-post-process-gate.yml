@@ -1,0 +1,25 @@
+name: Rust Post-Process Gate
+
+on:
+  push:
+    paths:
+      - "src-tauri/**"
+      - ".github/workflows/rust-post-process-gate.yml"
+  pull_request:
+    paths:
+      - "src-tauri/**"
+      - ".github/workflows/rust-post-process-gate.yml"
+
+jobs:
+  post-process-golden:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run core tests
+        run: cargo test --locked
+      - name: Run golden post-process gate
+        run: cargo test --locked --test post_process_golden

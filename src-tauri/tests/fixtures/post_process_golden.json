@@ -1,0 +1,32 @@
+[
+  {
+    "name": "basic_truecase_and_punctuation",
+    "input": "hello world this is a test",
+    "expected_output": "Hello world this is a test.",
+    "settings": {
+      "post_process_spell_enabled": false,
+      "post_process_itn_enabled": false,
+      "post_process_grammar_rules_enabled": false
+    }
+  },
+  {
+    "name": "unicode_combining_and_emoji",
+    "input": "na\u00efve cafe\u0301 \u2615\ufe0f tastes great",
+    "expected_output": "Na\u00efve cafe\u0301 \u2615\ufe0f tastes great.",
+    "settings": {
+      "post_process_spell_enabled": false,
+      "post_process_itn_enabled": false,
+      "post_process_grammar_rules_enabled": false
+    }
+  },
+  {
+    "name": "apostrophes_and_mixed_scripts",
+    "input": "i can't believe \u03ba\u03cc\u03c3\u03bc\u03b5 \u043f\u0440\u0438\u0432\u0435\u0442 works",
+    "expected_output": "I can't believe \u03ba\u03cc\u03c3\u03bc\u03b5 \u043f\u0440\u0438\u0432\u0435\u0442 works.",
+    "settings": {
+      "post_process_spell_enabled": false,
+      "post_process_itn_enabled": false,
+      "post_process_grammar_rules_enabled": false
+    }
+  }
+]

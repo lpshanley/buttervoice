@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "backend": "whispercpp",
+  "artifact_version": "1.8.3",
+  "artifacts": [
+    {
+      "target": "macos-aarch64",
+      "path": "whispercpp/macos-aarch64/whisper-cli",
+      "sha256": "fcbf8d865a62fd68df7ebd91ab9d38e86d17827d1d4fb25758cfc993e3df4c3e"
+    },
+    {
+      "target": "macos-x86_64",
+      "path": "whispercpp/macos-x86_64/whisper-cli",
+      "sha256": "00fa0d2f2b90fd3f0a5602786bb9fa6ed7e888248815c6b9e7bb528019f79def"
+    }
+  ]
+}

@@ -1,0 +1,116 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap');
+
+@import '@mantine/core/styles.css';
+@import '@mantine/notifications/styles.css';
+@import '@mantine/charts/styles.css';
+
+/* ── Global resets ── */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Golden text selection ── */
+::selection {
+  background: oklch(0.935 0.112 93.53);
+  color: oklch(0.340 0.010 48);
+}
+
+/* ── Warm scrollbars ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: oklch(0.875 0.020 75);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.775 0.024 70);
+}
+
+/* ── Window drag region (overlay title bar) ── */
+.buttervoice-drag-region {
+  -webkit-app-region: drag;
+}
+
+.buttervoice-drag-region a,
+.buttervoice-drag-region button,
+.buttervoice-drag-region input,
+.buttervoice-drag-region select,
+.buttervoice-drag-region [role="button"] {
+  -webkit-app-region: no-drag;
+}
+
+/* ── Warm navbar background ── */
+.mantine-AppShell-navbar {
+  @mixin light {
+    background-color: oklch(0.965 0.010 85) !important;
+    border-right-color: oklch(0.925 0.016 80) !important;
+  }
+
+  @mixin dark {
+    background-color: oklch(0.270 0.009 46) !important;
+    border-right-color: oklch(0.340 0.010 48 / 0.5) !important;
+  }
+}
+
+/* ── Smooth interactive transitions (300ms — butter melts slowly) ── */
+.mantine-NavLink-root {
+  transition: background-color 200ms ease-out, border-color 200ms ease-out, color 200ms ease-out !important;
+}
+
+.mantine-ActionIcon-root,
+.mantine-Button-root,
+.mantine-Switch-root {
+  transition: all 200ms ease-out !important;
+}
+
+/* ── Custom animations ── */
+@keyframes pulse-recording {
+  0%, 100% { box-shadow: 0 0 0 0 var(--mantine-color-red-3); }
+  50% { box-shadow: 0 0 12px 4px var(--mantine-color-red-3); }
+}
+
+@keyframes buttervoice-overlay-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes buttervoice-recording-glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 12px rgba(255, 120, 30, 0.08));
+  }
+  50% {
+    filter: drop-shadow(0 0 20px rgba(255, 120, 30, 0.18));
+  }
+}
+
+@keyframes buttervoice-enhance-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+@keyframes buttervoice-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}

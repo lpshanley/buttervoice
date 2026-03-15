@@ -1,0 +1,76 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ButterVoice",
+  "version": "0.1.0",
+  "identifier": "com.lpshanley.buttervoice",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "macOSPrivateApi": true,
+    "trayIcon": {
+      "iconPath": "icons/tray.png",
+      "iconAsTemplate": false
+    },
+    "windows": [
+      {
+        "label": "settings",
+        "title": "ButterVoice",
+        "width": 1060,
+        "height": 720,
+        "minWidth": 900,
+        "minHeight": 600,
+        "visible": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
+      },
+      {
+        "label": "hud",
+        "title": "ButterVoice HUD",
+        "url": "/dashboard?hud=1",
+        "center": true,
+        "width": 360,
+        "height": 92,
+        "resizable": false,
+        "fullscreen": false,
+        "focus": false,
+        "focusable": false,
+        "transparent": true,
+        "decorations": false,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "visibleOnAllWorkspaces": true,
+        "skipTaskbar": true,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "resources": [
+      "resources/whispercpp/manifest.json",
+      "resources/whispercpp/lib/*",
+      "resources/whispercpp/macos-aarch64/whisper-cli",
+      "resources/whispercpp/macos-x86_64/whisper-cli",
+      "resources/dictionaries/*"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "13.0"
+    }
+  }
+}
