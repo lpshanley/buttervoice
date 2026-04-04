@@ -11,7 +11,7 @@ use crate::hotkey_macos::{DictationMode, HotkeyKey};
 use crate::models;
 use crate::secrets;
 
-pub const SETTINGS_SCHEMA_VERSION: u32 = 14;
+pub const SETTINGS_SCHEMA_VERSION: u32 = 15;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -39,6 +39,15 @@ impl HighPassFilter {
             Self::Hz120 => Some(120.0),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AudioQualityPreset {
+    #[default]
+    Balanced,
+    BestAccuracy,
+    LowCpu,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -185,6 +194,7 @@ pub struct Settings {
     pub audio_channel_mode: AudioChannelMode,
     pub input_gain_db: f32,
     pub high_pass_filter: HighPassFilter,
+    pub audio_quality_preset: AudioQualityPreset,
     pub launch_at_login: bool,
     pub debug_logging: bool,
     pub output_destination: OutputDestination,
@@ -255,6 +265,7 @@ pub struct SettingsPatch {
     pub audio_channel_mode: Option<AudioChannelMode>,
     pub input_gain_db: Option<f32>,
     pub high_pass_filter: Option<HighPassFilter>,
+    pub audio_quality_preset: Option<AudioQualityPreset>,
     pub launch_at_login: Option<bool>,
     pub debug_logging: Option<bool>,
     pub output_destination: Option<OutputDestination>,
@@ -341,6 +352,7 @@ impl Default for Settings {
             audio_channel_mode: AudioChannelMode::default(),
             input_gain_db: 0.0,
             high_pass_filter: HighPassFilter::default(),
+            audio_quality_preset: AudioQualityPreset::default(),
             launch_at_login: false,
             debug_logging: false,
             output_destination: OutputDestination::Input,
@@ -553,6 +565,9 @@ impl SettingsStore {
         if let Some(high_pass_filter) = patch.high_pass_filter {
             settings.high_pass_filter = high_pass_filter;
         }
+        if let Some(audio_quality_preset) = patch.audio_quality_preset {
+            settings.audio_quality_preset = audio_quality_preset;
+        }
         if let Some(launch_at_login) = patch.launch_at_login {
             settings.launch_at_login = launch_at_login;
         }
@@ -720,8 +735,8 @@ pub fn models_dir(base_dir: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        AudioChannelMode, ComputeMode, HighPassFilter, OutputDestination, Settings, SettingsPatch,
-        SpeechProvider, SpeechRemotePreset,
+        AudioChannelMode, AudioQualityPreset, ComputeMode, HighPassFilter, OutputDestination,
+        Settings, SettingsPatch, SpeechProvider, SpeechRemotePreset,
     };
     use crate::hotkey_macos::{DictationMode, HotkeyKey};
 
@@ -771,6 +786,7 @@ mod tests {
         assert_eq!(settings.audio_channel_mode, AudioChannelMode::Left);
         assert_eq!(settings.input_gain_db, 0.0);
         assert_eq!(settings.high_pass_filter, HighPassFilter::Hz80);
+        assert_eq!(settings.audio_quality_preset, AudioQualityPreset::Balanced);
         assert!(!settings.debug_logging);
         assert_eq!(settings.output_destination, OutputDestination::Input);
         assert!(!settings.llm_cleanup_enabled);
@@ -855,5 +871,19 @@ mod tests {
         let patch: SettingsPatch =
             serde_json::from_str(r#"{"dictation_mode":"push_to_talk"}"#).unwrap();
         assert_eq!(patch.dictation_mode, Some(DictationMode::PushToTalk));
+    }
+
+    #[test]
+    fn settings_patch_parses_audio_quality_preset() {
+        let patch: SettingsPatch =
+            serde_json::from_str(r#"{"audio_quality_preset":"best_accuracy"}"#).unwrap();
+        assert_eq!(
+            patch.audio_quality_preset,
+            Some(AudioQualityPreset::BestAccuracy)
+        );
+
+        let patch: SettingsPatch =
+            serde_json::from_str(r#"{"audio_quality_preset":"low_cpu"}"#).unwrap();
+        assert_eq!(patch.audio_quality_preset, Some(AudioQualityPreset::LowCpu));
     }
 }

@@ -10,6 +10,7 @@ export type SpeechProvider = 'local_whispercpp' | 'remote_openai_compatible';
 export type SpeechRemotePreset = 'speaches' | 'openai' | 'custom';
 export type AudioChannelMode = 'left' | 'right' | 'mono_mix';
 export type HighPassFilter = 'off' | 'hz80' | 'hz120';
+export type AudioQualityPreset = 'balanced' | 'best_accuracy' | 'low_cpu';
 
 export type DictationMode = 'push_to_talk' | 'toggle';
 export type OutputDestination = 'input' | 'clipboard' | 'none';
@@ -79,6 +80,7 @@ export interface Settings {
   audio_channel_mode: AudioChannelMode;
   input_gain_db: number;
   high_pass_filter: HighPassFilter;
+  audio_quality_preset: AudioQualityPreset;
   launch_at_login: boolean;
   debug_logging: boolean;
   output_destination: OutputDestination;
@@ -143,6 +145,7 @@ export interface SettingsPatch {
   audio_channel_mode?: AudioChannelMode;
   input_gain_db?: number;
   high_pass_filter?: HighPassFilter;
+  audio_quality_preset?: AudioQualityPreset;
   launch_at_login?: boolean;
   debug_logging?: boolean;
   output_destination?: OutputDestination;

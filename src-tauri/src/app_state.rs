@@ -832,6 +832,7 @@ impl AppState {
             || previous.audio_channel_mode != next.audio_channel_mode
             || previous.input_gain_db != next.input_gain_db
             || previous.high_pass_filter != next.high_pass_filter
+            || previous.audio_quality_preset != next.audio_quality_preset
         {
             let capture_tuning = capture_tuning(next);
             if let Err(err) = self.audio.configure_capture(
@@ -1877,6 +1878,7 @@ fn capture_tuning(settings: &Settings) -> CaptureTuning {
         audio_channel_mode: settings.audio_channel_mode,
         input_gain_db: settings.input_gain_db,
         high_pass_filter: settings.high_pass_filter,
+        audio_quality_preset: settings.audio_quality_preset,
     }
 }
 

@@ -155,7 +155,7 @@ Connect to any OpenAI-compatible API for LLM-based text cleanup after local proc
 
 ### Audio Pipeline
 
-Microphone audio is captured via `cpal`, processed through channel selection, optional high-pass filtering, gain adjustment, and resampled to 16 kHz (Whisper's required sample rate) with anti-alias filtering. Output is written as a 16-bit mono WAV file.
+Microphone audio is captured via `cpal`, processed through channel selection, optional high-pass filtering, gain adjustment, and resampled to 16 kHz (Whisper's required sample rate) with a `rubato`-based anti-aliased resampler. The audio settings page exposes a simple quality preset for trading CPU cost against resampling fidelity. Output is written as a 16-bit mono WAV file.
 
 When persistent mic mode is enabled, a ring buffer keeps a 600ms preroll so recording starts capture slightly before the hotkey is pressed.
 

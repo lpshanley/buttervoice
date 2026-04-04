@@ -33,6 +33,7 @@ crossbeam-channel = "0.5"
 # Audio
 cpal = "0.15"
 hound = "3.5"
+rubato = "0.16.2"
 
 # Network (blocking for whisper backend + model downloads)
 reqwest = { version = "0.12", features = [

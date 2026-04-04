@@ -9,7 +9,13 @@ import { usePolling } from '../../lib/hooks/usePolling';
 import { MeterBar } from '../ui/MeterBar';
 import { tauriAvailable } from '../../lib/tauri';
 import { Switch } from '../ui/Switch';
-import type { AudioChannelMode, HighPassFilter, Settings, SettingsPatch } from '../../types';
+import type {
+  AudioChannelMode,
+  AudioQualityPreset,
+  HighPassFilter,
+  Settings,
+  SettingsPatch,
+} from '../../types';
 
 export function SignalProcessing() {
   const settings = useAtomValue(settingsAtom);
@@ -89,6 +95,22 @@ export function SignalProcessing() {
       </Box>
 
       {/* ── Input Gain ── */}
+      <NativeSelect
+        label="Audio Quality"
+        size="sm"
+        description="Controls the quality and CPU cost of microphone resampling used for transcription."
+        data={[
+          { value: 'balanced', label: 'Balanced' },
+          { value: 'best_accuracy', label: 'Best Accuracy' },
+          { value: 'low_cpu', label: 'Low CPU' },
+        ]}
+        value={settings.audio_quality_preset}
+        onChange={(e) => applyPatch(
+          { audio_quality_preset: e.currentTarget.value as AudioQualityPreset },
+          'Audio quality updated.',
+        )}
+      />
+
       <Box>
         <Group justify="space-between" mb={4}>
           <Text size="sm" fw={500}>Input Gain</Text>
