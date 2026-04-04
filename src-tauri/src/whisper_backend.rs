@@ -105,6 +105,20 @@ enum EffectiveComputeMode {
     Gpu,
 }
 
+#[derive(Debug)]
+struct PreparedWhisperAudio {
+    path: PathBuf,
+    cleanup_path: Option<PathBuf>,
+}
+
+impl PreparedWhisperAudio {
+    fn cleanup(&self) {
+        if let Some(path) = self.cleanup_path.as_ref() {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
 impl EffectiveComputeMode {
     fn as_str(self) -> &'static str {
         match self {
@@ -162,14 +176,6 @@ impl WhisperBackend {
             ));
         }
 
-        // Trim trailing silence to reduce Whisper hallucinations on dead air.
-        if let Err(err) = trim_trailing_silence(&request.audio_path) {
-            eprintln!(
-                "warning: failed trimming trailing silence for {}: {err:#}",
-                request.audio_path.display()
-            );
-        }
-
         let model_path = match self.download_model(&request.model_id) {
             Ok(path) => path,
             Err(err) => {
@@ -180,6 +186,23 @@ impl WhisperBackend {
                 ))
             }
         };
+        let runs_dir = self.model_cache_dir.join("runs");
+        fs::create_dir_all(&runs_dir)
+            .with_context(|| format!("failed creating run directory {}", runs_dir.display()))?;
+        let prepared_audio =
+            match prepare_whisper_audio(&request.audio_path, &runs_dir, &request.request_id) {
+                Ok(audio) => audio,
+                Err(err) => {
+                    eprintln!(
+                        "warning: failed preparing whisper audio for {}: {err:#}",
+                        request.audio_path.display()
+                    );
+                    PreparedWhisperAudio {
+                        path: request.audio_path.clone(),
+                        cleanup_path: None,
+                    }
+                }
+            };
 
         let execution_order = match request.compute_mode {
             ComputeMode::Auto => vec![EffectiveComputeMode::Gpu, EffectiveComputeMode::Cpu],
@@ -189,7 +212,7 @@ impl WhisperBackend {
 
         let mut run_errors = Vec::new();
         for (index, mode) in execution_order.iter().enumerate() {
-            match self.run_whisper_cli(request, *mode, &model_path) {
+            match self.run_whisper_cli(request, &prepared_audio.path, *mode, &model_path) {
                 Ok((text, duration_ms)) => {
                     let fallback_reason = if index == 0 {
                         None
@@ -206,6 +229,7 @@ impl WhisperBackend {
                         state.last_fallback_reason = fallback_reason.clone();
                     }
 
+                    prepared_audio.cleanup();
                     return Ok(TranscribeResponse {
                         request_id: request.request_id.clone(),
                         text,
@@ -227,6 +251,7 @@ impl WhisperBackend {
             let mut state = self.runtime_state.lock();
             state.last_fallback_reason = None;
         }
+        prepared_audio.cleanup();
 
         Ok(json_error(
             "ENGINE_INIT_FAILED",
@@ -417,7 +442,7 @@ impl WhisperBackend {
 
         let mut run_errors = Vec::new();
         for mode in execution_order {
-            match self.run_whisper_cli(&request, mode, &model_path) {
+            match self.run_whisper_cli(&request, &request.audio_path, mode, &model_path) {
                 Ok(_) => {
                     cleanup_warmup_run_artifacts(&runs_dir, &request_id, mode);
                     let _ = fs::remove_file(&warmup_audio);
@@ -542,6 +567,7 @@ impl WhisperBackend {
     fn run_whisper_cli(
         &self,
         request: &TranscribeRequest,
+        audio_path: &Path,
         mode: EffectiveComputeMode,
         model_path: &Path,
     ) -> Result<(String, u64)> {
@@ -560,7 +586,7 @@ impl WhisperBackend {
             .arg("-m")
             .arg(model_path)
             .arg("-f")
-            .arg(&request.audio_path)
+            .arg(audio_path)
             .arg("-of")
             .arg(&output_prefix)
             .arg("-otxt")
@@ -908,13 +934,35 @@ fn is_probably_silent_wav(audio_file: &Path) -> bool {
     !saw_sample || peak < 256
 }
 
-/// Trim trailing silence from a 16-bit WAV file in-place.
+/// Trim trailing silence from a 16-bit WAV file into a scratch output file.
 ///
 /// Walks backward from the end of the sample data to find the last sample
 /// whose absolute value exceeds `SILENCE_THRESHOLD`, then rewrites the file
-/// keeping only up to that point plus a small safety margin.  This prevents
+/// keeping only up to that point plus a small safety margin. This prevents
 /// Whisper from hallucinating on dead air at the end of a recording.
-fn trim_trailing_silence(audio_file: &Path) -> Result<()> {
+fn prepare_whisper_audio(
+    audio_file: &Path,
+    runs_dir: &Path,
+    request_id: &str,
+) -> Result<PreparedWhisperAudio> {
+    let prepared_path = runs_dir.join(format!(
+        "run-{}-prepared.wav",
+        sanitize_request_id(request_id)
+    ));
+    if trim_trailing_silence_to_output(audio_file, &prepared_path)? {
+        Ok(PreparedWhisperAudio {
+            path: prepared_path.clone(),
+            cleanup_path: Some(prepared_path),
+        })
+    } else {
+        Ok(PreparedWhisperAudio {
+            path: audio_file.to_path_buf(),
+            cleanup_path: None,
+        })
+    }
+}
+
+fn trim_trailing_silence_to_output(audio_file: &Path, output_file: &Path) -> Result<bool> {
     const SILENCE_THRESHOLD: i16 = 256;
     const TAIL_MARGIN_MS: u32 = 150;
 
@@ -922,7 +970,7 @@ fn trim_trailing_silence(audio_file: &Path) -> Result<()> {
         .with_context(|| format!("failed opening {} for silence trim", audio_file.display()))?;
     let spec = reader.spec();
     if spec.bits_per_sample != 16 {
-        return Ok(());
+        return Ok(false);
     }
 
     let samples: Vec<i16> = reader
@@ -931,7 +979,7 @@ fn trim_trailing_silence(audio_file: &Path) -> Result<()> {
         .context("failed reading samples for silence trim")?;
 
     if samples.is_empty() {
-        return Ok(());
+        return Ok(false);
     }
 
     // Find last sample above threshold (walking backward is fast for typical
@@ -942,7 +990,7 @@ fn trim_trailing_silence(audio_file: &Path) -> Result<()> {
 
     let last_voice_idx = match last_voice_idx {
         Some(idx) => idx,
-        None => return Ok(()), // entirely silent — leave as-is for the silent check
+        None => return Ok(false), // entirely silent — leave as-is for the silent check
     };
 
     let margin_samples = ((spec.sample_rate * TAIL_MARGIN_MS) / 1000) as usize;
@@ -952,16 +1000,16 @@ fn trim_trailing_silence(audio_file: &Path) -> Result<()> {
     let trimmed = samples.len() - keep;
     let min_trim_samples = (spec.sample_rate as usize) / 4;
     if trimmed < min_trim_samples {
-        return Ok(());
+        return Ok(false);
     }
 
-    let mut writer = hound::WavWriter::create(audio_file, spec)
-        .with_context(|| format!("failed rewriting {} for silence trim", audio_file.display()))?;
+    let mut writer = hound::WavWriter::create(output_file, spec)
+        .with_context(|| format!("failed creating {} for silence trim", output_file.display()))?;
     for &sample in &samples[..keep] {
         writer
             .write_sample(sample)
             .context("failed writing trimmed sample")?;
     }
     writer.finalize().context("failed finalizing trimmed wav")?;
-    Ok(())
+    Ok(true)
 }

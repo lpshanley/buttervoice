@@ -23,6 +23,7 @@ use crate::post_process::PostProcessor;
 use crate::secrets;
 use crate::settings::{self, ComputeMode, OutputDestination, Settings, SettingsStore};
 use crate::speech_backend::SpeechService;
+use crate::speech_preprocess::{self, PreprocessStatus};
 use crate::text_inject_macos;
 use crate::usage_stats::UsageStatsStore;
 use crate::whisper_backend::{BackendStatus, TranscribeRequest};
@@ -162,6 +163,12 @@ pub struct PipelineMetricsSnapshot {
     pub llm_fail: u64,
     pub llm_timeout: u64,
     pub llm_skipped_circuit_open: u64,
+    pub vad_runs: u64,
+    pub vad_trimmed_recordings: u64,
+    pub vad_trimmed_ms_total: u64,
+    pub vad_skipped_unsupported_format: u64,
+    pub vad_skipped_unsupported_sample_rate: u64,
+    pub vad_fallback_raw_no_speech: u64,
     pub stage_latency_histograms: HashMap<String, StageLatencyHistogram>,
     pub last_100_failures: Vec<PipelineFailureEvent>,
     pub llm_circuit_open: bool,
@@ -199,6 +206,13 @@ struct ClassificationStageOutcome {
 struct PersonaStageOutcome {
     text: Option<String>,
     persona_id: Option<String>,
+    duration_ms: u64,
+}
+
+#[derive(Default)]
+struct PreprocessStageOutcome {
+    audio_path: PathBuf,
+    cleanup_path: Option<PathBuf>,
     duration_ms: u64,
 }
 
@@ -575,9 +589,11 @@ impl AppState {
                     return;
                 }
             };
+            let preprocess_outcome =
+                self.run_preprocess_stage(&trace_id, &audio_path, &resolved_settings);
             let request = TranscribeRequest {
                 request_id: trace_id.clone(),
-                audio_path,
+                audio_path: preprocess_outcome.audio_path.clone(),
                 model_id: resolved_settings.active_speech_model_id(),
                 language: resolved_settings.whisper_language.clone(),
                 compute_mode: resolved_settings.compute_mode,
@@ -600,7 +616,22 @@ impl AppState {
                 ),
             );
 
-            match self.backend.transcribe(&resolved_settings, &request) {
+            let transcription_result = self.backend.transcribe(&resolved_settings, &request);
+            if let Some(cleanup_path) = preprocess_outcome.cleanup_path.as_ref() {
+                if let Err(err) = std::fs::remove_file(cleanup_path) {
+                    self.debug_trace(
+                        "preprocess",
+                        format!(
+                            "request_id={} cleanup_failed path={} error={}",
+                            trace_id,
+                            cleanup_path.display(),
+                            err
+                        ),
+                    );
+                }
+            }
+
+            match transcription_result {
                 Ok(response) => {
                     if let Some(code) = response.error_code {
                         if code == "AUDIO_SILENT" {
@@ -650,6 +681,7 @@ impl AppState {
                         request.model_id,
                         response.backend,
                         recording_duration_ms,
+                        preprocess_outcome.duration_ms,
                         response.duration_ms,
                         response_text,
                         recording_file.clone(),
@@ -896,6 +928,7 @@ impl AppState {
         model_id: String,
         backend: Option<String>,
         recording_duration_ms: u64,
+        preprocess_duration_ms: u64,
         transcription_duration_ms: u64,
         text: String,
         recording_file: Option<String>,
@@ -926,10 +959,11 @@ impl AppState {
         self.debug_trace(
             "transcription",
             format!(
-                "request_id={} start backend={:?} recording_ms={} transcription_ms={} cleanup_requested={} raw_len={} raw_preview=\"{}\"",
+                "request_id={} start backend={:?} recording_ms={} preprocess_ms={} transcription_ms={} cleanup_requested={} raw_len={} raw_preview=\"{}\"",
                 request_id_for_log,
                 backend,
                 recording_duration_ms,
+                preprocess_duration_ms,
                 transcription_duration_ms,
                 cleanup_requested,
                 raw_text.len(),
@@ -989,6 +1023,7 @@ impl AppState {
             model_id,
             backend,
             recording_duration_ms,
+            preprocess_duration_ms,
             transcription_duration_ms,
             cleanup_requested,
             raw_text,
@@ -1012,6 +1047,7 @@ impl AppState {
         model_id: String,
         backend: Option<String>,
         recording_duration_ms: u64,
+        preprocess_duration_ms: u64,
         transcription_duration_ms: u64,
         cleanup_requested: bool,
         raw_text: String,
@@ -1031,6 +1067,7 @@ impl AppState {
         let final_text = final_text.trim().to_string();
 
         let total_waterfall_duration_ms = recording_duration_ms
+            .saturating_add(preprocess_duration_ms)
             .saturating_add(transcription_duration_ms)
             .saturating_add(post_process_duration_ms)
             .saturating_add(cleanup_roundtrip_duration_ms)
@@ -1216,6 +1253,67 @@ impl AppState {
         // instead of truncating to 0 (which hides the bar in the pipeline chart).
         let elapsed_us = pp_start.elapsed().as_micros() as u64;
         outcome.duration_ms = elapsed_us.div_ceil(1000).max(1);
+        outcome
+    }
+
+    fn run_preprocess_stage(
+        &self,
+        request_id_for_log: &str,
+        raw_audio_path: &PathBuf,
+        settings: &Settings,
+    ) -> PreprocessStageOutcome {
+        let mut outcome = PreprocessStageOutcome {
+            audio_path: raw_audio_path.clone(),
+            ..PreprocessStageOutcome::default()
+        };
+
+        if !settings.beta_vad_enabled {
+            return outcome;
+        }
+
+        self.metrics_increment_vad_runs();
+        match speech_preprocess::preprocess_wav_with_vad(
+            raw_audio_path,
+            &self.recordings_dir.join("preprocessed"),
+            request_id_for_log,
+        ) {
+            Ok(result) => {
+                outcome.audio_path = result.audio_path;
+                outcome.cleanup_path = result.cleanup_path;
+                outcome.duration_ms = result.duration_ms;
+                if result.duration_ms > 0 {
+                    self.metrics_observe_stage_latency("preprocess", result.duration_ms);
+                }
+                self.metrics_record_vad_result(
+                    result.status,
+                    result.raw_duration_ms,
+                    result.output_duration_ms,
+                );
+                self.debug_trace(
+                    "preprocess",
+                    format!(
+                        "request_id={} status={} raw_ms={} output_ms={} duration_ms={} path={}",
+                        request_id_for_log,
+                        result.status.as_str(),
+                        result.raw_duration_ms,
+                        result.output_duration_ms,
+                        result.duration_ms,
+                        outcome.audio_path.display()
+                    ),
+                );
+            }
+            Err(err) => {
+                self.metrics_record_failure_event("preprocess", "PREPROCESS_FAILED");
+                self.debug_trace(
+                    "preprocess",
+                    format!(
+                        "request_id={} status=fallback_raw error={:#}",
+                        request_id_for_log, err
+                    ),
+                );
+            }
+        }
+
         outcome
     }
 
@@ -1580,6 +1678,49 @@ impl AppState {
         if matches!(code, llm_guard::LlmGuardErrorCode::CircuitOpen) {
             metrics.snapshot.llm_skipped_circuit_open =
                 metrics.snapshot.llm_skipped_circuit_open.saturating_add(1);
+        }
+    }
+
+    fn metrics_increment_vad_runs(&self) {
+        let mut metrics = self.pipeline_metrics.lock();
+        metrics.snapshot.vad_runs = metrics.snapshot.vad_runs.saturating_add(1);
+    }
+
+    fn metrics_record_vad_result(
+        &self,
+        status: PreprocessStatus,
+        raw_duration_ms: u64,
+        output_duration_ms: u64,
+    ) {
+        let mut metrics = self.pipeline_metrics.lock();
+        match status {
+            PreprocessStatus::Trimmed => {
+                metrics.snapshot.vad_trimmed_recordings =
+                    metrics.snapshot.vad_trimmed_recordings.saturating_add(1);
+                metrics.snapshot.vad_trimmed_ms_total = metrics
+                    .snapshot
+                    .vad_trimmed_ms_total
+                    .saturating_add(raw_duration_ms.saturating_sub(output_duration_ms));
+            }
+            PreprocessStatus::SkippedUnsupportedFormat => {
+                metrics.snapshot.vad_skipped_unsupported_format = metrics
+                    .snapshot
+                    .vad_skipped_unsupported_format
+                    .saturating_add(1);
+            }
+            PreprocessStatus::SkippedUnsupportedSampleRate => {
+                metrics.snapshot.vad_skipped_unsupported_sample_rate = metrics
+                    .snapshot
+                    .vad_skipped_unsupported_sample_rate
+                    .saturating_add(1);
+            }
+            PreprocessStatus::UsedRawNoSpeech => {
+                metrics.snapshot.vad_fallback_raw_no_speech = metrics
+                    .snapshot
+                    .vad_fallback_raw_no_speech
+                    .saturating_add(1);
+            }
+            PreprocessStatus::UsedRawNoChange => {}
         }
     }
 

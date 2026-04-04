@@ -16,6 +16,12 @@ const EMPTY: PipelineMetricsSnapshot = {
   llm_fail: 0,
   llm_timeout: 0,
   llm_skipped_circuit_open: 0,
+  vad_runs: 0,
+  vad_trimmed_recordings: 0,
+  vad_trimmed_ms_total: 0,
+  vad_skipped_unsupported_format: 0,
+  vad_skipped_unsupported_sample_rate: 0,
+  vad_fallback_raw_no_speech: 0,
   stage_latency_histograms: {},
   last_100_failures: [],
   llm_circuit_open: false,
@@ -104,6 +110,15 @@ export function ReliabilityPanel() {
           <Text size="xs">LLM fail: <Code>{metrics.llm_fail}</Code></Text>
           <Text size="xs">Timeouts: <Code>{metrics.llm_timeout}</Code></Text>
           <Text size="xs">Circuit skips: <Code>{metrics.llm_skipped_circuit_open}</Code></Text>
+        </Group>
+
+        <Group gap="lg">
+          <Text size="xs">VAD runs: <Code>{metrics.vad_runs}</Code></Text>
+          <Text size="xs">VAD trimmed: <Code>{metrics.vad_trimmed_recordings}</Code></Text>
+          <Text size="xs">Trimmed ms: <Code>{metrics.vad_trimmed_ms_total}</Code></Text>
+          <Text size="xs">Fmt skips: <Code>{metrics.vad_skipped_unsupported_format}</Code></Text>
+          <Text size="xs">Rate skips: <Code>{metrics.vad_skipped_unsupported_sample_rate}</Code></Text>
+          <Text size="xs">No-speech fallback: <Code>{metrics.vad_fallback_raw_no_speech}</Code></Text>
         </Group>
 
         {metrics.llm_circuit_open_until_ms && (

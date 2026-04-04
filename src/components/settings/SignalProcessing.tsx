@@ -176,6 +176,20 @@ export function SignalProcessing() {
           label="Toggle microphone buffer"
         />
       </Group>
+
+      <Group justify="space-between">
+        <div>
+          <Text size="sm" fw={500}>Beta VAD Trimming</Text>
+          <Text size="xs" c="dimmed">
+            Trim non-speech from the start and end of recordings before transcription. Helpful in noisy environments, but still beta for soft-spoken edge cases.
+          </Text>
+        </div>
+        <Switch
+          checked={settings.beta_vad_enabled}
+          onChange={(v) => applyPatch({ beta_vad_enabled: v }, 'Beta VAD trimming updated.')}
+          label="Toggle beta VAD trimming"
+        />
+      </Group>
     </Stack>
   );
 }

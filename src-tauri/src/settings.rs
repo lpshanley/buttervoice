@@ -225,6 +225,7 @@ pub struct Settings {
     pub beta_ai_enhancement_enabled: bool,
     pub beta_content_classification_enabled: bool,
     pub beta_personas_enabled: bool,
+    pub beta_vad_enabled: bool,
 
     pub debug_log_include_content: bool,
     pub recording_retention_hours: u16,
@@ -294,6 +295,7 @@ pub struct SettingsPatch {
     pub beta_ai_enhancement_enabled: Option<bool>,
     pub beta_content_classification_enabled: Option<bool>,
     pub beta_personas_enabled: Option<bool>,
+    pub beta_vad_enabled: Option<bool>,
 
     pub debug_log_include_content: Option<bool>,
     pub recording_retention_hours: Option<u16>,
@@ -378,6 +380,7 @@ impl Default for Settings {
             beta_ai_enhancement_enabled: false,
             beta_content_classification_enabled: false,
             beta_personas_enabled: false,
+            beta_vad_enabled: false,
             debug_log_include_content: false,
             recording_retention_hours: 24,
             debug_log_retention_hours: 24,
@@ -643,6 +646,9 @@ impl SettingsStore {
         if let Some(v) = patch.beta_personas_enabled {
             settings.beta_personas_enabled = v;
         }
+        if let Some(v) = patch.beta_vad_enabled {
+            settings.beta_vad_enabled = v;
+        }
         if let Some(debug_log_include_content) = patch.debug_log_include_content {
             settings.debug_log_include_content = debug_log_include_content;
         }
@@ -781,6 +787,7 @@ mod tests {
         assert!(!settings.beta_ai_enhancement_enabled);
         assert!(!settings.beta_content_classification_enabled);
         assert!(!settings.beta_personas_enabled);
+        assert!(!settings.beta_vad_enabled);
         assert_eq!(settings.compute_mode, ComputeMode::Auto);
         assert!(!settings.keep_mic_stream_open);
         assert_eq!(settings.audio_channel_mode, AudioChannelMode::Left);
@@ -843,6 +850,7 @@ mod tests {
         assert!(!settings.beta_ai_enhancement_enabled);
         assert!(!settings.beta_content_classification_enabled);
         assert!(!settings.beta_personas_enabled);
+        assert!(!settings.beta_vad_enabled);
     }
 
     #[test]

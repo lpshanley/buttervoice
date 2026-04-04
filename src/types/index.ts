@@ -110,6 +110,7 @@ export interface Settings {
   beta_ai_enhancement_enabled: boolean;
   beta_content_classification_enabled: boolean;
   beta_personas_enabled: boolean;
+  beta_vad_enabled: boolean;
 
   debug_log_include_content: boolean;
   recording_retention_hours: number;
@@ -174,6 +175,7 @@ export interface SettingsPatch {
   beta_ai_enhancement_enabled?: boolean;
   beta_content_classification_enabled?: boolean;
   beta_personas_enabled?: boolean;
+  beta_vad_enabled?: boolean;
 
   debug_log_include_content?: boolean;
   recording_retention_hours?: number;
@@ -357,6 +359,12 @@ export interface PipelineMetricsSnapshot {
   llm_fail: number;
   llm_timeout: number;
   llm_skipped_circuit_open: number;
+  vad_runs: number;
+  vad_trimmed_recordings: number;
+  vad_trimmed_ms_total: number;
+  vad_skipped_unsupported_format: number;
+  vad_skipped_unsupported_sample_rate: number;
+  vad_fallback_raw_no_speech: number;
   stage_latency_histograms: Record<string, StageLatencyHistogram>;
   last_100_failures: PipelineFailureEvent[];
   llm_circuit_open: boolean;

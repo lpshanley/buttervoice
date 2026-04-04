@@ -13,6 +13,7 @@ mod remote_speech;
 mod secrets;
 pub mod settings;
 mod speech_backend;
+mod speech_preprocess;
 mod text_inject_macos;
 mod tray;
 mod usage_stats;
