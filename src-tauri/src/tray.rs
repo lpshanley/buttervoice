@@ -79,6 +79,7 @@ pub(crate) fn on_tray_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) {
             state.start_recording();
         }
         MENU_QUIT => {
+            crate::telemetry::shutdown();
             app.exit(0);
         }
         _ => {}

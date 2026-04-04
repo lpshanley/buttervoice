@@ -1,6 +1,7 @@
 pub mod dictionary;
 pub mod grammar_rules;
 pub mod itn;
+pub mod metrics;
 pub mod punctuation;
 pub mod safety;
 pub mod sentence;
@@ -228,6 +229,104 @@ impl PostProcessor {
             stage_timings_ms: stage_acc.timings,
             total_duration_ms,
         })
+    }
+
+    /// Run the full pipeline, returning the normal result plus intermediate text after each stage.
+    /// This enables per-stage WER/CER measurement in benchmarks.
+    pub fn run_with_intermediates(
+        &self,
+        text: &str,
+        settings: &Settings,
+    ) -> Result<(PipelineResult, Vec<(PipelineStage, String)>)> {
+        let pipeline_start = Instant::now();
+        let mut current_text = text.to_string();
+        let mut stage_acc = StageAccumulator::default();
+        let mut intermediates: Vec<(PipelineStage, String)> = Vec::new();
+
+        let safety_gate = SafetyGate {
+            min_confidence: settings.post_process_confidence_threshold,
+            max_edit_distance_ratio: settings.post_process_max_edit_ratio,
+            ..SafetyGate::default()
+        };
+
+        // Stage 1: Sentence segmentation (always runs)
+        current_text = self.run_stage(
+            PipelineStage::SentenceSegmentation,
+            &current_text,
+            |text| self.sentence_segmenter.process(text),
+            &safety_gate,
+            &mut stage_acc,
+        );
+        intermediates.push((PipelineStage::SentenceSegmentation, current_text.clone()));
+
+        // Stage 2: Punctuation repair (always runs)
+        current_text = self.run_stage(
+            PipelineStage::Punctuation,
+            &current_text,
+            |text| self.punctuation_repairer.process(text),
+            &safety_gate,
+            &mut stage_acc,
+        );
+        intermediates.push((PipelineStage::Punctuation, current_text.clone()));
+
+        // Stage 3: Truecasing (always runs)
+        current_text = self.run_stage(
+            PipelineStage::Truecasing,
+            &current_text,
+            |text| self.truecaser.process(text),
+            &safety_gate,
+            &mut stage_acc,
+        );
+        intermediates.push((PipelineStage::Truecasing, current_text.clone()));
+
+        // Stage 4: ITN (toggled)
+        if settings.post_process_itn_enabled {
+            current_text = self.run_stage(
+                PipelineStage::InverseTextNorm,
+                &current_text,
+                |text| self.itn.process(text),
+                &safety_gate,
+                &mut stage_acc,
+            );
+            intermediates.push((PipelineStage::InverseTextNorm, current_text.clone()));
+        }
+
+        // Stage 5: Spell correction (toggled)
+        if settings.post_process_spell_enabled {
+            current_text = self.run_stage(
+                PipelineStage::SpellCorrection,
+                &current_text,
+                |text| self.spell_checker.process(text),
+                &safety_gate,
+                &mut stage_acc,
+            );
+            intermediates.push((PipelineStage::SpellCorrection, current_text.clone()));
+        }
+
+        // Stage 6: Grammar rules (toggled)
+        if settings.post_process_grammar_rules_enabled {
+            current_text = self.run_stage(
+                PipelineStage::GrammarRules,
+                &current_text,
+                |text| self.grammar_rules.process(text),
+                &safety_gate,
+                &mut stage_acc,
+            );
+            intermediates.push((PipelineStage::GrammarRules, current_text.clone()));
+        }
+
+        let total_duration_ms = pipeline_start.elapsed().as_millis() as u64;
+
+        let result = PipelineResult {
+            input: text.to_string(),
+            output: current_text.trim().to_string(),
+            applied_edits: stage_acc.applied,
+            rejected_edits: stage_acc.rejected,
+            stage_timings_ms: stage_acc.timings,
+            total_duration_ms,
+        };
+
+        Ok((result, intermediates))
     }
 
     /// Run a single pipeline stage, apply safety gate, and return the resulting text.

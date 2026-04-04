@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { useAtomValue, useSetAtom } from 'jotai';
 import { Link } from '@tanstack/react-router';
-import { Stack, Group, Text, Button, NumberInput } from '@mantine/core';
+import { Stack, Group, Text, Button, NumberInput, TextInput, Divider } from '@mantine/core';
 import { settingsAtom, canOpenDebugTabAtom } from '../../stores/app';
 import { addToast } from '../../stores/toasts';
 import { invoke } from '../../lib/tauri';
@@ -11,6 +12,8 @@ export function AdvancedSettings() {
   const settings = useAtomValue(settingsAtom);
   const canOpenDebug = useAtomValue(canOpenDebugTabAtom);
   const setSettings = useSetAtom(settingsAtom);
+
+  const [testingOtlp, setTestingOtlp] = useState(false);
 
   if (!settings) return null;
 
@@ -89,6 +92,56 @@ export function AdvancedSettings() {
           Open Debug Tab
         </Button>
       )}
+
+      <Divider label="Telemetry (OpenTelemetry)" labelPosition="left" />
+
+      <Group justify="space-between">
+        <Text size="sm" fw={500}>Export telemetry via OTLP</Text>
+        <Switch
+          checked={settings.telemetry_enabled}
+          onChange={(value) => applyPatch({ telemetry_enabled: value }, value ? 'Telemetry enabled. Restart to apply.' : 'Telemetry disabled. Restart to apply.')}
+          label="Toggle telemetry export"
+        />
+      </Group>
+
+      <Text size="xs" c="dimmed">
+        Exports traces, metrics, and logs to a local LGTM stack (Grafana/Tempo/Loki/Mimir) via OTLP HTTP. Requires restart to take effect.
+      </Text>
+
+      <TextInput
+        label="OTLP endpoint"
+        size="sm"
+        placeholder="http://localhost:4318"
+        defaultValue={settings.telemetry_otlp_endpoint}
+        disabled={!settings.telemetry_enabled}
+        onBlur={(e) => {
+          const value = e.currentTarget.value.trim();
+          if (value && value !== settings.telemetry_otlp_endpoint) {
+            applyPatch({ telemetry_otlp_endpoint: value }, 'OTLP endpoint updated. Restart to apply.');
+          }
+        }}
+      />
+
+      <Button
+        variant="default"
+        size="xs"
+        disabled={!settings.telemetry_enabled}
+        loading={testingOtlp}
+        style={{ alignSelf: 'flex-start' }}
+        onClick={async () => {
+          setTestingOtlp(true);
+          try {
+            const result = await invoke<string>('test_otlp_connection');
+            addToast('success', result);
+          } catch (error) {
+            addToast('error', String(error));
+          } finally {
+            setTestingOtlp(false);
+          }
+        }}
+      >
+        Test Connection
+      </Button>
     </Stack>
   );
 }

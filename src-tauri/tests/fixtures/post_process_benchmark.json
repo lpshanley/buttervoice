@@ -1,0 +1,110 @@
+[
+  {
+    "name": "simple_sentence_missing_caps_period",
+    "raw_whisper": "the quick brown fox jumps over the lazy dog",
+    "reference": "The quick brown fox jumps over the lazy dog.",
+    "domain": "general"
+  },
+  {
+    "name": "multi_sentence_no_punctuation",
+    "raw_whisper": "i went to the store yesterday i bought some milk and eggs then i came home",
+    "reference": "I went to the store yesterday. I bought some milk and eggs. Then I came home.",
+    "domain": "general"
+  },
+  {
+    "name": "numbers_cardinal",
+    "raw_whisper": "there are twenty three students in the class and five teachers",
+    "reference": "There are 23 students in the class and 5 teachers.",
+    "domain": "general"
+  },
+  {
+    "name": "numbers_ordinal",
+    "raw_whisper": "she finished in first place on the twenty first of march",
+    "reference": "She finished in 1st place on the 21st of March.",
+    "domain": "general"
+  },
+  {
+    "name": "medical_dictation",
+    "raw_whisper": "the patient presented with shortness of breath and elevated heart rate blood pressure was one forty over ninety",
+    "reference": "The patient presented with shortness of breath and elevated heart rate. Blood pressure was 140 over 90.",
+    "domain": "medical"
+  },
+  {
+    "name": "technical_terms",
+    "raw_whisper": "the api endpoint returns a json response with a two hundred status code",
+    "reference": "The API endpoint returns a JSON response with a 200 status code.",
+    "domain": "technical"
+  },
+  {
+    "name": "contractions",
+    "raw_whisper": "i can't believe it's already friday we shouldn't have waited this long",
+    "reference": "I can't believe it's already Friday. We shouldn't have waited this long.",
+    "domain": "general"
+  },
+  {
+    "name": "email_dictation",
+    "raw_whisper": "hi john i wanted to follow up on our meeting from last tuesday please let me know if you have any questions thanks sarah",
+    "reference": "Hi John, I wanted to follow up on our meeting from last Tuesday. Please let me know if you have any questions. Thanks, Sarah.",
+    "domain": "general"
+  },
+  {
+    "name": "pronoun_capitalization",
+    "raw_whisper": "i think i should go but i don't know if i can make it",
+    "reference": "I think I should go, but I don't know if I can make it.",
+    "domain": "general"
+  },
+  {
+    "name": "dollar_amounts",
+    "raw_whisper": "the total comes to forty two dollars and fifty cents plus tax",
+    "reference": "The total comes to $42.50 plus tax.",
+    "domain": "general"
+  },
+  {
+    "name": "question_and_statement",
+    "raw_whisper": "what time does the meeting start i think it's at three o'clock",
+    "reference": "What time does the meeting start? I think it's at 3 o'clock.",
+    "domain": "general"
+  },
+  {
+    "name": "proper_nouns_locations",
+    "raw_whisper": "i flew from new york to san francisco last week the weather in california was great",
+    "reference": "I flew from New York to San Francisco last week. The weather in California was great.",
+    "domain": "general"
+  },
+  {
+    "name": "list_dictation",
+    "raw_whisper": "please pick up the following items milk bread butter cheese and eggs",
+    "reference": "Please pick up the following items: milk, bread, butter, cheese, and eggs.",
+    "domain": "general"
+  },
+  {
+    "name": "code_review_comment",
+    "raw_whisper": "this function needs error handling the return type should be result instead of a raw value",
+    "reference": "This function needs error handling. The return type should be Result instead of a raw value.",
+    "domain": "technical"
+  },
+  {
+    "name": "phone_number",
+    "raw_whisper": "you can reach me at five five five one two three four five six seven",
+    "reference": "You can reach me at 555-123-4567.",
+    "domain": "general"
+  },
+  {
+    "name": "percentage_and_numbers",
+    "raw_whisper": "sales increased by fifteen percent in the third quarter reaching two point five million",
+    "reference": "Sales increased by 15% in the 3rd quarter, reaching 2.5 million.",
+    "domain": "general"
+  },
+  {
+    "name": "single_word",
+    "raw_whisper": "hello",
+    "reference": "Hello.",
+    "domain": "general"
+  },
+  {
+    "name": "already_correct",
+    "raw_whisper": "The weather is nice today.",
+    "reference": "The weather is nice today.",
+    "domain": "general"
+  }
+]

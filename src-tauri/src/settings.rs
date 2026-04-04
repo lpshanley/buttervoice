@@ -11,7 +11,7 @@ use crate::hotkey_macos::{DictationMode, HotkeyKey};
 use crate::models;
 use crate::secrets;
 
-pub const SETTINGS_SCHEMA_VERSION: u32 = 15;
+pub const SETTINGS_SCHEMA_VERSION: u32 = 16;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -247,6 +247,10 @@ pub struct Settings {
     pub post_process_custom_dictionary: Vec<String>,
     pub post_process_confidence_threshold: f32,
     pub post_process_max_edit_ratio: f32,
+
+    // Telemetry (OpenTelemetry → LGTM stack)
+    pub telemetry_enabled: bool,
+    pub telemetry_otlp_endpoint: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -317,6 +321,10 @@ pub struct SettingsPatch {
     pub post_process_custom_dictionary: Option<Vec<String>>,
     pub post_process_confidence_threshold: Option<f32>,
     pub post_process_max_edit_ratio: Option<f32>,
+
+    // Telemetry
+    pub telemetry_enabled: Option<bool>,
+    pub telemetry_otlp_endpoint: Option<String>,
 }
 
 fn deserialize_patch_mic_device_id<'de, D>(
@@ -400,6 +408,8 @@ impl Default for Settings {
             post_process_custom_dictionary: Vec::new(),
             post_process_confidence_threshold: 0.7,
             post_process_max_edit_ratio: 0.3,
+            telemetry_enabled: false,
+            telemetry_otlp_endpoint: "http://localhost:4318".to_string(),
         }
     }
 }
@@ -703,6 +713,13 @@ impl SettingsStore {
         }
         if let Some(post_process_max_edit_ratio) = patch.post_process_max_edit_ratio {
             settings.post_process_max_edit_ratio = post_process_max_edit_ratio.clamp(0.0, 1.0);
+        }
+        if let Some(telemetry_enabled) = patch.telemetry_enabled {
+            settings.telemetry_enabled = telemetry_enabled;
+        }
+        if let Some(telemetry_otlp_endpoint) = patch.telemetry_otlp_endpoint {
+            settings.telemetry_otlp_endpoint =
+                telemetry_otlp_endpoint.trim().trim_end_matches('/').to_string();
         }
 
         settings.schema_version = SETTINGS_SCHEMA_VERSION;

@@ -14,6 +14,7 @@ mod secrets;
 pub mod settings;
 mod speech_backend;
 mod speech_preprocess;
+mod telemetry;
 mod text_inject_macos;
 mod tray;
 mod usage_stats;
@@ -250,6 +251,12 @@ fn list_llm_models(state: State<'_, Arc<AppState>>) -> Result<Vec<LlmModelEntry>
         &settings.llm_cleanup_api_key,
     )
     .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn test_otlp_connection(state: State<'_, Arc<AppState>>) -> Result<String, String> {
+    let settings = state.settings_store().get();
+    telemetry::test_connection(&settings.telemetry_otlp_endpoint)
 }
 
 #[tauri::command]
@@ -501,6 +508,7 @@ pub fn run() {
             transform_with_persona,
             get_default_classification_prompt,
             get_default_persona_prompt,
+            test_otlp_connection,
         ])
         .on_menu_event(|app, event| tray::on_tray_menu_event(app, event.id().as_ref()))
         .on_window_event(handle_window_event)
@@ -512,6 +520,10 @@ pub fn run() {
                     .map_err(|err| -> Box<dyn std::error::Error> {
                         Box::new(std::io::Error::other(err.to_string()))
                     })?;
+
+            // Initialize OpenTelemetry (before any tracing calls).
+            let settings = state.settings_store().get();
+            telemetry::init(settings.telemetry_enabled, &settings.telemetry_otlp_endpoint);
 
             state.preflight_permissions();
             app.manage(state.clone());

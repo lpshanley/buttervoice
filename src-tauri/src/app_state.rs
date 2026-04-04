@@ -933,6 +933,16 @@ impl AppState {
         text: String,
         recording_file: Option<String>,
     ) -> Result<()> {
+        let _span = tracing::info_span!(
+            "dictation.pipeline",
+            request_id = %request_id,
+            model_id = %model_id,
+            backend = ?backend,
+            recording_duration_ms,
+            transcription_duration_ms,
+        )
+        .entered();
+
         let settings = self.settings_store.get();
         let request_id_for_log = request_id.clone();
         let dest_snapshot = settings.output_destination;
@@ -981,8 +991,10 @@ impl AppState {
             ),
         );
 
-        let post_process_outcome =
-            self.run_post_process_stage(&request_id_for_log, &raw_text, &settings);
+        let post_process_outcome = {
+            let _pp_span = tracing::info_span!("dictation.post_processing").entered();
+            self.run_post_process_stage(&request_id_for_log, &raw_text, &settings)
+        };
         if let Some(output) = post_process_outcome.output.clone() {
             final_text = output;
         }
@@ -998,8 +1010,10 @@ impl AppState {
             // If post-processing was skipped (disabled / empty text) the state
             // is still Transcribing; advance it so the UI doesn't regress.
             self.set_state(DictationState::PostProcessing);
-            let cleanup_outcome =
-                self.run_llm_cleanup_stage(&request_id_for_log, &raw_text, &settings);
+            let cleanup_outcome = {
+                let _llm_span = tracing::info_span!("dictation.llm_cleanup").entered();
+                self.run_llm_cleanup_stage(&request_id_for_log, &raw_text, &settings)
+            };
             if let Some(output) = cleanup_outcome.output {
                 final_text = output;
             }
@@ -1007,16 +1021,21 @@ impl AppState {
         }
 
         // Content classification stage
-        let classification_outcome =
-            self.run_classification_stage(&request_id_for_log, &final_text, &settings);
+        let classification_outcome = {
+            let _cls_span = tracing::info_span!("dictation.classification").entered();
+            self.run_classification_stage(&request_id_for_log, &final_text, &settings)
+        };
 
         // Persona transform stage
-        let persona_outcome = self.run_persona_stage(
-            &request_id_for_log,
-            &final_text,
-            classification_outcome.result.as_ref(),
-            &settings,
-        );
+        let persona_outcome = {
+            let _persona_span = tracing::info_span!("dictation.persona").entered();
+            self.run_persona_stage(
+                &request_id_for_log,
+                &final_text,
+                classification_outcome.result.as_ref(),
+                &settings,
+            )
+        };
 
         self.finish_complete_transcription(
             request_id,
@@ -1108,7 +1127,21 @@ impl AppState {
                 self.debug_preview_for_log(&final_text, 280)
             ),
         );
+        tracing::info!(
+            total_waterfall_duration_ms,
+            recording_duration_ms,
+            transcription_duration_ms,
+            post_process_duration_ms,
+            post_process_edits_applied,
+            post_process_edits_rejected,
+            cleanup_roundtrip_duration_ms,
+            cleanup_applied,
+            classification_blocked,
+            "dictation.completed"
+        );
+
         let request_id_for_injection = request_id_for_log.clone();
+        let model_id_for_metrics = model_id.clone();
         self.push_transcript_log(TranscriptLogEntry {
             instance_id: self.instance_id.clone(),
             trace_id: request_id_for_log.clone(),
@@ -1156,6 +1189,9 @@ impl AppState {
 
         let current_dest =
             OutputDestination::from_u8(self.output_destination.load(Ordering::Relaxed));
+        let _injection_span = tracing::info_span!("dictation.text_injection",
+            destination = ?current_dest,
+        ).entered();
         match current_dest {
             OutputDestination::Input => {
                 self.set_state(DictationState::Injecting);
@@ -1201,6 +1237,19 @@ impl AppState {
 
         self.emit_partial_transcript(String::new());
         self.metrics_increment_succeeded();
+
+        crate::telemetry::record_dictation_metrics(
+            total_waterfall_duration_ms,
+            recording_duration_ms,
+            transcription_duration_ms,
+            post_process_duration_ms,
+            post_process_edits_applied,
+            post_process_edits_rejected,
+            cleanup_roundtrip_duration_ms,
+            true,
+            &model_id_for_metrics,
+        );
+
         self.finish_trace();
         self.set_state(DictationState::Idle);
         Ok(())

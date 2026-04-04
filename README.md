@@ -138,6 +138,69 @@ Connect to any OpenAI-compatible API for LLM-based text cleanup after local proc
 - Custom system prompt support
 - Works with OpenRouter, Ollama, LM Studio, or any compatible endpoint
 
+## Telemetry (OpenTelemetry)
+
+ButterVoice can export traces, metrics, and logs via OpenTelemetry (OTLP HTTP) to a local observability stack. This is off by default and entirely optional — the app works identically without it.
+
+### What gets exported
+
+| Signal | Backend | What you see |
+|--------|---------|-------------|
+| **Traces** | Tempo | Full dictation pipeline spans: recording, transcription, post-processing (per-stage), LLM cleanup, classification, persona, text injection |
+| **Metrics** | Mimir | Dictation latency histograms (P50/P95/P99), edit counts by stage, RTF (real-time factor), success/failure counters |
+| **Logs** | Loki | Structured debug logs with trace ID correlation — click a slow trace in Tempo and jump to its logs in Loki |
+
+### Quick start with local LGTM stack
+
+The easiest way to get a full Grafana + Tempo + Loki + Mimir stack is the official all-in-one Docker image:
+
+```bash
+docker run -d --name otel-lgtm \
+  -p 3000:3000 \
+  -p 4317:4317 \
+  -p 4318:4318 \
+  grafana/otel-lgtm:latest
+```
+
+This gives you:
+
+| Service | Port | URL |
+|---------|------|-----|
+| **Grafana** (dashboards) | 3000 | http://localhost:3000 |
+| **OTLP gRPC** receiver | 4317 | — |
+| **OTLP HTTP** receiver | 4318 | http://localhost:4318 |
+
+Tempo (traces), Loki (logs), and Mimir (metrics) are pre-configured as Grafana data sources.
+
+### Enable in ButterVoice
+
+1. Open **Settings > Advanced**
+2. Toggle **Export telemetry via OTLP** on
+3. The default endpoint (`http://localhost:4318`) works with the Docker setup above
+4. Click **Test Connection** to verify the endpoint is reachable
+5. **Restart the app** for telemetry to take effect
+
+### Exploring data in Grafana
+
+After a few dictations with telemetry enabled:
+
+- **Traces**: Grafana > Explore > Tempo — search for `service.name = buttervoice`. Each dictation is a trace with child spans for every pipeline stage.
+- **Metrics**: Grafana > Explore > Mimir — query `dictation_latency_ms`, `dictation_total`, `dictation_pp_edits`, `dictation_rtf`.
+- **Logs**: Grafana > Explore > Loki — filter by `{service_name="buttervoice"}`. Logs carry trace IDs for correlation.
+
+### Alternatives to local Docker
+
+- **Grafana Cloud** (free tier): sign up at [grafana.com](https://grafana.com), get a dedicated OTLP endpoint, and paste it into the endpoint field.
+- **Grafana Alloy** (collector sidecar): if you need local batching, filtering, or multi-destination routing.
+
+### Stopping the stack
+
+```bash
+docker stop otel-lgtm && docker rm otel-lgtm
+```
+
+The app continues working normally when the stack is not running — telemetry export silently degrades.
+
 ## Architecture
 
 ```

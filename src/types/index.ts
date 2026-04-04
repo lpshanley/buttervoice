@@ -129,6 +129,10 @@ export interface Settings {
   post_process_custom_dictionary: string[];
   post_process_confidence_threshold: number;
   post_process_max_edit_ratio: number;
+
+  // Telemetry (OpenTelemetry → LGTM stack)
+  telemetry_enabled: boolean;
+  telemetry_otlp_endpoint: string;
 }
 
 export interface SettingsPatch {
@@ -194,6 +198,10 @@ export interface SettingsPatch {
   post_process_custom_dictionary?: string[];
   post_process_confidence_threshold?: number;
   post_process_max_edit_ratio?: number;
+
+  // Telemetry
+  telemetry_enabled?: boolean;
+  telemetry_otlp_endpoint?: string;
 }
 
 export interface MicDevice {
