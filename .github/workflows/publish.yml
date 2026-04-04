@@ -1,9 +1,13 @@
 name: Publish
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+  # Tag-triggered release publishing is paused until we are closer to v1
+  # and ready to distribute signed macOS builds.
+  #
+  # push:
+  #   tags:
+  #     - "v*"
 
 concurrency:
   group: publish-${{ github.ref }}

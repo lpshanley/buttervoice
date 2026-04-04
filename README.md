@@ -38,6 +38,12 @@ Everything runs locally. No audio leaves your machine unless you opt into the op
 
 ## Getting Started
 
+### Release Status
+
+ButterVoice is still in a pre-v1 stage. For now, the standard way to use it is to pull the repository and build from source locally.
+
+We are not publishing signed macOS release builds yet. CI still builds and tests changes on `main` and in pull requests, and we plan to enable signed distribution later as the project gets closer to a v1 release.
+
 ### Install from Source
 
 ```bash
