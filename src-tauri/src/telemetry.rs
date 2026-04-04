@@ -210,6 +210,7 @@ pub fn record_dictation_metrics(
     cleanup_duration_ms: u64,
     succeeded: bool,
     model_id: &str,
+    audio_batches_dropped: u64,
 ) {
     let meter = global::meter(SERVICE_NAME);
 
@@ -263,6 +264,12 @@ pub fn record_dictation_metrics(
             processing_time as f64 / recording_duration_ms as f64,
             &[KeyValue::new("model_id", model_id.to_string())],
         );
+    }
+
+    // Audio capture overflow — batches dropped due to processing backpressure
+    if audio_batches_dropped > 0 {
+        let overflow_counter = meter.u64_counter("dictation.audio_batches_dropped").build();
+        overflow_counter.add(audio_batches_dropped, &[]);
     }
 }
 

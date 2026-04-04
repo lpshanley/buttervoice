@@ -3,7 +3,7 @@ use std::f32::consts::PI;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
@@ -24,7 +24,7 @@ const PERSISTENT_PREROLL_MS: u64 = 600;
 const MAX_INPUT_GAIN_DB: f32 = 24.0;
 const WHISPER_SAMPLE_RATE: u32 = 16_000;
 const RESAMPLER_CHUNK_SIZE: usize = 1024;
-const STAGING_CHANNEL_CAPACITY: usize = 32;
+const STAGING_CHANNEL_CAPACITY: usize = 128;
 const I16_SCALE: f32 = 32_768.0;
 
 type SharedError = Arc<Mutex<Option<String>>>;
@@ -249,9 +249,15 @@ impl RubatoSpeechResampler {
             .extend(input.iter().map(|sample| *sample as f32 / I16_SCALE));
 
         while self.pending.len() >= self.chunk_size {
-            for idx in 0..self.chunk_size {
-                self.input_buffer[0][idx] = self.pending.pop_front().unwrap_or(0.0);
+            let (front, back) = self.pending.as_slices();
+            let front_take = front.len().min(self.chunk_size);
+            self.input_buffer[0][..front_take].copy_from_slice(&front[..front_take]);
+            if front_take < self.chunk_size {
+                let remaining = self.chunk_size - front_take;
+                self.input_buffer[0][front_take..self.chunk_size]
+                    .copy_from_slice(&back[..remaining]);
             }
+            self.pending.drain(..self.chunk_size);
 
             let (_, written) = self
                 .resampler
@@ -295,7 +301,7 @@ enum ProcessorCommand {
         response: Sender<ControlResult<()>>,
     },
     StopWriter {
-        response: Sender<ControlResult<()>>,
+        response: Sender<ControlResult<u64>>,
     },
     Shutdown {
         response: Sender<ControlResult<()>>,
@@ -306,12 +312,17 @@ struct ProcessorHandle {
     sample_tx: Sender<Vec<i16>>,
     command_tx: Sender<ProcessorCommand>,
     fatal_error: SharedError,
+    overflow_count: Arc<AtomicU64>,
     join_handle: Option<JoinHandle<()>>,
 }
 
 impl ProcessorHandle {
     fn sample_tx(&self) -> Sender<Vec<i16>> {
         self.sample_tx.clone()
+    }
+
+    fn overflow_count(&self) -> Arc<AtomicU64> {
+        self.overflow_count.clone()
     }
 
     fn start_writer(&self, writer: hound::WavWriter<BufWriter<File>>) -> Result<()> {
@@ -328,7 +339,7 @@ impl ProcessorHandle {
             .map_err(|err| anyhow!(err))
     }
 
-    fn stop_writer(&self) -> Result<()> {
+    fn stop_writer(&self) -> Result<u64> {
         let (response_tx, response_rx) = bounded(1);
         self.command_tx
             .send(ProcessorCommand::StopWriter {
@@ -368,6 +379,7 @@ struct ProcessorState {
     max_buffer_samples: usize,
     writer: Option<hound::WavWriter<BufWriter<File>>>,
     fatal_error: SharedError,
+    overflow_count: Arc<AtomicU64>,
     flush_on_shutdown: bool,
 }
 
@@ -379,6 +391,7 @@ impl ProcessorState {
         initial_writer: Option<hound::WavWriter<BufWriter<File>>>,
         flush_on_shutdown: bool,
         fatal_error: SharedError,
+        overflow_count: Arc<AtomicU64>,
     ) -> Result<Self> {
         let resampler = SpeechResampler::new(source_rate_hz, WHISPER_SAMPLE_RATE, quality_preset)?;
         let ring_buffer = if max_buffer_samples > 0 {
@@ -393,15 +406,12 @@ impl ProcessorState {
             max_buffer_samples,
             writer: initial_writer,
             fatal_error,
+            overflow_count,
             flush_on_shutdown,
         })
     }
 
     fn process_samples(&mut self, samples: &[i16]) -> Result<()> {
-        if shared_error_message(&self.fatal_error).is_some() {
-            return Ok(());
-        }
-
         let mut output = Vec::new();
         self.resampler.process_batch(samples, &mut output)?;
         self.write_output(&output)
@@ -432,13 +442,18 @@ impl ProcessorState {
         Ok(())
     }
 
-    fn stop_writer(&mut self) -> Result<()> {
+    fn stop_writer(&mut self) -> Result<u64> {
         let writer = self
             .writer
             .take()
             .ok_or_else(|| anyhow!("stop_recording called without active recording"))?;
         writer.finalize().context("failed finalizing wav file")?;
-        self.error_if_fatal()
+        let dropped = self.overflow_count.swap(0, Ordering::Relaxed);
+        if dropped > 0 {
+            eprintln!("warning: dropped {dropped} audio batches due to processing backpressure");
+        }
+        self.error_if_fatal()?;
+        Ok(dropped)
     }
 
     fn finish(&mut self) -> Result<()> {
@@ -457,11 +472,16 @@ impl ProcessorState {
 
     fn write_output(&mut self, samples: &[i16]) -> Result<()> {
         if let Some(ring_buffer) = self.ring_buffer.as_mut() {
-            for sample in samples {
-                ring_buffer.push_back(*sample);
-                if ring_buffer.len() > self.max_buffer_samples {
-                    let _ = ring_buffer.pop_front();
-                }
+            let overflow =
+                (ring_buffer.len() + samples.len()).saturating_sub(self.max_buffer_samples);
+            if overflow > 0 {
+                let drain_count = overflow.min(ring_buffer.len());
+                ring_buffer.drain(..drain_count);
+            }
+            ring_buffer.extend(samples.iter().copied());
+            if ring_buffer.len() > self.max_buffer_samples {
+                let excess = ring_buffer.len() - self.max_buffer_samples;
+                ring_buffer.drain(..excess);
             }
         }
 
@@ -509,7 +529,7 @@ enum AudioCommand {
         response: Sender<ControlResult<PathBuf>>,
     },
     Stop {
-        response: Sender<ControlResult<PathBuf>>,
+        response: Sender<ControlResult<(PathBuf, u64)>>,
     },
     Configure {
         preferred_mic: Option<String>,
@@ -734,7 +754,7 @@ impl AudioCapture {
         response.map_err(|err| anyhow!(err))
     }
 
-    pub fn stop_recording(&self) -> Result<PathBuf> {
+    pub fn stop_recording(&self) -> Result<(PathBuf, u64)> {
         let (response_tx, response_rx) = bounded(1);
         self.command_tx
             .send(AudioCommand::Stop {
@@ -820,6 +840,7 @@ fn start_persistent_capture(
             &config,
             processor.sample_tx(),
             processor_fatal_error(&processor),
+            processor.overflow_count(),
             SampleProcessor::new(sample_rate_hz, capture_tuning),
             input_level_peak,
         ),
@@ -828,6 +849,7 @@ fn start_persistent_capture(
             &config,
             processor.sample_tx(),
             processor_fatal_error(&processor),
+            processor.overflow_count(),
             SampleProcessor::new(sample_rate_hz, capture_tuning),
             input_level_peak,
         ),
@@ -836,6 +858,7 @@ fn start_persistent_capture(
             &config,
             processor.sample_tx(),
             processor_fatal_error(&processor),
+            processor.overflow_count(),
             SampleProcessor::new(sample_rate_hz, capture_tuning),
             input_level_peak,
         ),
@@ -886,15 +909,15 @@ fn start_persistent_recording(
     Ok(out_path)
 }
 
-fn stop_persistent_recording(persistent: Option<&mut PersistentCapture>) -> Result<PathBuf> {
+fn stop_persistent_recording(persistent: Option<&mut PersistentCapture>) -> Result<(PathBuf, u64)> {
     let capture = persistent.ok_or_else(|| anyhow!("persistent capture not initialized"))?;
     let path = capture
         .active_path
         .take()
         .ok_or_else(|| anyhow!("stop_recording called without active recording"))?;
 
-    capture.processor.stop_writer()?;
-    Ok(path)
+    let dropped = capture.processor.stop_writer()?;
+    Ok((path, dropped))
 }
 
 fn shutdown_persistent_capture(capture: PersistentCapture) -> Result<()> {
@@ -936,6 +959,7 @@ fn start_recording_inner(
             &config,
             processor.sample_tx(),
             processor_fatal_error(&processor),
+            processor.overflow_count(),
             SampleProcessor::new(config.sample_rate.0, capture_tuning),
             input_level_peak,
         ),
@@ -944,6 +968,7 @@ fn start_recording_inner(
             &config,
             processor.sample_tx(),
             processor_fatal_error(&processor),
+            processor.overflow_count(),
             SampleProcessor::new(config.sample_rate.0, capture_tuning),
             input_level_peak,
         ),
@@ -952,6 +977,7 @@ fn start_recording_inner(
             &config,
             processor.sample_tx(),
             processor_fatal_error(&processor),
+            processor.overflow_count(),
             SampleProcessor::new(config.sample_rate.0, capture_tuning),
             input_level_peak,
         ),
@@ -979,11 +1005,12 @@ fn start_recording_inner(
     })
 }
 
-fn stop_recording_inner(recording: ActiveRecording) -> Result<PathBuf> {
+fn stop_recording_inner(recording: ActiveRecording) -> Result<(PathBuf, u64)> {
     let path = recording.path;
+    let dropped = recording.processor.overflow_count.load(Ordering::Relaxed);
     drop(recording.stream);
     recording.processor.shutdown()?;
-    Ok(path)
+    Ok((path, dropped))
 }
 
 fn pick_input_device(host: &cpal::Host, preferred_name: Option<&str>) -> Result<cpal::Device> {
@@ -1035,7 +1062,9 @@ fn spawn_processor(
     let (sample_tx, sample_rx) = bounded::<Vec<i16>>(STAGING_CHANNEL_CAPACITY);
     let (command_tx, command_rx) = unbounded::<ProcessorCommand>();
     let fatal_error = Arc::new(Mutex::new(None));
+    let overflow_count = Arc::new(AtomicU64::new(0));
     let thread_error = fatal_error.clone();
+    let thread_overflow = overflow_count.clone();
     let mut state = ProcessorState::new(
         source_rate_hz,
         quality_preset,
@@ -1043,6 +1072,7 @@ fn spawn_processor(
         initial_writer,
         flush_on_shutdown,
         thread_error,
+        thread_overflow,
     )?;
 
     let join_handle = std::thread::spawn(move || {
@@ -1053,6 +1083,7 @@ fn spawn_processor(
         sample_tx,
         command_tx,
         fatal_error,
+        overflow_count,
         join_handle: Some(join_handle),
     })
 }
@@ -1120,19 +1151,23 @@ fn update_input_level_peak(input_level_peak: &Arc<AtomicU32>, sample: i16) {
     input_level_peak.fetch_max(peak, Ordering::Relaxed);
 }
 
-fn stage_callback_batch(sample_tx: &Sender<Vec<i16>>, batch: Vec<i16>, fatal_error: &SharedError) {
+fn stage_callback_batch(
+    sample_tx: &Sender<Vec<i16>>,
+    batch: Vec<i16>,
+    fatal_error: &SharedError,
+    overflow_count: &AtomicU64,
+) {
     if batch.is_empty() || shared_error_message(fatal_error).is_some() {
         return;
     }
 
     if let Err(err) = sample_tx.try_send(batch) {
         match err {
-            TrySendError::Full(_) => set_shared_error(
-                fatal_error,
-                "audio processing fell behind and overflowed the capture queue",
-            ),
+            TrySendError::Full(_) => {
+                overflow_count.fetch_add(1, Ordering::Relaxed);
+            }
             TrySendError::Disconnected(_) => {
-                set_shared_error(fatal_error, "audio processing worker disconnected")
+                set_shared_error(fatal_error, "audio processing worker disconnected");
             }
         }
     }
@@ -1143,6 +1178,7 @@ fn build_stream_f32(
     config: &StreamConfig,
     sample_tx: Sender<Vec<i16>>,
     fatal_error: SharedError,
+    overflow_count: Arc<AtomicU64>,
     mut processor: SampleProcessor,
     input_level_peak: Arc<AtomicU32>,
 ) -> Result<cpal::Stream> {
@@ -1157,7 +1193,7 @@ fn build_stream_f32(
                 update_input_level_peak(&input_level_peak, sample);
                 batch.push(sample);
             }
-            stage_callback_batch(&sample_tx, batch, &fatal_error);
+            stage_callback_batch(&sample_tx, batch, &fatal_error, &overflow_count);
         },
         move |err| {
             set_shared_error(&stream_error, format!("audio stream error: {err}"));
@@ -1174,6 +1210,7 @@ fn build_stream_i16(
     config: &StreamConfig,
     sample_tx: Sender<Vec<i16>>,
     fatal_error: SharedError,
+    overflow_count: Arc<AtomicU64>,
     mut processor: SampleProcessor,
     input_level_peak: Arc<AtomicU32>,
 ) -> Result<cpal::Stream> {
@@ -1188,7 +1225,7 @@ fn build_stream_i16(
                 update_input_level_peak(&input_level_peak, sample);
                 batch.push(sample);
             }
-            stage_callback_batch(&sample_tx, batch, &fatal_error);
+            stage_callback_batch(&sample_tx, batch, &fatal_error, &overflow_count);
         },
         move |err| {
             set_shared_error(&stream_error, format!("audio stream error: {err}"));
@@ -1205,6 +1242,7 @@ fn build_stream_u16(
     config: &StreamConfig,
     sample_tx: Sender<Vec<i16>>,
     fatal_error: SharedError,
+    overflow_count: Arc<AtomicU64>,
     mut processor: SampleProcessor,
     input_level_peak: Arc<AtomicU32>,
 ) -> Result<cpal::Stream> {
@@ -1219,7 +1257,7 @@ fn build_stream_u16(
                 update_input_level_peak(&input_level_peak, sample);
                 batch.push(sample);
             }
-            stage_callback_batch(&sample_tx, batch, &fatal_error);
+            stage_callback_batch(&sample_tx, batch, &fatal_error, &overflow_count);
         },
         move |err| {
             set_shared_error(&stream_error, format!("audio stream error: {err}"));
@@ -1396,6 +1434,7 @@ mod tests {
     #[test]
     fn persistent_ring_buffer_caps_and_is_written_into_recording() {
         let fatal_error = Arc::new(Mutex::new(None));
+        let overflow_count = Arc::new(AtomicU64::new(0));
         let writer_path = unique_temp_path("persistent-preroll");
         let writer = create_wav_writer(&writer_path, WHISPER_SAMPLE_RATE).unwrap();
         let mut state = ProcessorState::new(
@@ -1405,6 +1444,7 @@ mod tests {
             None,
             false,
             fatal_error,
+            overflow_count,
         )
         .unwrap();
 

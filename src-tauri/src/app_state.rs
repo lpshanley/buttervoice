@@ -169,6 +169,7 @@ pub struct PipelineMetricsSnapshot {
     pub vad_skipped_unsupported_format: u64,
     pub vad_skipped_unsupported_sample_rate: u64,
     pub vad_fallback_raw_no_speech: u64,
+    pub audio_batches_dropped: u64,
     pub stage_latency_histograms: HashMap<String, StageLatencyHistogram>,
     pub last_100_failures: Vec<PipelineFailureEvent>,
     pub llm_circuit_open: bool,
@@ -548,8 +549,8 @@ impl AppState {
         self.set_state(DictationState::Transcribing);
 
         std::thread::spawn(move || {
-            let audio_path = match self.audio.stop_recording() {
-                Ok(path) => path,
+            let (audio_path, audio_batches_dropped) = match self.audio.stop_recording() {
+                Ok(result) => result,
                 Err(err) => {
                     eprintln!("failed stopping recording: {err:#}");
                     let settings = self.settings_store.get();
@@ -685,6 +686,7 @@ impl AppState {
                         response.duration_ms,
                         response_text,
                         recording_file.clone(),
+                        audio_batches_dropped,
                     ) {
                         eprintln!("text insertion failed: {err:#}");
                         self.metrics_increment_failed_dictation("inject", "TEXT_INSERTION_FAILED");
@@ -932,6 +934,7 @@ impl AppState {
         transcription_duration_ms: u64,
         text: String,
         recording_file: Option<String>,
+        audio_batches_dropped: u64,
     ) -> Result<()> {
         let _span = tracing::info_span!(
             "dictation.pipeline",
@@ -1056,6 +1059,7 @@ impl AppState {
             request_id_for_log,
             classification_outcome,
             persona_outcome,
+            audio_batches_dropped,
         )
     }
 
@@ -1080,6 +1084,7 @@ impl AppState {
         request_id_for_log: String,
         classification_outcome: ClassificationStageOutcome,
         persona_outcome: PersonaStageOutcome,
+        audio_batches_dropped: u64,
     ) -> Result<()> {
         // Defensive trim: whisper.cpp tokens are space-prefixed and pipeline
         // stages may preserve leading/trailing whitespace.
@@ -1108,6 +1113,13 @@ impl AppState {
         }
         if persona_outcome.duration_ms > 0 {
             self.metrics_observe_stage_latency("persona", persona_outcome.duration_ms);
+        }
+        if audio_batches_dropped > 0 {
+            let mut metrics = self.pipeline_metrics.lock();
+            metrics.snapshot.audio_batches_dropped = metrics
+                .snapshot
+                .audio_batches_dropped
+                .saturating_add(audio_batches_dropped);
         }
         let cleanup_applied = cleanup_requested && final_text != raw_text;
         let classification_blocked = classification_outcome
@@ -1248,6 +1260,7 @@ impl AppState {
             cleanup_roundtrip_duration_ms,
             true,
             &model_id_for_metrics,
+            audio_batches_dropped,
         );
 
         self.finish_trace();
