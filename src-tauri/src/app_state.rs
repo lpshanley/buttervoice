@@ -1299,6 +1299,7 @@ impl AppState {
                 outcome.edits_rejected = result.rejected_edits.len() as u32;
                 self.metrics_add_pp_edits(outcome.edits_applied, outcome.edits_rejected);
                 if !result.output.is_empty() {
+                    crate::telemetry::record_pp_edit_distance(raw_text, &result.output);
                     outcome.output = Some(result.output.clone());
                     outcome.text_for_log = Some(result.output);
                 }
@@ -1707,6 +1708,8 @@ impl AppState {
     fn metrics_increment_pp_runs(&self) {
         let mut metrics = self.pipeline_metrics.lock();
         metrics.snapshot.pp_runs = metrics.snapshot.pp_runs.saturating_add(1);
+        drop(metrics);
+        crate::telemetry::record_pp_run();
     }
 
     fn metrics_add_pp_edits(&self, applied: u32, rejected: u32) {
@@ -1724,11 +1727,15 @@ impl AppState {
     fn metrics_add_llm_attempts(&self, attempts: u64) {
         let mut metrics = self.pipeline_metrics.lock();
         metrics.snapshot.llm_attempts = metrics.snapshot.llm_attempts.saturating_add(attempts);
+        drop(metrics);
+        crate::telemetry::record_llm_attempts(attempts);
     }
 
     fn metrics_increment_llm_success(&self) {
         let mut metrics = self.pipeline_metrics.lock();
         metrics.snapshot.llm_success = metrics.snapshot.llm_success.saturating_add(1);
+        drop(metrics);
+        crate::telemetry::record_llm_result_success();
     }
 
     fn metrics_increment_llm_fail(&self, code: llm_guard::LlmGuardErrorCode) {
@@ -1741,11 +1748,15 @@ impl AppState {
             metrics.snapshot.llm_skipped_circuit_open =
                 metrics.snapshot.llm_skipped_circuit_open.saturating_add(1);
         }
+        drop(metrics);
+        crate::telemetry::record_llm_result_fail(code.as_str());
     }
 
     fn metrics_increment_vad_runs(&self) {
         let mut metrics = self.pipeline_metrics.lock();
         metrics.snapshot.vad_runs = metrics.snapshot.vad_runs.saturating_add(1);
+        drop(metrics);
+        crate::telemetry::record_vad_run();
     }
 
     fn metrics_record_vad_result(
@@ -1754,6 +1765,15 @@ impl AppState {
         raw_duration_ms: u64,
         output_duration_ms: u64,
     ) {
+        let trimmed_ms = raw_duration_ms.saturating_sub(output_duration_ms);
+        let status_str = match status {
+            PreprocessStatus::Trimmed => "trimmed",
+            PreprocessStatus::SkippedUnsupportedFormat => "skipped_unsupported_format",
+            PreprocessStatus::SkippedUnsupportedSampleRate => "skipped_unsupported_sample_rate",
+            PreprocessStatus::UsedRawNoSpeech => "fallback_raw_no_speech",
+            PreprocessStatus::UsedRawNoChange => "no_change",
+        };
+
         let mut metrics = self.pipeline_metrics.lock();
         match status {
             PreprocessStatus::Trimmed => {
@@ -1762,7 +1782,7 @@ impl AppState {
                 metrics.snapshot.vad_trimmed_ms_total = metrics
                     .snapshot
                     .vad_trimmed_ms_total
-                    .saturating_add(raw_duration_ms.saturating_sub(output_duration_ms));
+                    .saturating_add(trimmed_ms);
             }
             PreprocessStatus::SkippedUnsupportedFormat => {
                 metrics.snapshot.vad_skipped_unsupported_format = metrics
@@ -1784,6 +1804,14 @@ impl AppState {
             }
             PreprocessStatus::UsedRawNoChange => {}
         }
+        drop(metrics);
+
+        let otel_trimmed_ms = if matches!(status, PreprocessStatus::Trimmed) {
+            trimmed_ms
+        } else {
+            0
+        };
+        crate::telemetry::record_vad_result(status_str, otel_trimmed_ms);
     }
 
     fn metrics_observe_stage_latency(&self, stage: &str, duration_ms: u64) {

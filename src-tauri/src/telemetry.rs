@@ -273,6 +273,77 @@ pub fn record_dictation_metrics(
     }
 }
 
+// ── LLM metrics ──
+
+/// Record the number of LLM attempts made during a single guard execution.
+pub fn record_llm_attempts(count: u64) {
+    let meter = global::meter(SERVICE_NAME);
+    let counter = meter.u64_counter("dictation.llm.attempts").build();
+    counter.add(count, &[]);
+}
+
+/// Record a successful LLM cleanup result.
+pub fn record_llm_result_success() {
+    let meter = global::meter(SERVICE_NAME);
+    let counter = meter.u64_counter("dictation.llm.result").build();
+    counter.add(1, &[KeyValue::new("outcome", "success")]);
+}
+
+/// Record a failed LLM cleanup result with the specific error code.
+pub fn record_llm_result_fail(error_code: &str) {
+    let meter = global::meter(SERVICE_NAME);
+    let counter = meter.u64_counter("dictation.llm.result").build();
+    counter.add(
+        1,
+        &[
+            KeyValue::new("outcome", "fail"),
+            KeyValue::new("error_code", error_code.to_string()),
+        ],
+    );
+}
+
+// ── VAD metrics ──
+
+/// Record a VAD run.
+pub fn record_vad_run() {
+    let meter = global::meter(SERVICE_NAME);
+    let counter = meter.u64_counter("dictation.vad.runs").build();
+    counter.add(1, &[]);
+}
+
+/// Record a VAD result with its status and, when trimmed, the milliseconds removed.
+pub fn record_vad_result(status: &str, trimmed_ms: u64) {
+    let meter = global::meter(SERVICE_NAME);
+
+    let counter = meter.u64_counter("dictation.vad.result").build();
+    counter.add(1, &[KeyValue::new("status", status.to_string())]);
+
+    if trimmed_ms > 0 {
+        let hist = meter.f64_histogram("dictation.vad.trimmed_ms").build();
+        hist.record(trimmed_ms as f64, &[]);
+    }
+}
+
+// ── Post-processing metrics ──
+
+/// Record a post-processing pipeline run.
+pub fn record_pp_run() {
+    let meter = global::meter(SERVICE_NAME);
+    let counter = meter.u64_counter("dictation.pp.runs").build();
+    counter.add(1, &[]);
+}
+
+/// Record the normalized edit distance between raw transcription and
+/// post-processed output. Result is 0.0 (identical) to 1.0 (completely different).
+pub fn record_pp_edit_distance(raw_text: &str, processed_text: &str) {
+    let similarity = strsim::normalized_levenshtein(raw_text, processed_text);
+    let distance = 1.0 - similarity;
+
+    let meter = global::meter(SERVICE_NAME);
+    let hist = meter.f64_histogram("dictation.pp.edit_distance").build();
+    hist.record(distance, &[]);
+}
+
 /// Flush all pending telemetry data and shut down providers.
 /// Call this on app exit.
 /// Test connectivity to an OTLP endpoint by sending an empty trace export.
