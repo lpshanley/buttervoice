@@ -13,19 +13,13 @@ use crate::whisper_backend::{
 };
 
 pub struct SpeechService {
-    whisper_bin: PathBuf,
-    backend_manifest_path: PathBuf,
     model_cache_dir: PathBuf,
     local_backend: Mutex<Option<Arc<WhisperBackend>>>,
     remote_backend: RemoteSpeechBackend,
 }
 
 impl SpeechService {
-    pub fn new(
-        whisper_bin: PathBuf,
-        backend_manifest_path: PathBuf,
-        model_cache_dir: PathBuf,
-    ) -> Result<Self> {
+    pub fn new(model_cache_dir: PathBuf) -> Result<Self> {
         std::fs::create_dir_all(&model_cache_dir).with_context(|| {
             format!(
                 "failed creating model cache at {}",
@@ -34,8 +28,6 @@ impl SpeechService {
         })?;
 
         Ok(Self {
-            whisper_bin,
-            backend_manifest_path,
             model_cache_dir,
             local_backend: Mutex::new(None),
             remote_backend: RemoteSpeechBackend,
@@ -68,9 +60,9 @@ impl SpeechService {
                 Ok(local) => {
                     let mut status = local.backend_status(settings.compute_mode);
                     status.ok = status.ok && status.provider_ok;
-                    status.backend = "local/whispercpp".to_string();
+                    status.backend = "local/whisper-rs".to_string();
                     status.active_provider = settings.speech_provider.as_str().to_string();
-                    status.provider_label = "local/whispercpp".to_string();
+                    status.provider_label = "local/whisper-rs".to_string();
                     status.provider_ok = true;
                     status.provider_error = None;
                     status.remote_base_url = None;
@@ -79,15 +71,15 @@ impl SpeechService {
                 }
                 Err(err) => BackendStatus {
                     ok: false,
-                    backend: "local/whispercpp".to_string(),
+                    backend: "local/whisper-rs".to_string(),
                     active_provider: settings.speech_provider.as_str().to_string(),
-                    provider_label: "local/whispercpp".to_string(),
+                    provider_label: "local/whisper-rs".to_string(),
                     provider_ok: false,
                     provider_error: Some(err.to_string()),
                     remote_base_url: None,
                     remote_model: None,
-                    binary_available: self.whisper_bin.exists(),
-                    binary_path: Some(self.whisper_bin.display().to_string()),
+                    binary_available: true,
+                    binary_path: None,
                     selected_compute_mode: settings.compute_mode.as_str().to_string(),
                     effective_compute_mode: None,
                     last_fallback_reason: None,
@@ -104,8 +96,8 @@ impl SpeechService {
                 match config {
                     Ok(config) => {
                         let mut status = self.remote_backend.backend_status(&config);
-                        status.binary_available = self.whisper_bin.exists();
-                        status.binary_path = Some(self.whisper_bin.display().to_string());
+                        status.binary_available = true;
+                        status.binary_path = None;
                         status.selected_compute_mode = settings.compute_mode.as_str().to_string();
                         status
                     }
@@ -121,8 +113,8 @@ impl SpeechService {
                         provider_error: Some(err.to_string()),
                         remote_base_url: Some(settings.speech_remote_base_url.clone()),
                         remote_model: Some(settings.speech_remote_model.clone()),
-                        binary_available: self.whisper_bin.exists(),
-                        binary_path: Some(self.whisper_bin.display().to_string()),
+                        binary_available: true,
+                        binary_path: None,
                         selected_compute_mode: settings.compute_mode.as_str().to_string(),
                         effective_compute_mode: None,
                         last_fallback_reason: None,
@@ -200,11 +192,7 @@ impl SpeechService {
             return Ok(existing);
         }
 
-        let backend = Arc::new(WhisperBackend::new(
-            self.whisper_bin.clone(),
-            self.backend_manifest_path.clone(),
-            self.model_cache_dir.clone(),
-        )?);
+        let backend = Arc::new(WhisperBackend::new(self.model_cache_dir.clone())?);
 
         let mut slot = self.local_backend.lock();
         if let Some(existing) = slot.clone() {
@@ -220,13 +208,10 @@ impl SpeechService {
 mod tests {
     use super::SpeechService;
     use crate::settings::{Settings, SpeechProvider};
-    use std::path::PathBuf;
 
     #[test]
     fn remote_backend_status_does_not_require_local_bundle() {
         let service = SpeechService::new(
-            PathBuf::from("/tmp/buttervoice-missing-whisper-cli"),
-            PathBuf::from("/tmp/buttervoice-missing-manifest.json"),
             std::env::temp_dir().join("buttervoice-speech-service-test"),
         )
         .unwrap();

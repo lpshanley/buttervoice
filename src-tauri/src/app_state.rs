@@ -218,11 +218,7 @@ struct PreprocessStageOutcome {
 }
 
 impl AppState {
-    pub fn bootstrap(
-        app_handle: AppHandle,
-        whisper_bin: PathBuf,
-        backend_manifest_path: PathBuf,
-    ) -> Result<Arc<Self>> {
+    pub fn bootstrap(app_handle: AppHandle) -> Result<Arc<Self>> {
         let base_dir = settings::app_support_dir()?;
         let settings_store = SettingsStore::new(app_handle.clone())?;
         let startup_settings = settings_store.get();
@@ -239,7 +235,7 @@ impl AppState {
             )
         })?;
 
-        let backend = SpeechService::new(whisper_bin, backend_manifest_path, models_dir)?;
+        let backend = SpeechService::new(models_dir)?;
 
         let mut post_processor = PostProcessor::new(&base_dir).unwrap_or_else(|err| {
             eprintln!("failed to initialize post-processor, using fallback: {err:#}");

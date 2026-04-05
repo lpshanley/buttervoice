@@ -57,10 +57,6 @@
     "targets": "all",
     "createUpdaterArtifacts": true,
     "resources": [
-      "resources/whispercpp/manifest.json",
-      "resources/whispercpp/lib/*",
-      "resources/whispercpp/macos-aarch64/whisper-cli",
-      "resources/whispercpp/macos-x86_64/whisper-cli",
       "resources/dictionaries/*"
     ],
     "icon": [

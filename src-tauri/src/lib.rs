@@ -20,7 +20,6 @@ mod tray;
 mod usage_stats;
 mod whisper_backend;
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -34,7 +33,6 @@ use models::ModelInfo;
 use permissions_macos::{PermissionKind, PermissionsStatus};
 use remote_speech::SpeechModelEntry;
 use settings::{Persona, Settings, SettingsPatch};
-use tauri::path::BaseDirectory;
 use tauri::{Manager, State, WindowEvent};
 use tauri_plugin_autostart::ManagerExt;
 use usage_stats::DailyStat;
@@ -513,13 +511,10 @@ pub fn run() {
         .on_menu_event(|app, event| tray::on_tray_menu_event(app, event.id().as_ref()))
         .on_window_event(handle_window_event)
         .setup(|app| {
-            let (whisper_bin, backend_manifest_path) = resolve_backend_assets(app)?;
-
-            let state =
-                AppState::bootstrap(app.handle().clone(), whisper_bin, backend_manifest_path)
-                    .map_err(|err| -> Box<dyn std::error::Error> {
-                        Box::new(std::io::Error::other(err.to_string()))
-                    })?;
+            let state = AppState::bootstrap(app.handle().clone())
+                .map_err(|err| -> Box<dyn std::error::Error> {
+                    Box::new(std::io::Error::other(err.to_string()))
+                })?;
 
             // Initialize OpenTelemetry (before any tracing calls).
             let settings = state.settings_store().get();
@@ -621,106 +616,3 @@ fn handle_window_event<R: tauri::Runtime>(window: &tauri::Window<R>, event: &Win
     }
 }
 
-fn resolve_backend_assets<R: tauri::Runtime>(
-    app: &tauri::App<R>,
-) -> Result<(PathBuf, PathBuf), Box<dyn std::error::Error>> {
-    let arch = if cfg!(target_arch = "aarch64") {
-        "macos-aarch64"
-    } else if cfg!(target_arch = "x86_64") {
-        "macos-x86_64"
-    } else {
-        return Err("unsupported target architecture for whisper backend".into());
-    };
-
-    let mut whisper_bin = None;
-    for candidate in [
-        format!("whispercpp/{arch}/whisper-cli"),
-        format!("resources/whispercpp/{arch}/whisper-cli"),
-        format!("_up_/whispercpp/{arch}/whisper-cli"),
-    ] {
-        if let Ok(resource_path) = app.path().resolve(&candidate, BaseDirectory::Resource) {
-            if resource_path.exists() {
-                whisper_bin = Some(resource_path);
-                break;
-            }
-        }
-    }
-
-    let mut manifest_path = None;
-    for candidate in [
-        "whispercpp/manifest.json",
-        "resources/whispercpp/manifest.json",
-        "_up_/whispercpp/manifest.json",
-    ] {
-        if let Ok(resource_path) = app.path().resolve(candidate, BaseDirectory::Resource) {
-            if resource_path.exists() {
-                manifest_path = Some(resource_path);
-                break;
-            }
-        }
-    }
-
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        if whisper_bin.is_none() {
-            whisper_bin = find_file_recursive(&resource_dir, "whisper-cli")
-                .filter(|path| path.to_string_lossy().contains(arch));
-        }
-        if manifest_path.is_none() {
-            manifest_path = find_file_recursive(&resource_dir, "manifest.json")
-                .filter(|path| path.to_string_lossy().contains("whispercpp"));
-        }
-    }
-
-    let cwd = std::env::current_dir()?;
-    if whisper_bin.is_none() {
-        for candidate in [
-            cwd.join(format!("resources/whispercpp/{arch}/whisper-cli")),
-            cwd.join(format!(
-                "../src-tauri/resources/whispercpp/{arch}/whisper-cli"
-            )),
-            cwd.join(format!("../resources/whispercpp/{arch}/whisper-cli")),
-        ] {
-            if candidate.exists() {
-                whisper_bin = Some(candidate);
-                break;
-            }
-        }
-    }
-
-    if manifest_path.is_none() {
-        for candidate in [
-            cwd.join("resources/whispercpp/manifest.json"),
-            cwd.join("../src-tauri/resources/whispercpp/manifest.json"),
-            cwd.join("../resources/whispercpp/manifest.json"),
-        ] {
-            if candidate.exists() {
-                manifest_path = Some(candidate);
-                break;
-            }
-        }
-    }
-
-    let whisper_bin = whisper_bin.ok_or("could not resolve bundled whisper-cli binary path")?;
-    let manifest_path = manifest_path.ok_or("could not resolve whisper backend manifest path")?;
-    Ok((whisper_bin, manifest_path))
-}
-
-fn find_file_recursive(root: &std::path::Path, file_name: &str) -> Option<PathBuf> {
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let entries = std::fs::read_dir(&dir).ok()?;
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                stack.push(path);
-            } else if path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name == file_name)
-            {
-                return Some(path);
-            }
-        }
-    }
-    None
-}

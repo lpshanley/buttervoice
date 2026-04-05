@@ -1,33 +1,20 @@
 use std::fs::{self, File};
 use std::io::{Read, Write};
-#[cfg(target_family = "unix")]
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, bail, Context, Result};
 use parking_lot::Mutex;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
+use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 use crate::app_state::ModelDownloadProgress;
 use crate::models;
 use crate::settings::ComputeMode;
-
-const REQUIRED_SHARED_LIBS: &[&str] = &[
-    "libwhisper.1.dylib",
-    "libggml.0.dylib",
-    "libggml-cpu.0.dylib",
-    "libggml-blas.0.dylib",
-    "libggml-metal.0.dylib",
-    "libggml-base.0.dylib",
-];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranscribeRequest {
@@ -73,12 +60,26 @@ pub struct BackendStatus {
     pub last_fallback_reason: Option<String>,
 }
 
-#[derive(Debug)]
 pub struct WhisperBackend {
-    whisper_bin: PathBuf,
-    manifest_path: PathBuf,
     model_cache_dir: PathBuf,
     runtime_state: Mutex<RuntimeState>,
+    /// Cached whisper context: (model_id, context).
+    /// Re-created when the model changes.
+    cached_context: Mutex<Option<(String, Arc<WhisperContext>)>>,
+}
+
+// WhisperContext is Send+Sync but whisper-rs doesn't mark it as such in all
+// versions.  The underlying C library is safe for concurrent read-only use
+// after initialization, and we guard mutable access with a Mutex.
+unsafe impl Send for WhisperBackend {}
+unsafe impl Sync for WhisperBackend {}
+
+impl std::fmt::Debug for WhisperBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WhisperBackend")
+            .field("model_cache_dir", &self.model_cache_dir)
+            .finish()
+    }
 }
 
 #[derive(Debug, Default)]
@@ -87,36 +88,10 @@ struct RuntimeState {
     last_fallback_reason: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct BackendManifest {
-    artifacts: Vec<BackendArtifact>,
-}
-
-#[derive(Debug, Deserialize)]
-struct BackendArtifact {
-    target: String,
-    path: String,
-    sha256: String,
-}
-
 #[derive(Debug, Clone, Copy)]
 enum EffectiveComputeMode {
     Cpu,
     Gpu,
-}
-
-#[derive(Debug)]
-struct PreparedWhisperAudio {
-    path: PathBuf,
-    cleanup_path: Option<PathBuf>,
-}
-
-impl PreparedWhisperAudio {
-    fn cleanup(&self) {
-        if let Some(path) = self.cleanup_path.as_ref() {
-            let _ = fs::remove_file(path);
-        }
-    }
 }
 
 impl EffectiveComputeMode {
@@ -129,22 +104,14 @@ impl EffectiveComputeMode {
 }
 
 impl WhisperBackend {
-    pub fn new(
-        whisper_bin: PathBuf,
-        manifest_path: PathBuf,
-        model_cache_dir: PathBuf,
-    ) -> Result<Self> {
+    pub fn new(model_cache_dir: PathBuf) -> Result<Self> {
         let backend = Self {
-            whisper_bin,
-            manifest_path,
             model_cache_dir,
             runtime_state: Mutex::new(RuntimeState::default()),
+            cached_context: Mutex::new(None),
         };
 
         backend.ensure_paths()?;
-        backend.prepare_runtime_bundle()?;
-        backend.verify_binary_integrity()?;
-
         Ok(backend)
     }
 
@@ -186,23 +153,17 @@ impl WhisperBackend {
                 ))
             }
         };
-        let runs_dir = self.model_cache_dir.join("runs");
-        fs::create_dir_all(&runs_dir)
-            .with_context(|| format!("failed creating run directory {}", runs_dir.display()))?;
-        let prepared_audio =
-            match prepare_whisper_audio(&request.audio_path, &runs_dir, &request.request_id) {
-                Ok(audio) => audio,
-                Err(err) => {
-                    eprintln!(
-                        "warning: failed preparing whisper audio for {}: {err:#}",
-                        request.audio_path.display()
-                    );
-                    PreparedWhisperAudio {
-                        path: request.audio_path.clone(),
-                        cleanup_path: None,
-                    }
-                }
-            };
+
+        let audio_samples = match load_audio_samples(&request.audio_path) {
+            Ok(samples) => samples,
+            Err(err) => {
+                return Ok(json_error(
+                    "AUDIO_DECODE_ERROR",
+                    &format!("failed loading audio: {err}"),
+                    &request.request_id,
+                ))
+            }
+        };
 
         let execution_order = match request.compute_mode {
             ComputeMode::Auto => vec![EffectiveComputeMode::Gpu, EffectiveComputeMode::Cpu],
@@ -212,7 +173,7 @@ impl WhisperBackend {
 
         let mut run_errors = Vec::new();
         for (index, mode) in execution_order.iter().enumerate() {
-            match self.run_whisper_cli(request, &prepared_audio.path, *mode, &model_path) {
+            match self.run_whisper(request, &audio_samples, *mode, &model_path) {
                 Ok((text, duration_ms)) => {
                     let fallback_reason = if index == 0 {
                         None
@@ -229,12 +190,11 @@ impl WhisperBackend {
                         state.last_fallback_reason = fallback_reason.clone();
                     }
 
-                    prepared_audio.cleanup();
                     return Ok(TranscribeResponse {
                         request_id: request.request_id.clone(),
                         text,
                         duration_ms,
-                        backend: Some(format!("whispercpp/{}", mode.as_str())),
+                        backend: Some(format!("whisper-rs/{}", mode.as_str())),
                         effective_compute_mode: Some(mode.as_str().to_string()),
                         fallback_reason,
                         error_code: None,
@@ -242,6 +202,9 @@ impl WhisperBackend {
                     });
                 }
                 Err(err) => {
+                    // Invalidate cached context on failure so next attempt
+                    // re-creates it (possibly with different GPU settings).
+                    *self.cached_context.lock() = None;
                     run_errors.push(format!("{}: {err}", mode.as_str()));
                 }
             }
@@ -251,11 +214,10 @@ impl WhisperBackend {
             let mut state = self.runtime_state.lock();
             state.last_fallback_reason = None;
         }
-        prepared_audio.cleanup();
 
         Ok(json_error(
             "ENGINE_INIT_FAILED",
-            &format!("whisper.cpp failed: {}", run_errors.join("; ")),
+            &format!("whisper-rs failed: {}", run_errors.join("; ")),
             &request.request_id,
         ))
     }
@@ -403,26 +365,31 @@ impl WhisperBackend {
             fs::remove_file(&destination)
                 .with_context(|| format!("failed deleting model file {}", destination.display()))?;
         }
+        // Invalidate cached context if we just deleted the loaded model.
+        let mut cached = self.cached_context.lock();
+        if cached.as_ref().is_some_and(|(id, _)| id == model_id) {
+            *cached = None;
+        }
         Ok(())
     }
 
     pub fn warm_up(&self, model_id: &str, compute_mode: ComputeMode) -> Result<()> {
         let model_path = self.download_model(model_id)?;
-        let runs_dir = self.model_cache_dir.join("runs");
-        fs::create_dir_all(&runs_dir)
-            .with_context(|| format!("failed creating run directory {}", runs_dir.display()))?;
 
-        let ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_millis())
-            .unwrap_or(0);
-        let request_id = format!("warmup-{ts}");
-        let warmup_audio = runs_dir.join(format!("{request_id}.wav"));
-        write_warmup_wav(&warmup_audio)?;
+        // Generate a short warmup audio buffer (1/3 second of simple tone at 16kHz)
+        let warmup_samples: Vec<f32> = (0..(16_000 / 3))
+            .map(|idx| if idx % 2 == 0 { 0.037 } else { -0.037 })
+            .collect();
 
         let request = TranscribeRequest {
-            request_id: request_id.clone(),
-            audio_path: warmup_audio.clone(),
+            request_id: format!(
+                "warmup-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or(0)
+            ),
+            audio_path: PathBuf::new(), // Not used — we pass samples directly
             model_id: model_id.to_string(),
             language: "en".to_string(),
             compute_mode,
@@ -442,20 +409,15 @@ impl WhisperBackend {
 
         let mut run_errors = Vec::new();
         for mode in execution_order {
-            match self.run_whisper_cli(&request, &request.audio_path, mode, &model_path) {
-                Ok(_) => {
-                    cleanup_warmup_run_artifacts(&runs_dir, &request_id, mode);
-                    let _ = fs::remove_file(&warmup_audio);
-                    return Ok(());
-                }
+            match self.run_whisper(&request, &warmup_samples, mode, &model_path) {
+                Ok(_) => return Ok(()),
                 Err(err) => {
-                    cleanup_warmup_run_artifacts(&runs_dir, &request_id, mode);
+                    *self.cached_context.lock() = None;
                     run_errors.push(format!("{}: {err}", mode.as_str()));
                 }
             }
         }
 
-        let _ = fs::remove_file(&warmup_audio);
         Err(anyhow!(
             "warm-up failed for model '{model_id}': {}",
             run_errors.join("; ")
@@ -464,87 +426,25 @@ impl WhisperBackend {
 
     pub fn backend_status(&self, selected_compute_mode: ComputeMode) -> BackendStatus {
         let state = self.runtime_state.lock();
-        let binary_available = self.whisper_bin.exists();
 
         BackendStatus {
-            ok: binary_available,
-            backend: "whispercpp".to_string(),
+            ok: true,
+            backend: "whisper-rs".to_string(),
             active_provider: "local_whispercpp".to_string(),
-            provider_label: "local/whispercpp".to_string(),
-            provider_ok: binary_available,
+            provider_label: "local/whisper-rs".to_string(),
+            provider_ok: true,
             provider_error: None,
             remote_base_url: None,
             remote_model: None,
-            binary_available,
-            binary_path: Some(self.whisper_bin.display().to_string()),
+            binary_available: true,
+            binary_path: None,
             selected_compute_mode: selected_compute_mode.as_str().to_string(),
             effective_compute_mode: state.effective_compute_mode.clone(),
             last_fallback_reason: state.last_fallback_reason.clone(),
         }
     }
 
-    pub fn verify_binary_integrity(&self) -> Result<()> {
-        if !self.whisper_bin.exists() {
-            bail!(
-                "bundled whisper-cli binary missing at {}",
-                self.whisper_bin.display()
-            );
-        }
-
-        #[cfg(target_family = "unix")]
-        {
-            let mode = fs::metadata(&self.whisper_bin)
-                .with_context(|| format!("failed reading {}", self.whisper_bin.display()))?
-                .permissions()
-                .mode();
-            if mode & 0o111 == 0 {
-                bail!(
-                    "bundled whisper-cli is not executable: {}",
-                    self.whisper_bin.display()
-                );
-            }
-        }
-
-        let manifest = self.load_manifest()?;
-        let target = current_backend_target()?;
-        let artifact = manifest
-            .artifacts
-            .iter()
-            .find(|item| item.target == target)
-            .ok_or_else(|| anyhow!("manifest missing artifact for target {target}"))?;
-
-        let binary_name = self
-            .whisper_bin
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or_default();
-        if !artifact.path.ends_with(binary_name) {
-            bail!(
-                "manifest path '{}' does not match binary {}",
-                artifact.path,
-                self.whisper_bin.display()
-            );
-        }
-
-        let actual_sha = sha256_file(&self.whisper_bin)?;
-        if actual_sha != artifact.sha256.to_lowercase() {
-            bail!(
-                "bundled whisper-cli checksum mismatch for target {target}: expected {}, got {}",
-                artifact.sha256,
-                actual_sha
-            );
-        }
-
-        self.verify_binary_architecture(&self.whisper_bin, target)?;
-        self.verify_shared_libraries(target)?;
-
-        Ok(())
-    }
-
     fn ensure_paths(&self) -> Result<()> {
-        let runs_dir = self.model_cache_dir.join("runs");
-        fs::create_dir_all(&runs_dir)
-            .with_context(|| format!("failed creating run directory {}", runs_dir.display()))?;
         fs::create_dir_all(&self.model_cache_dir).with_context(|| {
             format!(
                 "failed creating model cache directory {}",
@@ -564,242 +464,99 @@ impl WhisperBackend {
         Ok((spec, destination))
     }
 
-    fn run_whisper_cli(
+    fn get_or_create_context(
+        &self,
+        model_id: &str,
+        model_path: &Path,
+        use_gpu: bool,
+    ) -> Result<Arc<WhisperContext>> {
+        let mut cached = self.cached_context.lock();
+        if let Some((id, ctx)) = cached.as_ref() {
+            if id == model_id {
+                return Ok(ctx.clone());
+            }
+        }
+
+        let mut ctx_params = WhisperContextParameters::default();
+        ctx_params.use_gpu(use_gpu);
+
+        let ctx = WhisperContext::new_with_params(
+            model_path
+                .to_str()
+                .ok_or_else(|| anyhow!("model path is not valid UTF-8"))?,
+            ctx_params,
+        )
+        .map_err(|e| anyhow!("failed to initialize whisper context: {e}"))?;
+
+        let ctx = Arc::new(ctx);
+        *cached = Some((model_id.to_string(), ctx.clone()));
+        Ok(ctx)
+    }
+
+    fn run_whisper(
         &self,
         request: &TranscribeRequest,
-        audio_path: &Path,
+        audio_samples: &[f32],
         mode: EffectiveComputeMode,
         model_path: &Path,
     ) -> Result<(String, u64)> {
-        let runs_dir = self.model_cache_dir.join("runs");
-        fs::create_dir_all(&runs_dir)
-            .with_context(|| format!("failed creating run directory {}", runs_dir.display()))?;
+        let use_gpu = matches!(mode, EffectiveComputeMode::Gpu);
+        let ctx = self.get_or_create_context(&request.model_id, model_path, use_gpu)?;
 
-        let output_prefix = runs_dir.join(format!(
-            "run-{}-{}",
-            sanitize_request_id(&request.request_id),
-            mode.as_str()
-        ));
-
-        let mut command = Command::new(&self.whisper_bin);
-        command
-            .arg("-m")
-            .arg(model_path)
-            .arg("-f")
-            .arg(audio_path)
-            .arg("-of")
-            .arg(&output_prefix)
-            .arg("-otxt")
-            .arg("-np");
-
-        if matches!(mode, EffectiveComputeMode::Cpu) {
-            command.arg("-ng");
-        }
-
-        if request.threads > 0 {
-            command.arg("--threads").arg(request.threads.to_string());
-        }
+        let mut params = if request.beam_size > 1 {
+            FullParams::new(SamplingStrategy::BeamSearch {
+                beam_size: request.beam_size as i32,
+                patience: -1.0,
+            })
+        } else {
+            FullParams::new(SamplingStrategy::Greedy { best_of: 1 })
+        };
 
         if !request.language.is_empty() && request.language != "auto" {
-            command.arg("-l").arg(&request.language);
-        }
-
-        if request.beam_size > 1 {
-            command
-                .arg("--beam-size")
-                .arg(request.beam_size.to_string());
+            params.set_language(Some(&request.language));
         }
 
         if !request.prompt.is_empty() {
-            command.arg("--prompt").arg(&request.prompt);
+            params.set_initial_prompt(&request.prompt);
         }
 
-        command
-            .arg("--no-speech-thold")
-            .arg(format!("{:.2}", request.no_speech_thold));
+        params.set_no_speech_thold(request.no_speech_thold);
+        params.set_temperature(request.temperature);
+        params.set_temperature_inc(request.temperature_inc);
+        params.set_print_progress(false);
+        params.set_print_realtime(false);
+        params.set_print_timestamps(false);
+        params.set_suppress_blank(true);
 
-        command
-            .arg("--temperature")
-            .arg(format!("{:.2}", request.temperature));
-
-        command
-            .arg("--temperature-inc")
-            .arg(format!("{:.2}", request.temperature_inc));
+        if request.threads > 0 {
+            params.set_n_threads(request.threads as i32);
+        }
 
         let start = Instant::now();
-        let output = command.output().with_context(|| {
-            format!(
-                "failed launching whisper-cli at {}",
-                self.whisper_bin.display()
-            )
+
+        let mut state = ctx.create_state().map_err(|e| {
+            anyhow!("failed to create whisper state: {e}")
         })?;
+
+        state.full(params, audio_samples).map_err(|e| {
+            anyhow!("whisper inference failed: {e}")
+        })?;
+
         let duration_ms = start.elapsed().as_millis() as u64;
 
-        if !output.status.success() {
-            let mut detail = String::new();
-            if !output.stderr.is_empty() {
-                detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            }
-            if detail.is_empty() && !output.stdout.is_empty() {
-                detail = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            }
-            if detail.len() > 800 {
-                let start_idx = detail.len().saturating_sub(800);
-                detail = detail[start_idx..].to_string();
-            }
-            bail!(
-                "whisper.cpp exited with status {}: {}",
-                output.status,
-                if detail.is_empty() {
-                    "no stderr output"
-                } else {
-                    &detail
-                }
-            );
-        }
-
-        let output_txt = output_prefix.with_extension("txt");
-        let text = if output_txt.exists() {
-            fs::read_to_string(&output_txt)
-                .with_context(|| format!("failed reading output text {}", output_txt.display()))?
-                .trim()
-                .to_string()
-        } else {
-            String::from_utf8_lossy(&output.stdout).trim().to_string()
-        };
-
-        Ok((text, duration_ms))
-    }
-
-    fn load_manifest(&self) -> Result<BackendManifest> {
-        let raw = fs::read_to_string(&self.manifest_path).with_context(|| {
-            format!(
-                "failed reading backend manifest at {}",
-                self.manifest_path.display()
-            )
+        let num_segments = state.full_n_segments().map_err(|e| {
+            anyhow!("failed to get segment count: {e}")
         })?;
-        let manifest: BackendManifest = serde_json::from_str(&raw).with_context(|| {
-            format!(
-                "failed parsing backend manifest at {}",
-                self.manifest_path.display()
-            )
-        })?;
-        Ok(manifest)
-    }
 
-    fn verify_binary_architecture(&self, binary_path: &Path, target: &str) -> Result<()> {
-        let expected_arch_token = match target {
-            "macos-aarch64" => "arm64",
-            "macos-x86_64" => "x86_64",
-            _ => return Ok(()),
-        };
-
-        let output = Command::new("file")
-            .arg(binary_path)
-            .output()
-            .with_context(|| {
-                format!(
-                    "failed running `file` to validate architecture of {}",
-                    binary_path.display()
-                )
+        let mut text = String::new();
+        for i in 0..num_segments {
+            let segment_text = state.full_get_segment_text(i).map_err(|e| {
+                anyhow!("failed to get segment {i} text: {e}")
             })?;
-
-        if !output.status.success() {
-            bail!(
-                "failed validating architecture of {}: {}",
-                binary_path.display(),
-                String::from_utf8_lossy(&output.stderr)
-            );
+            text.push_str(&segment_text);
         }
 
-        let detail = format!(
-            "{}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-
-        if !detail.to_ascii_lowercase().contains(expected_arch_token) {
-            bail!(
-                "bundled whisper-cli architecture mismatch for {target}: expected {}, got {}",
-                expected_arch_token,
-                detail.trim()
-            );
-        }
-
-        Ok(())
-    }
-
-    fn verify_shared_libraries(&self, target: &str) -> Result<()> {
-        let binary_dir = self.whisper_bin.parent().ok_or_else(|| {
-            anyhow!(
-                "whisper binary path has no parent: {}",
-                self.whisper_bin.display()
-            )
-        })?;
-        let lib_dir = binary_dir.join("../lib");
-
-        if !lib_dir.is_dir() {
-            bail!(
-                "bundled whisper library directory missing at {}",
-                lib_dir.display()
-            );
-        }
-
-        for lib_name in REQUIRED_SHARED_LIBS {
-            let lib_path = lib_dir.join(lib_name);
-            if !lib_path.is_file() {
-                bail!(
-                    "required bundled whisper library missing: {}",
-                    lib_path.display()
-                );
-            }
-
-            self.verify_binary_architecture(&lib_path, target)
-                .with_context(|| {
-                    format!("shared library architecture validation failed for {lib_name}")
-                })?;
-        }
-
-        Ok(())
-    }
-
-    fn prepare_runtime_bundle(&self) -> Result<()> {
-        #[cfg(target_os = "macos")]
-        {
-            let bundle_root = self
-                .whisper_bin
-                .parent()
-                .and_then(|dir| dir.parent())
-                .ok_or_else(|| {
-                    anyhow!(
-                        "whisper binary path has no bundle root: {}",
-                        self.whisper_bin.display()
-                    )
-                })?;
-
-            // Downloaded native helpers can retain quarantine bits and then trigger
-            // Gatekeeper dialogs even though they are app-bundled resources.
-            let status = Command::new("xattr")
-                .arg("-dr")
-                .arg("com.apple.quarantine")
-                .arg(bundle_root)
-                .status()
-                .with_context(|| {
-                    format!(
-                        "failed removing quarantine attributes from {}",
-                        bundle_root.display()
-                    )
-                })?;
-
-            if !status.success() {
-                bail!(
-                    "failed removing quarantine attributes from {}",
-                    bundle_root.display()
-                );
-            }
-        }
-
-        Ok(())
+        Ok((text.trim().to_string(), duration_ms))
     }
 }
 
@@ -816,83 +573,36 @@ fn json_error(error_code: &str, error_message: &str, request_id: &str) -> Transc
     }
 }
 
-fn current_backend_target() -> Result<&'static str> {
-    if cfg!(target_arch = "aarch64") {
-        return Ok("macos-aarch64");
+/// Load audio samples from a WAV file as f32 PCM normalized to [-1.0, 1.0].
+///
+/// Whisper expects mono 16kHz f32 audio. The audio pipeline already resamples
+/// to 16kHz mono before writing the WAV, so we just need to convert sample
+/// format here.
+fn load_audio_samples(audio_path: &Path) -> Result<Vec<f32>> {
+    let reader = hound::WavReader::open(audio_path)
+        .with_context(|| format!("failed opening audio file {}", audio_path.display()))?;
+    let spec = reader.spec();
+
+    if spec.bits_per_sample == 16 && spec.sample_format == hound::SampleFormat::Int {
+        let samples: Vec<f32> = reader
+            .into_samples::<i16>()
+            .map(|s| s.map(|s| s as f32 / 32768.0))
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .context("failed reading i16 samples")?;
+        Ok(samples)
+    } else if spec.bits_per_sample == 32 && spec.sample_format == hound::SampleFormat::Float {
+        let samples: Vec<f32> = reader
+            .into_samples::<f32>()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .context("failed reading f32 samples")?;
+        Ok(samples)
+    } else {
+        bail!(
+            "unsupported WAV format: {} bit {:?}",
+            spec.bits_per_sample,
+            spec.sample_format
+        )
     }
-    if cfg!(target_arch = "x86_64") {
-        return Ok("macos-x86_64");
-    }
-    bail!("unsupported architecture for bundled whisper backend")
-}
-
-fn sha256_file(path: &Path) -> Result<String> {
-    let mut file = File::open(path)
-        .with_context(|| format!("failed opening binary for checksum: {}", path.display()))?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
-
-    loop {
-        let read = file
-            .read(&mut buffer)
-            .with_context(|| format!("failed reading {} for checksum", path.display()))?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-
-    let hash = hasher.finalize();
-    Ok(format!("{:x}", hash))
-}
-
-fn sanitize_request_id(request_id: &str) -> String {
-    let mut value: String = request_id
-        .chars()
-        .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
-        .collect();
-    if value.is_empty() {
-        value = format!("{}", chrono_like_timestamp_ms());
-    }
-    value
-}
-
-fn chrono_like_timestamp_ms() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis())
-        .unwrap_or(0)
-}
-
-fn write_warmup_wav(path: &Path) -> Result<()> {
-    let spec = hound::WavSpec {
-        channels: 1,
-        sample_rate: 16_000,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
-
-    let mut writer = hound::WavWriter::create(path, spec)
-        .with_context(|| format!("failed creating warm-up audio file {}", path.display()))?;
-    for idx in 0..(16_000 / 3) {
-        let sample = if idx % 2 == 0 { 1200_i16 } else { -1200_i16 };
-        writer
-            .write_sample(sample)
-            .context("failed writing warm-up waveform")?;
-    }
-    writer
-        .finalize()
-        .context("failed finalizing warm-up audio")?;
-    Ok(())
-}
-
-fn cleanup_warmup_run_artifacts(runs_dir: &Path, request_id: &str, mode: EffectiveComputeMode) {
-    let output_prefix = runs_dir.join(format!(
-        "run-{}-{}",
-        sanitize_request_id(request_id),
-        mode.as_str()
-    ));
-    let _ = fs::remove_file(output_prefix.with_extension("txt"));
 }
 
 fn is_probably_silent_wav(audio_file: &Path) -> bool {
@@ -932,84 +642,4 @@ fn is_probably_silent_wav(audio_file: &Path) -> bool {
     }
 
     !saw_sample || peak < 256
-}
-
-/// Trim trailing silence from a 16-bit WAV file into a scratch output file.
-///
-/// Walks backward from the end of the sample data to find the last sample
-/// whose absolute value exceeds `SILENCE_THRESHOLD`, then rewrites the file
-/// keeping only up to that point plus a small safety margin. This prevents
-/// Whisper from hallucinating on dead air at the end of a recording.
-fn prepare_whisper_audio(
-    audio_file: &Path,
-    runs_dir: &Path,
-    request_id: &str,
-) -> Result<PreparedWhisperAudio> {
-    let prepared_path = runs_dir.join(format!(
-        "run-{}-prepared.wav",
-        sanitize_request_id(request_id)
-    ));
-    if trim_trailing_silence_to_output(audio_file, &prepared_path)? {
-        Ok(PreparedWhisperAudio {
-            path: prepared_path.clone(),
-            cleanup_path: Some(prepared_path),
-        })
-    } else {
-        Ok(PreparedWhisperAudio {
-            path: audio_file.to_path_buf(),
-            cleanup_path: None,
-        })
-    }
-}
-
-fn trim_trailing_silence_to_output(audio_file: &Path, output_file: &Path) -> Result<bool> {
-    const SILENCE_THRESHOLD: i16 = 256;
-    const TAIL_MARGIN_MS: u32 = 150;
-
-    let reader = hound::WavReader::open(audio_file)
-        .with_context(|| format!("failed opening {} for silence trim", audio_file.display()))?;
-    let spec = reader.spec();
-    if spec.bits_per_sample != 16 {
-        return Ok(false);
-    }
-
-    let samples: Vec<i16> = reader
-        .into_samples::<i16>()
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .context("failed reading samples for silence trim")?;
-
-    if samples.is_empty() {
-        return Ok(false);
-    }
-
-    // Find last sample above threshold (walking backward is fast for typical
-    // dictation recordings where silence is only at the tail).
-    let last_voice_idx = samples
-        .iter()
-        .rposition(|s| s.unsigned_abs() > SILENCE_THRESHOLD as u16);
-
-    let last_voice_idx = match last_voice_idx {
-        Some(idx) => idx,
-        None => return Ok(false), // entirely silent — leave as-is for the silent check
-    };
-
-    let margin_samples = ((spec.sample_rate * TAIL_MARGIN_MS) / 1000) as usize;
-    let keep = (last_voice_idx + 1 + margin_samples).min(samples.len());
-
-    // Only rewrite if we're actually trimming a meaningful amount (>250ms).
-    let trimmed = samples.len() - keep;
-    let min_trim_samples = (spec.sample_rate as usize) / 4;
-    if trimmed < min_trim_samples {
-        return Ok(false);
-    }
-
-    let mut writer = hound::WavWriter::create(output_file, spec)
-        .with_context(|| format!("failed creating {} for silence trim", output_file.display()))?;
-    for &sample in &samples[..keep] {
-        writer
-            .write_sample(sample)
-            .context("failed writing trimmed sample")?;
-    }
-    writer.finalize().context("failed finalizing trimmed wav")?;
-    Ok(true)
 }
