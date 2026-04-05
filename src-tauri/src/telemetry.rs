@@ -340,8 +340,45 @@ pub fn record_pp_edit_distance(raw_text: &str, processed_text: &str) {
     let distance = 1.0 - similarity;
 
     let meter = global::meter(SERVICE_NAME);
-    let hist = meter.f64_histogram("dictation.pp.edit_distance").build();
+    let hist = meter
+        .f64_histogram("dictation.pp.edit_distance")
+        .with_boundaries(vec![
+            0.0, 0.01, 0.02, 0.03, 0.05, 0.08, 0.10, 0.15, 0.20, 0.30, 0.50, 0.75, 1.0,
+        ])
+        .build();
     hist.record(distance, &[]);
+}
+
+// ── Spell correction metrics ──
+
+/// Record spell correction metrics from a dictation's post-processing results.
+/// `corrections` contains tuples of (edit_distance, confidence) for each applied
+/// spell correction.
+pub fn record_spell_corrections(corrections: &[(i32, f32)]) {
+    if corrections.is_empty() {
+        return;
+    }
+
+    let meter = global::meter(SERVICE_NAME);
+
+    let correction_counter = meter.u64_counter("dictation.spell.corrections").build();
+    correction_counter.add(corrections.len() as u64, &[]);
+
+    let distance_counter = meter.u64_counter("dictation.spell.by_distance").build();
+    let confidence_hist = meter
+        .f64_histogram("dictation.spell.confidence")
+        .with_boundaries(vec![
+            0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 1.0,
+        ])
+        .build();
+
+    for (distance, confidence) in corrections {
+        distance_counter.add(
+            1,
+            &[KeyValue::new("distance", format!("{distance}"))],
+        );
+        confidence_hist.record(*confidence as f64, &[]);
+    }
 }
 
 /// Flush all pending telemetry data and shut down providers.

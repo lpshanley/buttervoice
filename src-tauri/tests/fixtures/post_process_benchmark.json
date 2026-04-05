@@ -106,5 +106,35 @@
     "raw_whisper": "The weather is nice today.",
     "reference": "The weather is nice today.",
     "domain": "general"
+  },
+  {
+    "name": "spell_distance1_common",
+    "raw_whisper": "teh quick brown fox jumps over teh lazy dog",
+    "reference": "The quick brown fox jumps over the lazy dog.",
+    "domain": "spelling"
+  },
+  {
+    "name": "spell_distance2_common",
+    "raw_whisper": "i recieved the package and it was seperate from the other items",
+    "reference": "I received the package and it was separate from the other items.",
+    "domain": "spelling"
+  },
+  {
+    "name": "spell_distance3_long_words",
+    "raw_whisper": "the accomodation was definately better than we expceted",
+    "reference": "The accommodation was definitely better than we expected.",
+    "domain": "spelling"
+  },
+  {
+    "name": "spell_mixed_with_correct",
+    "raw_whisper": "please review the documnet before the meeting tommorow",
+    "reference": "Please review the document before the meeting tomorrow.",
+    "domain": "spelling"
+  },
+  {
+    "name": "spell_no_false_positives",
+    "raw_whisper": "the cache invalidation strategy needs improvement",
+    "reference": "The cache invalidation strategy needs improvement.",
+    "domain": "spelling"
   }
 ]

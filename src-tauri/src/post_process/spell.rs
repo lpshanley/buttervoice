@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use symspell::{AsciiStringStrategy, SymSpell, SymSpellBuilder, Verbosity};
+use symspell::{AsciiStringStrategy, Suggestion, SymSpell, SymSpellBuilder, Verbosity};
 
 use super::dictionary::DictionaryManager;
 use super::{PipelineStage, TextEdit};
@@ -20,7 +20,7 @@ const CUSTOM_WORD_FREQ: u64 = 500_000_000;
 impl SpellChecker {
     fn build_symspell_from_freqs(entries: &HashMap<String, u64>) -> SymSpell<AsciiStringStrategy> {
         let mut symspell: SymSpell<AsciiStringStrategy> = SymSpellBuilder::default()
-            .max_dictionary_edit_distance(2)
+            .max_dictionary_edit_distance(3)
             .prefix_length(7)
             .count_threshold(1)
             .build()
@@ -98,6 +98,7 @@ impl SpellChecker {
         let distance_score: f64 = match distance {
             1 => 0.9,
             2 => 0.7,
+            3 => 0.6,
             _ => 0.4,
         };
 
@@ -111,6 +112,46 @@ impl SpellChecker {
 
         // Combined: 70% edit distance, 30% frequency evidence
         (0.7 * distance_score + 0.3 * freq_confidence) as f32
+    }
+
+    /// Pick the best candidate from up to 3 suggestions using a blended score
+    /// of edit distance, frequency, and length similarity.
+    fn pick_best_candidate<'a>(
+        &self,
+        original: &str,
+        suggestions: &'a [Suggestion],
+    ) -> Option<&'a Suggestion> {
+        let candidates = suggestions.iter().take(3);
+
+        let orig_len = original.len() as f64;
+
+        candidates
+            .max_by(|a, b| {
+                let score_a = self.candidate_score(original, orig_len, a);
+                let score_b = self.candidate_score(original, orig_len, b);
+                score_a
+                    .partial_cmp(&score_b)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+    }
+
+    /// Blended reranking score: 50% distance + 35% frequency + 15% length similarity.
+    fn candidate_score(&self, original: &str, orig_len: f64, suggestion: &Suggestion) -> f64 {
+        // Distance score: lower distance = higher score (normalized to [0, 1])
+        let distance_score = 1.0 - (suggestion.distance as f64 / 3.0);
+
+        // Frequency score: log-space ratio
+        let original_freq = self.word_frequency(original).max(1) as f64;
+        let suggestion_freq = suggestion.count.max(1) as f64;
+        let freq_ratio = (suggestion_freq.ln() - original_freq.ln()) / 10.0_f64.ln();
+        let freq_score = (freq_ratio.clamp(-1.0, 1.0) + 1.0) / 2.0;
+
+        // Length similarity: penalize suggestions much shorter/longer than original
+        let suggestion_len = suggestion.term.len() as f64;
+        let len_diff = (orig_len - suggestion_len).abs();
+        let length_score = 1.0 - (len_diff / orig_len.max(suggestion_len).max(1.0));
+
+        0.50 * distance_score + 0.35 * freq_score + 0.15 * length_score
     }
 
     /// Process text: find and suggest corrections for misspelled words.
@@ -152,22 +193,31 @@ impl SpellChecker {
                 continue;
             }
 
-            let suggestions = self.symspell.lookup(&lower, Verbosity::Top, 2);
+            // Fetch candidates at the closest edit distance (up to 3).
+            let suggestions = self.symspell.lookup(&lower, Verbosity::Closest, 3);
 
-            if let Some(suggestion) = suggestions.first() {
-                if suggestion.distance > 0 && suggestion.term != lower {
+            // Take top-3 candidates and pick the best by blended score.
+            if let Some(best) = self.pick_best_candidate(&lower, &suggestions) {
+                if best.distance > 0 && best.term != lower {
+                    // Skip corrections where the edit distance covers the entire
+                    // word — these are essentially replacing the whole word and
+                    // are almost certainly wrong (e.g. "use" → "cash" at dist 3).
+                    if best.distance as usize >= lower.len() {
+                        continue;
+                    }
+
                     // Do not degrade valid contractions by stripping apostrophes,
                     // e.g. "don't" -> "dont".
-                    if drops_apostrophe_from_contraction(&lower, &suggestion.term) {
+                    if drops_apostrophe_from_contraction(&lower, &best.term) {
                         continue;
                     }
 
                     // Preserve original casing pattern
-                    let replacement = match_case(word, &suggestion.term);
+                    let replacement = match_case(word, &best.term);
 
                     // Combined confidence: edit distance + frequency evidence
                     let confidence =
-                        self.compute_confidence(&lower, suggestion.count, suggestion.distance);
+                        self.compute_confidence(&lower, best.count, best.distance);
 
                     edits.push(TextEdit {
                         offset: *offset,
@@ -175,7 +225,7 @@ impl SpellChecker {
                         replacement,
                         source: PipelineStage::SpellCorrection,
                         confidence,
-                        rule_id: format!("spell_ed{}", suggestion.distance),
+                        rule_id: format!("spell_ed{}", best.distance),
                     });
                 }
             }
@@ -302,7 +352,7 @@ mod tests {
         }
         SpellChecker {
             symspell: SymSpellBuilder::default()
-                .max_dictionary_edit_distance(2)
+                .max_dictionary_edit_distance(3)
                 .prefix_length(7)
                 .count_threshold(1)
                 .build()
@@ -429,5 +479,73 @@ mod tests {
         assert!(drops_apostrophe_from_contraction("we're", "were"));
         assert!(!drops_apostrophe_from_contraction("o'brien", "obrien"));
         assert!(!drops_apostrophe_from_contraction("dont", "dont"));
+    }
+
+    // ── Distance-3 confidence tests ──
+
+    #[test]
+    fn confidence_distance3_with_strong_freq_advantage_passes_threshold() {
+        let checker = checker_with_freqs(&[]);
+        // Unknown word → very common suggestion at distance 3
+        let conf = checker.compute_confidence("definately", 5_000_000_000, 3);
+        // Should be >= 0.7 to pass safety gate
+        assert!(
+            conf >= 0.7,
+            "distance-3 with strong freq advantage should pass 0.7 threshold, got {conf}"
+        );
+    }
+
+    #[test]
+    fn confidence_distance3_without_freq_advantage_below_threshold() {
+        let checker = checker_with_freqs(&[("orignal", 50_000_000)]);
+        // Similar frequency at distance 3 → should NOT pass safety gate
+        let conf = checker.compute_confidence("orignal", 60_000_000, 3);
+        assert!(
+            conf < 0.7,
+            "distance-3 without strong freq advantage should be below 0.7, got {conf}"
+        );
+    }
+
+    // ── Top-k reranking tests ──
+
+    #[test]
+    fn pick_best_candidate_prefers_closer_distance() {
+        let checker = checker_with_freqs(&[("test", 1_000_000)]);
+        let suggestions = vec![
+            Suggestion::new("far", 3, 5_000_000),
+            Suggestion::new("close", 1, 5_000_000),
+        ];
+        let best = checker.pick_best_candidate("tset", &suggestions).unwrap();
+        assert_eq!(best.term, "close");
+    }
+
+    #[test]
+    fn pick_best_candidate_considers_frequency() {
+        let checker = checker_with_freqs(&[("tset", 100)]);
+        let suggestions = vec![
+            Suggestion::new("rare", 1, 100),
+            Suggestion::new("common", 1, 5_000_000_000),
+        ];
+        let best = checker.pick_best_candidate("tset", &suggestions).unwrap();
+        assert_eq!(best.term, "common");
+    }
+
+    #[test]
+    fn pick_best_candidate_considers_length_similarity() {
+        let checker = checker_with_freqs(&[("wrod", 100)]);
+        // Same distance and frequency, but "word" is same length as "wrod"
+        let suggestions = vec![
+            Suggestion::new("worldwide", 1, 5_000_000),
+            Suggestion::new("word", 1, 5_000_000),
+        ];
+        let best = checker.pick_best_candidate("wrod", &suggestions).unwrap();
+        assert_eq!(best.term, "word");
+    }
+
+    #[test]
+    fn pick_best_candidate_returns_none_for_empty() {
+        let checker = checker_with_freqs(&[]);
+        let best = checker.pick_best_candidate("test", &[]);
+        assert!(best.is_none());
     }
 }

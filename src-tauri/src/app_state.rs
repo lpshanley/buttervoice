@@ -1298,6 +1298,32 @@ impl AppState {
                 outcome.edits_applied = result.applied_edits.len() as u32;
                 outcome.edits_rejected = result.rejected_edits.len() as u32;
                 self.metrics_add_pp_edits(outcome.edits_applied, outcome.edits_rejected);
+
+                // Log and record spell-specific corrections
+                let spell_corrections: Vec<(i32, f32)> = result
+                    .applied_edits
+                    .iter()
+                    .filter_map(|edit| {
+                        edit.rule_id.strip_prefix("spell_ed").and_then(|d| {
+                            d.parse::<i32>().ok().map(|distance| {
+                                let original = &raw_text
+                                    [edit.offset..edit.offset.saturating_add(edit.length).min(raw_text.len())];
+                                tracing::info!(
+                                    original = %original,
+                                    correction = %edit.replacement,
+                                    distance = distance,
+                                    confidence = edit.confidence,
+                                    "spell_correction"
+                                );
+                                (distance, edit.confidence)
+                            })
+                        })
+                    })
+                    .collect();
+                if !spell_corrections.is_empty() {
+                    crate::telemetry::record_spell_corrections(&spell_corrections);
+                }
+
                 if !result.output.is_empty() {
                     crate::telemetry::record_pp_edit_distance(raw_text, &result.output);
                     outcome.output = Some(result.output.clone());
