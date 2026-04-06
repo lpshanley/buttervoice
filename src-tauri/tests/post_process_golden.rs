@@ -46,7 +46,7 @@ fn golden_outputs_match() {
     for case in load_fixture() {
         let settings = case_settings(&case.settings);
         let result = processor
-            .run(&case.input, &settings)
+            .run(&case.input, &settings, None)
             .expect("pipeline should run");
         assert_eq!(
             result.output, case.expected_output,
@@ -62,14 +62,14 @@ fn deterministic_runs_are_identical() {
     for case in load_fixture() {
         let settings = case_settings(&case.settings);
         let first = processor
-            .run(&case.input, &settings)
+            .run(&case.input, &settings, None)
             .expect("pipeline should run");
         let baseline_output = first.output.clone();
         let baseline_applied = serde_json::to_string(&first.applied_edits).unwrap();
         let baseline_rejected = serde_json::to_string(&first.rejected_edits).unwrap();
         for _ in 0..100 {
             let run = processor
-                .run(&case.input, &settings)
+                .run(&case.input, &settings, None)
                 .expect("pipeline should run");
             assert_eq!(
                 run.output, baseline_output,
@@ -98,10 +98,10 @@ fn idempotence_holds_for_golden_cases() {
     for case in load_fixture() {
         let settings = case_settings(&case.settings);
         let once = processor
-            .run(&case.input, &settings)
+            .run(&case.input, &settings, None)
             .expect("pipeline should run");
         let twice = processor
-            .run(&once.output, &settings)
+            .run(&once.output, &settings, None)
             .expect("pipeline should run");
         assert_eq!(
             twice.output, once.output,

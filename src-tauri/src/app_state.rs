@@ -309,7 +309,7 @@ impl AppState {
     /// Run the post-processing pipeline on text (for testing / preview).
     pub fn test_post_process(&self, text: &str) -> Result<crate::post_process::PipelineResult> {
         let settings = self.settings_store.get();
-        self.post_processor.lock().run(text, &settings)
+        self.post_processor.lock().run(text, &settings, None)
     }
 
     /// Update custom dictionary words in the post-processor.
@@ -683,6 +683,7 @@ impl AppState {
                         response_text,
                         recording_file.clone(),
                         audio_batches_dropped,
+                        response.token_confidences,
                     ) {
                         eprintln!("text insertion failed: {err:#}");
                         self.metrics_increment_failed_dictation("inject", "TEXT_INSERTION_FAILED");
@@ -931,6 +932,7 @@ impl AppState {
         text: String,
         recording_file: Option<String>,
         audio_batches_dropped: u64,
+        token_confidences: Option<Vec<crate::whisper_backend::TokenConfidence>>,
     ) -> Result<()> {
         let _span = tracing::info_span!(
             "dictation.pipeline",
@@ -992,7 +994,7 @@ impl AppState {
 
         let post_process_outcome = {
             let _pp_span = tracing::info_span!("dictation.post_processing").entered();
-            self.run_post_process_stage(&request_id_for_log, &raw_text, &settings)
+            self.run_post_process_stage(&request_id_for_log, &raw_text, &settings, token_confidences.as_deref())
         };
         if let Some(output) = post_process_outcome.output.clone() {
             final_text = output;
@@ -1269,6 +1271,7 @@ impl AppState {
         request_id_for_log: &str,
         raw_text: &str,
         settings: &Settings,
+        token_confidences: Option<&[crate::whisper_backend::TokenConfidence]>,
     ) -> PostProcessStageOutcome {
         let mut outcome = PostProcessStageOutcome::default();
         if !settings.post_process_enabled || raw_text.trim().is_empty() {
@@ -1278,7 +1281,7 @@ impl AppState {
         self.set_state(DictationState::PostProcessing);
         self.metrics_increment_pp_runs();
         let pp_start = Instant::now();
-        match self.post_processor.lock().run(raw_text, settings) {
+        match self.post_processor.lock().run(raw_text, settings, token_confidences) {
             Ok(result) => {
                 self.debug_trace(
                     "post_process",

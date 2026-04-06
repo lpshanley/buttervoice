@@ -161,6 +161,7 @@ impl RemoteSpeechBackend {
             fallback_reason: None,
             error_code: None,
             error_message: None,
+            token_confidences: None,
         })
     }
 
@@ -286,6 +287,7 @@ fn json_error(error_code: &str, error_message: &str, request_id: &str) -> Transc
         fallback_reason: None,
         error_code: Some(error_code.to_string()),
         error_message: Some(error_message.to_string()),
+        token_confidences: None,
     }
 }
 

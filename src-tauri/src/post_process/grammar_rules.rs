@@ -1,5 +1,6 @@
 use regex::Regex;
 
+use super::whisper_confidence::WhisperConfidenceMap;
 use super::{PipelineStage, TextEdit};
 
 struct GrammarRule {
@@ -138,6 +139,15 @@ impl GrammarRules {
 
     /// Process text: apply grammar rules and return edits.
     pub fn process(&self, text: &str) -> Vec<TextEdit> {
+        self.process_with_confidence(text, None)
+    }
+
+    /// Process text with optional whisper token confidence blending.
+    pub fn process_with_confidence(
+        &self,
+        text: &str,
+        whisper_conf: Option<&WhisperConfidenceMap>,
+    ) -> Vec<TextEdit> {
         let mut edits = Vec::new();
 
         for rule in &self.rules {
@@ -168,12 +178,20 @@ impl GrammarRules {
                 }
 
                 if replacement != matched_text {
+                    let rule_conf = rule.confidence;
+                    let confidence = match whisper_conf.and_then(|wc| {
+                        wc.confidence_for_span(mat.start(), mat.end() - mat.start())
+                    }) {
+                        Some(wp) => (0.55 * rule_conf + 0.45 * (1.0 - wp)).clamp(0.0, 1.0),
+                        None => rule_conf,
+                    };
+
                     edits.push(TextEdit {
                         offset: mat.start(),
                         length: mat.end() - mat.start(),
                         replacement: replacement.to_string(),
                         source: PipelineStage::GrammarRules,
-                        confidence: rule.confidence,
+                        confidence,
                         rule_id: rule.rule_id.to_string(),
                     });
                 }

@@ -7,6 +7,7 @@ pub mod safety;
 pub mod sentence;
 pub mod spell;
 pub mod truecase;
+pub mod whisper_confidence;
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -17,6 +18,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::settings::Settings;
+use crate::whisper_backend::TokenConfidence;
 
 use self::dictionary::DictionaryManager;
 use self::grammar_rules::GrammarRules;
@@ -147,7 +149,12 @@ impl PostProcessor {
     }
 
     /// Run the full pipeline on input text, respecting settings toggles.
-    pub fn run(&self, text: &str, settings: &Settings) -> Result<PipelineResult> {
+    pub fn run(
+        &self,
+        text: &str,
+        settings: &Settings,
+        token_confidences: Option<&[TokenConfidence]>,
+    ) -> Result<PipelineResult> {
         let pipeline_start = Instant::now();
         let mut current_text = text.to_string();
         let mut stage_acc = StageAccumulator::default();
@@ -197,25 +204,34 @@ impl PostProcessor {
             );
         }
 
+        // Build whisper confidence map after structural stages complete.
+        // Word identity is preserved through stages 1-4, so alignment works.
+        let whisper_conf_map = token_confidences.map(|tokens| {
+            whisper_confidence::WhisperConfidenceMap::build(&current_text, tokens)
+        });
+        let wc_ref = whisper_conf_map.as_ref();
+
         // Stage 5: Spell correction (toggled)
         if settings.post_process_spell_enabled {
-            current_text = self.run_stage(
+            current_text = self.run_stage_with_confidence(
                 PipelineStage::SpellCorrection,
                 &current_text,
-                |text| self.spell_checker.process(text),
+                |text| self.spell_checker.process_with_confidence(text, wc_ref),
                 &safety_gate,
                 &mut stage_acc,
+                wc_ref,
             );
         }
 
         // Stage 6: Grammar rules (toggled)
         if settings.post_process_grammar_rules_enabled {
-            current_text = self.run_stage(
+            current_text = self.run_stage_with_confidence(
                 PipelineStage::GrammarRules,
                 &current_text,
-                |text| self.grammar_rules.process(text),
+                |text| self.grammar_rules.process_with_confidence(text, wc_ref),
                 &safety_gate,
                 &mut stage_acc,
+                wc_ref,
             );
         }
 
@@ -291,12 +307,15 @@ impl PostProcessor {
             intermediates.push((PipelineStage::InverseTextNorm, current_text.clone()));
         }
 
+        // Benchmarks don't have whisper token data — pass None.
+        let wc_ref: Option<&whisper_confidence::WhisperConfidenceMap> = None;
+
         // Stage 5: Spell correction (toggled)
         if settings.post_process_spell_enabled {
             current_text = self.run_stage(
                 PipelineStage::SpellCorrection,
                 &current_text,
-                |text| self.spell_checker.process(text),
+                |text| self.spell_checker.process_with_confidence(text, wc_ref),
                 &safety_gate,
                 &mut stage_acc,
             );
@@ -308,7 +327,7 @@ impl PostProcessor {
             current_text = self.run_stage(
                 PipelineStage::GrammarRules,
                 &current_text,
-                |text| self.grammar_rules.process(text),
+                |text| self.grammar_rules.process_with_confidence(text, wc_ref),
                 &safety_gate,
                 &mut stage_acc,
             );
@@ -338,6 +357,31 @@ impl PostProcessor {
         safety_gate: &SafetyGate,
         stage_acc: &mut StageAccumulator,
     ) -> String {
+        self.run_stage_inner(stage, input, process_fn, safety_gate, stage_acc, None)
+    }
+
+    /// Run a pipeline stage with whisper confidence data for safety gate tightening.
+    fn run_stage_with_confidence(
+        &self,
+        stage: PipelineStage,
+        input: &str,
+        process_fn: impl FnOnce(&str) -> Vec<TextEdit>,
+        safety_gate: &SafetyGate,
+        stage_acc: &mut StageAccumulator,
+        whisper_conf: Option<&whisper_confidence::WhisperConfidenceMap>,
+    ) -> String {
+        self.run_stage_inner(stage, input, process_fn, safety_gate, stage_acc, whisper_conf)
+    }
+
+    fn run_stage_inner(
+        &self,
+        stage: PipelineStage,
+        input: &str,
+        process_fn: impl FnOnce(&str) -> Vec<TextEdit>,
+        safety_gate: &SafetyGate,
+        stage_acc: &mut StageAccumulator,
+        whisper_conf: Option<&whisper_confidence::WhisperConfidenceMap>,
+    ) -> String {
         let start = Instant::now();
         let edits = process_fn(input);
         let edits = canonicalize_edits(input, edits);
@@ -351,7 +395,8 @@ impl PostProcessor {
         }
 
         // Filter edits through safety gate
-        let (safe_edits, unsafe_edits) = safety_gate.filter_edits(&edits, input);
+        let (safe_edits, unsafe_edits) =
+            safety_gate.filter_edits_with_confidence(&edits, input, whisper_conf);
         stage_acc.rejected.extend(unsafe_edits);
 
         if safe_edits.is_empty() {

@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use symspell::{AsciiStringStrategy, Suggestion, SymSpell, SymSpellBuilder, Verbosity};
 
 use super::dictionary::DictionaryManager;
+use super::whisper_confidence::WhisperConfidenceMap;
 use super::{PipelineStage, TextEdit};
 
 pub struct SpellChecker {
@@ -156,6 +157,19 @@ impl SpellChecker {
 
     /// Process text: find and suggest corrections for misspelled words.
     pub fn process(&self, text: &str) -> Vec<TextEdit> {
+        self.process_with_confidence(text, None)
+    }
+
+    /// Process text with optional whisper token confidence blending.
+    ///
+    /// When `whisper_conf` is provided, the final edit confidence blends the
+    /// spell-checker's own confidence with whisper's uncertainty about the
+    /// original token: `final = 0.55 * spell_conf + 0.45 * (1.0 - whisper_p)`.
+    pub fn process_with_confidence(
+        &self,
+        text: &str,
+        whisper_conf: Option<&WhisperConfidenceMap>,
+    ) -> Vec<TextEdit> {
         let mut edits = Vec::new();
         let words = self.word_spans(text);
 
@@ -216,8 +230,19 @@ impl SpellChecker {
                     let replacement = match_case(word, &best.term);
 
                     // Combined confidence: edit distance + frequency evidence
-                    let confidence =
+                    let spell_conf =
                         self.compute_confidence(&lower, best.count, best.distance);
+
+                    // Blend with whisper token confidence when available.
+                    // Whisper's `p` = confidence the token is correct, so
+                    // (1 - p) = uncertainty. High whisper confidence suppresses
+                    // corrections; low whisper confidence permits them.
+                    let confidence = match whisper_conf
+                        .and_then(|wc| wc.confidence_for_span(*offset, word.len()))
+                    {
+                        Some(wp) => (0.55 * spell_conf + 0.45 * (1.0 - wp)).clamp(0.0, 1.0),
+                        None => spell_conf,
+                    };
 
                     edits.push(TextEdit {
                         offset: *offset,

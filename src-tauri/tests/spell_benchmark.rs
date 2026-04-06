@@ -58,7 +58,7 @@ fn benchmark_spell_correction_quality() {
         let wer_before = word_error_rate(&case.reference, &case.raw_whisper);
 
         let result = processor
-            .run(&case.raw_whisper, &settings)
+            .run(&case.raw_whisper, &settings, None)
             .expect("pipeline should run");
 
         let wer_after = word_error_rate(&case.reference, &result.output.as_str());

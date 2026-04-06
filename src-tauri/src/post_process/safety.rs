@@ -1,5 +1,6 @@
 use strsim::levenshtein;
 
+use super::whisper_confidence::WhisperConfidenceMap;
 use super::TextEdit;
 
 /// Safety gate that filters edits to prevent meaning drift.
@@ -25,6 +26,20 @@ impl Default for SafetyGate {
 impl SafetyGate {
     /// Filter a set of edits, returning (accepted, rejected) edits.
     pub fn filter_edits(&self, edits: &[TextEdit], text: &str) -> (Vec<TextEdit>, Vec<TextEdit>) {
+        self.filter_edits_with_confidence(edits, text, None)
+    }
+
+    /// Filter edits with optional whisper confidence data.
+    ///
+    /// When whisper confidence for an edit's target span is below 0.5,
+    /// the max edit distance ratio is tightened by 25% — only close
+    /// corrections are accepted for uncertain transcriptions.
+    pub fn filter_edits_with_confidence(
+        &self,
+        edits: &[TextEdit],
+        text: &str,
+        whisper_conf: Option<&WhisperConfidenceMap>,
+    ) -> (Vec<TextEdit>, Vec<TextEdit>) {
         let mut accepted = Vec::new();
         let mut rejected = Vec::new();
         let text_len = text.len();
@@ -60,7 +75,17 @@ impl SafetyGate {
                     let distance = levenshtein(original, &edit.replacement);
                     let ratio = distance as f32 / original.len().max(1) as f32;
 
-                    if ratio > self.max_edit_distance_ratio {
+                    // Tighten the distance ratio threshold when whisper was
+                    // uncertain about the target span (prob < 0.5). Only accept
+                    // close corrections for words whisper was already unsure about.
+                    let effective_max_ratio = match whisper_conf
+                        .and_then(|wc| wc.confidence_for_span(edit.offset, edit.length))
+                    {
+                        Some(wp) if wp < 0.5 => self.max_edit_distance_ratio * 0.75,
+                        _ => self.max_edit_distance_ratio,
+                    };
+
+                    if ratio > effective_max_ratio {
                         rejected.push(edit.clone());
                         continue;
                     }
