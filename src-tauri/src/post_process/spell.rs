@@ -220,9 +220,10 @@ impl SpellChecker {
                         continue;
                     }
 
-                    // Do not degrade valid contractions by stripping apostrophes,
-                    // e.g. "don't" -> "dont".
-                    if drops_apostrophe_from_contraction(&lower, &best.term) {
+                    // Do not degrade valid contractions into apostrophe-less
+                    // single tokens, e.g. "don't" -> "dont" or
+                    // "we're" -> "weare".
+                    if degrades_contraction_to_single_token(&lower, &best.term) {
                         continue;
                     }
 
@@ -305,16 +306,13 @@ fn is_symspell_term_safe(word: &str) -> bool {
     !word.is_empty() && !word.chars().any(|c| c == '\t' || c == '\r' || c == '\n')
 }
 
-fn drops_apostrophe_from_contraction(original: &str, suggestion: &str) -> bool {
-    if !original.contains('\'') || suggestion.contains('\'') {
+fn degrades_contraction_to_single_token(original: &str, suggestion: &str) -> bool {
+    if !original.contains('\'')
+        || suggestion.contains('\'')
+        || suggestion.chars().any(char::is_whitespace)
+    {
         return false;
     }
-
-    let original_without_apostrophes: String = original.chars().filter(|c| *c != '\'').collect();
-    if original_without_apostrophes != suggestion {
-        return false;
-    }
-
     looks_like_contraction(original)
 }
 
@@ -499,11 +497,36 @@ mod tests {
     }
 
     #[test]
-    fn apostrophe_drop_guard_targets_contractions_only() {
-        assert!(drops_apostrophe_from_contraction("don't", "dont"));
-        assert!(drops_apostrophe_from_contraction("we're", "were"));
-        assert!(!drops_apostrophe_from_contraction("o'brien", "obrien"));
-        assert!(!drops_apostrophe_from_contraction("dont", "dont"));
+    fn does_not_fuse_contractions_into_single_tokens() {
+        let mut checker = SpellChecker::new_empty();
+        checker
+            .base_word_freqs
+            .insert("weare".to_string(), 20_000_000);
+        checker
+            .base_word_freqs
+            .insert("itis".to_string(), 20_000_000);
+        checker
+            .base_word_freqs
+            .insert("going".to_string(), 500_000_000);
+        checker
+            .base_word_freqs
+            .insert("working".to_string(), 500_000_000);
+        checker.word_freqs = checker.base_word_freqs.clone();
+        checker.symspell = SpellChecker::build_symspell_from_freqs(&checker.word_freqs);
+
+        let edits = checker.process("we're going, it's working");
+        assert!(edits.is_empty());
+    }
+
+    #[test]
+    fn contraction_guard_targets_single_token_degradations_only() {
+        assert!(degrades_contraction_to_single_token("don't", "dont"));
+        assert!(degrades_contraction_to_single_token("we're", "were"));
+        assert!(degrades_contraction_to_single_token("we're", "weare"));
+        assert!(degrades_contraction_to_single_token("it's", "itis"));
+        assert!(!degrades_contraction_to_single_token("we're", "we are"));
+        assert!(!degrades_contraction_to_single_token("o'brien", "obrien"));
+        assert!(!degrades_contraction_to_single_token("dont", "dont"));
     }
 
     // ── Distance-3 confidence tests ──

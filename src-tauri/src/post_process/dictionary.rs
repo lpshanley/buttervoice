@@ -15,6 +15,36 @@ pub struct DictionaryManager {
     extended_loaded: bool,
 }
 
+/// Corpus-derived frequency lists include some high-frequency web/OCR artifacts.
+/// Keep a small denylist for apostrophe-less contraction forms that should not
+/// be treated as valid spell-check terms.
+const CORPUS_DENYLIST: &[&str] = &[
+    "arent",
+    "couldnt",
+    "didnt",
+    "doesnt",
+    "dont",
+    "hes",
+    "heres",
+    "im",
+    "isnt",
+    "itis",
+    "ive",
+    "shes",
+    "shouldnt",
+    "thats",
+    "theres",
+    "theyre",
+    "wasnt",
+    "weare",
+    "weve",
+    "werent",
+    "wouldnt",
+    "youd",
+    "youre",
+    "youve",
+];
+
 #[allow(dead_code)]
 impl DictionaryManager {
     pub fn new(base_dir: &Path) -> Result<Self> {
@@ -85,6 +115,9 @@ impl DictionaryManager {
             if let Some(word) = parts.next() {
                 let word = word.to_lowercase();
                 if word.len() < 2 || !word.chars().all(|c| c.is_alphabetic() || c == '\'') {
+                    continue;
+                }
+                if CORPUS_DENYLIST.contains(&word.as_str()) {
                     continue;
                 }
                 let freq: u64 = parts
@@ -174,5 +207,24 @@ mod tests {
 
         manager.parse_frequency_data("# comment\n\nthe 100\n");
         assert_eq!(manager.entries.len(), 1);
+    }
+
+    #[test]
+    fn filters_known_corpus_artifacts() {
+        let mut manager = DictionaryManager {
+            entries: HashMap::new(),
+            extended_dict_path: PathBuf::from("/tmp/test_dict.txt"),
+            extended_loaded: false,
+        };
+
+        manager.parse_frequency_data(
+            "weare 191043\nitis 415910\nyoure 1360397\nwe 1000\nare 1000\n",
+        );
+
+        assert!(!manager.contains("weare"));
+        assert!(!manager.contains("itis"));
+        assert!(!manager.contains("youre"));
+        assert!(manager.contains("we"));
+        assert!(manager.contains("are"));
     }
 }

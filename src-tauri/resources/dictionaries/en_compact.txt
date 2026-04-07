@@ -3643,7 +3643,6 @@ insert 20140772
 baltimore 20128328
 gateway 20123135
 ky 20104754
-dont 20071832
 alumni 20070485
 drawing 20067264
 candidates 20063868
@@ -11563,7 +11562,6 @@ pak 4004319
 affirmative 4003502
 keynote 4003270
 mos 4002363
-didnt 4002254
 classrooms 4002212
 planted 4001421
 petitioner 4001272
@@ -17485,7 +17483,6 @@ dissolution 2003049
 rotor 2003039
 pauline 2003029
 quart 2002127
-theres 2002045
 bison 2002028
 suppressed 2002016
 allegro 2001576
@@ -19868,7 +19865,6 @@ vampires 1618754
 relocate 1618749
 nerd 1618569
 francesco 1618462
-hes 1618232
 georg 1618208
 dac 1618101
 negligible 1617964
@@ -21929,7 +21925,6 @@ distinctions 1360738
 powerhouse 1360693
 peabody 1360631
 deodorant 1360554
-youre 1360397
 alia 1360176
 compulsive 1360158
 iced 1360088
@@ -26046,7 +26041,6 @@ ple 1016117
 siberia 1016051
 webtrends 1015947
 melons 1015937
-shes 1015890
 farley 1015887
 seer 1015838
 evils 1015737
@@ -26621,7 +26615,6 @@ lefty 978333
 tripping 978231
 cmg 978193
 westside 978119
-heres 978028
 azimuth 977916
 logistical 977713
 occidental 977561
@@ -40588,7 +40581,6 @@ veer 476643
 lagerfeld 476581
 netted 476508
 lewin 476442
-youve 476439
 unaids 476419
 larue 476413
 stardom 476402
@@ -42916,7 +42908,6 @@ cherub 431887
 lieder 431865
 trumpeter 431864
 nqa 431847
-theyre 431810
 elp 431809
 straws 431806
 serrated 431802
@@ -43853,7 +43844,6 @@ fingernails 415952
 ocarina 415945
 camus 415924
 mackinac 415913
-itis 415910
 saks 415894
 hahahaha 415883
 romenesko 415874
@@ -44563,7 +44553,6 @@ dunning 405329
 grinch 405323
 loveless 405321
 okeechobee 405280
-shouldnt 405274
 sharpened 405271
 teeniefiles 405237
 gcj 405227
@@ -62950,7 +62939,6 @@ deut 223614
 uncharacterized 223609
 hallucination 223597
 logarithms 223594
-werent 223593
 wildman 223572
 liston 223571
 workpiece 223566
@@ -65130,7 +65118,6 @@ navassa 210784
 contravene 210784
 xsara 210768
 mandolins 210768
-weve 210765
 nizoral 210761
 subpopulations 210758
 overplay 210757
@@ -68820,7 +68807,6 @@ ocf 191057
 gibsons 191057
 igniting 191047
 lafleur 191044
-weare 191043
 appn 191039
 antonella 191039
 igh 191038
@@ -71319,7 +71305,6 @@ hanalei 179280
 manhatten 179279
 enerjy 179279
 authorisations 179276
-youd 179268
 rednex 179266
 commuted 179252
 aztek 179251
