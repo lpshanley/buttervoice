@@ -13,10 +13,14 @@ use regex::Regex;
 
 /// Average token probability below which known hallucination phrases are
 /// dropped. Deliberate dictations of the same phrases score well above this.
-///
-/// TODO: switch the gate to whisper's per-segment `no_speech_prob` once
-/// whisper-rs exposes it (whisper-rs-sys 0.11.1 lacks the symbol).
 const PHRASE_DROP_MAX_AVG_PROB: f32 = 0.55;
+
+/// Segment no-speech probability above which known hallucination phrases
+/// are dropped. This is the primary hallucination signal: whisper emits
+/// hallucinated text with HIGH token probabilities, but the segment's
+/// no-speech probability stays high because the audio really was silence.
+/// Real speech scores well under 0.1 here.
+const PHRASE_DROP_MIN_NO_SPEECH_PROB: f32 = 0.4;
 
 /// Non-speech annotations whisper emits for silence/noise, e.g.
 /// "[BLANK_AUDIO]", "(silence)", "*music*". Keyword-scoped so legitimate
@@ -70,10 +74,15 @@ pub struct FilterOutcome {
 }
 
 /// Strip non-speech annotations and drop whole-transcript hallucination
-/// phrases. `avg_token_prob` is the mean whisper token probability when the
-/// backend provides it; without it (remote backends) only the unconditional
-/// rules apply, so a deliberate "Thank you." is never dropped.
-pub fn filter_hallucinations(text: &str, avg_token_prob: Option<f32>) -> FilterOutcome {
+/// phrases. `avg_token_prob` (mean whisper token probability) and
+/// `no_speech_prob` (max per-segment no-speech probability) come from the
+/// local backend; when both are `None` (remote backends) only the
+/// unconditional rules apply, so a deliberate "Thank you." is never dropped.
+pub fn filter_hallucinations(
+    text: &str,
+    avg_token_prob: Option<f32>,
+    no_speech_prob: Option<f32>,
+) -> FilterOutcome {
     let without_annotations = MUSIC_NOTES_RE.replace_all(text, " ");
     let without_annotations = ANNOTATION_RE.replace_all(&without_annotations, " ");
     let cleaned = collapse_whitespace(&without_annotations);
@@ -87,7 +96,7 @@ pub fn filter_hallucinations(text: &str, avg_token_prob: Option<f32>) -> FilterO
         };
     }
 
-    if is_hallucinated_phrase(&cleaned, avg_token_prob) {
+    if is_hallucinated_phrase(&cleaned, avg_token_prob, no_speech_prob) {
         return FilterOutcome {
             text: String::new(),
             annotations_stripped,
@@ -102,7 +111,11 @@ pub fn filter_hallucinations(text: &str, avg_token_prob: Option<f32>) -> FilterO
     }
 }
 
-fn is_hallucinated_phrase(cleaned: &str, avg_token_prob: Option<f32>) -> bool {
+fn is_hallucinated_phrase(
+    cleaned: &str,
+    avg_token_prob: Option<f32>,
+    no_speech_prob: Option<f32>,
+) -> bool {
     let normalized = normalize_phrase(cleaned);
     if normalized.is_empty() {
         return true;
@@ -117,12 +130,13 @@ fn is_hallucinated_phrase(cleaned: &str, avg_token_prob: Option<f32>) -> bool {
         return true;
     }
 
-    match avg_token_prob {
-        Some(prob) if prob < PHRASE_DROP_MAX_AVG_PROB => CONFIDENCE_GATED_PHRASES
+    let looks_like_silence = no_speech_prob
+        .is_some_and(|prob| prob > PHRASE_DROP_MIN_NO_SPEECH_PROB)
+        || avg_token_prob.is_some_and(|prob| prob < PHRASE_DROP_MAX_AVG_PROB);
+    looks_like_silence
+        && CONFIDENCE_GATED_PHRASES
             .iter()
-            .any(|phrase| normalized == *phrase),
-        _ => false,
-    }
+            .any(|phrase| normalized == *phrase)
 }
 
 /// Lowercase and strip surrounding quotes plus trailing punctuation so
@@ -144,7 +158,7 @@ mod tests {
     use super::*;
 
     fn filter(text: &str, prob: Option<f32>) -> FilterOutcome {
-        filter_hallucinations(text, prob)
+        filter_hallucinations(text, prob, None)
     }
 
     #[test]
@@ -230,6 +244,32 @@ mod tests {
     fn longer_sentence_containing_thank_you_is_kept() {
         let text = "thank you for sending the report over";
         let outcome = filter(text, Some(0.2));
+        assert_eq!(outcome.text, text);
+        assert!(!outcome.phrase_dropped);
+    }
+
+    // ── no_speech_prob gate ──
+
+    #[test]
+    fn drops_thank_you_with_high_no_speech_prob_despite_confident_tokens() {
+        // The hallucination signature: confident tokens on a segment
+        // whisper believed was silence.
+        let outcome = filter_hallucinations("Thank you.", Some(0.95), Some(0.8));
+        assert_eq!(outcome.text, "");
+        assert!(outcome.phrase_dropped);
+    }
+
+    #[test]
+    fn keeps_thank_you_with_low_no_speech_prob() {
+        let outcome = filter_hallucinations("Thank you.", Some(0.95), Some(0.05));
+        assert_eq!(outcome.text, "Thank you.");
+        assert!(!outcome.phrase_dropped);
+    }
+
+    #[test]
+    fn high_no_speech_prob_does_not_drop_arbitrary_text() {
+        let text = "move the deploy to friday";
+        let outcome = filter_hallucinations(text, Some(0.9), Some(0.9));
         assert_eq!(outcome.text, text);
         assert!(!outcome.phrase_dropped);
     }

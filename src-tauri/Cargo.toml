@@ -37,7 +37,7 @@ rubato = "0.16.2"
 webrtc-vad = "0.4"
 
 # Whisper speech-to-text (native Rust bindings to whisper.cpp)
-whisper-rs = { version = "0.13", features = ["metal"] }
+whisper-rs = { version = "0.16", features = ["metal"] }
 
 # Network (model downloads + remote speech backend)
 reqwest = { version = "0.12", features = [

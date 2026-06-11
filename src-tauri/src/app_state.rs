@@ -693,16 +693,18 @@ impl AppState {
                     let filtered = crate::transcript_filter::filter_hallucinations(
                         &normalize_transcript_text(&response.text),
                         avg_token_prob,
+                        response.no_speech_prob,
                     );
                     if filtered.annotations_stripped || filtered.phrase_dropped {
                         self.debug_trace(
                             "transcribe",
                             format!(
-                                "request_id={} hallucination_filter annotations_stripped={} phrase_dropped={} avg_token_prob={:?}",
+                                "request_id={} hallucination_filter annotations_stripped={} phrase_dropped={} avg_token_prob={:?} no_speech_prob={:?}",
                                 response.request_id,
                                 filtered.annotations_stripped,
                                 filtered.phrase_dropped,
-                                avg_token_prob
+                                avg_token_prob,
+                                response.no_speech_prob
                             ),
                         );
                         self.metrics_increment_hallucination_filtered();

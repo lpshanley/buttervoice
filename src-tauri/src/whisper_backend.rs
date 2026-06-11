@@ -54,6 +54,12 @@ pub struct TranscribeResponse {
     /// `None` for remote backends or error responses.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_confidences: Option<Vec<TokenConfidence>>,
+    /// Highest per-segment no-speech probability from local whisper
+    /// inference. High values indicate whisper believed the audio was
+    /// silence even when it emitted text (hallucination signal).
+    /// `None` for remote backends or error responses.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub no_speech_prob: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -187,7 +193,7 @@ impl WhisperBackend {
         let mut run_errors = Vec::new();
         for (index, mode) in execution_order.iter().enumerate() {
             match self.run_whisper(request, &audio_samples, *mode, &model_path) {
-                Ok((text, duration_ms, token_confidences)) => {
+                Ok((text, duration_ms, token_confidences, no_speech_prob)) => {
                     let fallback_reason = if index == 0 {
                         None
                     } else {
@@ -213,6 +219,7 @@ impl WhisperBackend {
                         error_code: None,
                         error_message: None,
                         token_confidences: Some(token_confidences),
+                        no_speech_prob,
                     });
                 }
                 Err(err) => {
@@ -513,7 +520,7 @@ impl WhisperBackend {
         audio_samples: &[f32],
         mode: EffectiveComputeMode,
         model_path: &Path,
-    ) -> Result<(String, u64, Vec<TokenConfidence>)> {
+    ) -> Result<(String, u64, Vec<TokenConfidence>, Option<f32>)> {
         let use_gpu = matches!(mode, EffectiveComputeMode::Gpu);
         let ctx = self.get_or_create_context(&request.model_id, model_path, use_gpu)?;
 
@@ -543,7 +550,7 @@ impl WhisperBackend {
         params.set_suppress_blank(true);
         // Suppress bracketed annotation tokens ([Music], (applause), ♪) at
         // sampling time — a common hallucination on silent/noisy audio.
-        params.set_suppress_non_speech_tokens(true);
+        params.set_suppress_nst(true);
 
         if request.threads > 0 {
             params.set_n_threads(request.threads as i32);
@@ -561,28 +568,29 @@ impl WhisperBackend {
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
-        let num_segments = state
-            .full_n_segments()
-            .map_err(|e| anyhow!("failed to get segment count: {e}"))?;
-
         let mut text = String::new();
         let mut token_confidences = Vec::new();
-        for i in 0..num_segments {
-            let segment_text = state
-                .full_get_segment_text(i)
-                .map_err(|e| anyhow!("failed to get segment {i} text: {e}"))?;
+        let mut max_no_speech_prob: Option<f32> = None;
+        for segment in state.as_iter() {
+            let segment_text = segment
+                .to_str_lossy()
+                .map_err(|e| anyhow!("failed to get segment text: {e}"))?;
             text.push_str(&segment_text);
 
-            let n_tokens = state
-                .full_n_tokens(i)
-                .map_err(|e| anyhow!("failed to get token count for segment {i}: {e}"))?;
-            for t in 0..n_tokens {
-                let tok_text = state
-                    .full_get_token_text_lossy(i, t)
-                    .map_err(|e| anyhow!("failed to get token {t} text in segment {i}: {e}"))?;
-                let prob = state
-                    .full_get_token_prob(i, t)
-                    .map_err(|e| anyhow!("failed to get token {t} prob in segment {i}: {e}"))?;
+            // Whisper's belief that the segment is silence; emitted text on
+            // a high no-speech segment is a hallucination signal.
+            let no_speech = segment.no_speech_probability();
+            max_no_speech_prob = Some(max_no_speech_prob.map_or(no_speech, |m| m.max(no_speech)));
+
+            for t in 0..segment.n_tokens() {
+                let Some(token) = segment.get_token(t) else {
+                    continue;
+                };
+                let tok_text = token
+                    .to_str_lossy()
+                    .map_err(|e| anyhow!("failed to get token {t} text: {e}"))?
+                    .into_owned();
+                let prob = token.token_probability();
                 // Skip special tokens (empty, whitespace-only, [_BEG_], etc.)
                 if !tok_text.trim().is_empty() && !tok_text.starts_with('[') {
                     token_confidences.push(TokenConfidence {
@@ -593,7 +601,12 @@ impl WhisperBackend {
             }
         }
 
-        Ok((text.trim().to_string(), duration_ms, token_confidences))
+        Ok((
+            text.trim().to_string(),
+            duration_ms,
+            token_confidences,
+            max_no_speech_prob,
+        ))
     }
 }
 
@@ -608,6 +621,7 @@ fn json_error(error_code: &str, error_message: &str, request_id: &str) -> Transc
         error_code: Some(error_code.to_string()),
         error_message: Some(error_message.to_string()),
         token_confidences: None,
+        no_speech_prob: None,
     }
 }
 
