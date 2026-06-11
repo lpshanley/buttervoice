@@ -142,11 +142,17 @@ impl GrammarRules {
         self.process_with_confidence(text, None)
     }
 
-    /// Process text with optional whisper token confidence blending.
+    /// Process text and return edits.
+    ///
+    /// The `whisper_conf` parameter is accepted for signature parity with the
+    /// other stages but deliberately unused: grammar rules fix homophone and
+    /// usage errors ("could of", "a apple") where the alternatives sound
+    /// identical, so whisper's acoustic confidence carries no signal about
+    /// which spelling is correct.
     pub fn process_with_confidence(
         &self,
         text: &str,
-        whisper_conf: Option<&WhisperConfidenceMap>,
+        _whisper_conf: Option<&WhisperConfidenceMap>,
     ) -> Vec<TextEdit> {
         let mut edits = Vec::new();
 
@@ -178,13 +184,7 @@ impl GrammarRules {
                 }
 
                 if replacement != matched_text {
-                    let rule_conf = rule.confidence;
-                    let confidence = match whisper_conf.and_then(|wc| {
-                        wc.confidence_for_span(mat.start(), mat.end() - mat.start())
-                    }) {
-                        Some(wp) => (0.55 * rule_conf + 0.45 * (1.0 - wp)).clamp(0.0, 1.0),
-                        None => rule_conf,
-                    };
+                    let confidence = rule.confidence;
 
                     edits.push(TextEdit {
                         offset: mat.start(),
@@ -262,5 +262,27 @@ mod tests {
         let gr = GrammarRules::new();
         let edits = gr.process("The cat sat on the mat.");
         assert!(edits.is_empty());
+    }
+
+    #[test]
+    fn rule_confidence_unaffected_by_whisper_prob() {
+        let gr = GrammarRules::new();
+        let text = "This is better then that.";
+        let tokens: Vec<crate::whisper_backend::TokenConfidence> = text
+            .split_whitespace()
+            .map(|w| crate::whisper_backend::TokenConfidence {
+                text: format!(" {w}"),
+                prob: 0.99,
+            })
+            .collect();
+        let map = WhisperConfidenceMap::build(text, &tokens);
+
+        let plain = gr.process(text);
+        let with_conf = gr.process_with_confidence(text, Some(&map));
+        assert_eq!(plain.len(), with_conf.len());
+        for (a, b) in plain.iter().zip(with_conf.iter()) {
+            assert_eq!(a.confidence, b.confidence);
+            assert_eq!(a.replacement, b.replacement);
+        }
     }
 }

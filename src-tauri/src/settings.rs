@@ -718,8 +718,10 @@ impl SettingsStore {
             settings.telemetry_enabled = telemetry_enabled;
         }
         if let Some(telemetry_otlp_endpoint) = patch.telemetry_otlp_endpoint {
-            settings.telemetry_otlp_endpoint =
-                telemetry_otlp_endpoint.trim().trim_end_matches('/').to_string();
+            settings.telemetry_otlp_endpoint = telemetry_otlp_endpoint
+                .trim()
+                .trim_end_matches('/')
+                .to_string();
         }
 
         settings.schema_version = SETTINGS_SCHEMA_VERSION;

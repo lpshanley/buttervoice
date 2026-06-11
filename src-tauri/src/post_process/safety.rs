@@ -32,8 +32,10 @@ impl SafetyGate {
     /// Filter edits with optional whisper confidence data.
     ///
     /// When whisper confidence for an edit's target span is below 0.5,
-    /// the max edit distance ratio is tightened by 25% — only close
-    /// corrections are accepted for uncertain transcriptions.
+    /// the max edit distance ratio is tightened by 25%: if whisper could
+    /// not hear a word clearly there is no reliable signal about what was
+    /// said, so large rewrites (which tend to mangle proper nouns and
+    /// technical terms) are rejected and only close corrections accepted.
     pub fn filter_edits_with_confidence(
         &self,
         edits: &[TextEdit],
@@ -243,6 +245,38 @@ mod tests {
         assert!(!is_case_only_change("cat", "dog"));
         assert!(!is_case_only_change("h", "ha"));
         assert!(!is_case_only_change("abc", "ab"));
+    }
+
+    #[test]
+    fn tightens_distance_ratio_for_low_whisper_confidence() {
+        use crate::whisper_backend::TokenConfidence;
+
+        let gate = SafetyGate::default();
+        // "recieve" → "receive": distance 2 / 7 = 0.286, which sits
+        // between the tightened threshold (0.225) and the default (0.3).
+        let text = "I will recieve the package in the mail";
+        let edits = vec![make_edit(7, 7, "receive", 0.9)];
+        let tokens = |prob: f32| {
+            text.split_whitespace()
+                .map(|w| TokenConfidence {
+                    text: format!(" {w}"),
+                    prob,
+                })
+                .collect::<Vec<_>>()
+        };
+
+        let low = WhisperConfidenceMap::build(text, &tokens(0.3));
+        let (accepted, rejected) = gate.filter_edits_with_confidence(&edits, text, Some(&low));
+        assert!(
+            accepted.is_empty(),
+            "low-wp edit above 0.225 ratio rejected"
+        );
+        assert_eq!(rejected.len(), 1);
+
+        let high = WhisperConfidenceMap::build(text, &tokens(0.9));
+        let (accepted, rejected) = gate.filter_edits_with_confidence(&edits, text, Some(&high));
+        assert_eq!(accepted.len(), 1, "default ratio applies when wp >= 0.5");
+        assert!(rejected.is_empty());
     }
 
     #[test]

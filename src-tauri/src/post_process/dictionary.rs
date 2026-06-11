@@ -19,30 +19,9 @@ pub struct DictionaryManager {
 /// Keep a small denylist for apostrophe-less contraction forms that should not
 /// be treated as valid spell-check terms.
 const CORPUS_DENYLIST: &[&str] = &[
-    "arent",
-    "couldnt",
-    "didnt",
-    "doesnt",
-    "dont",
-    "hes",
-    "heres",
-    "im",
-    "isnt",
-    "itis",
-    "ive",
-    "shes",
-    "shouldnt",
-    "thats",
-    "theres",
-    "theyre",
-    "wasnt",
-    "weare",
-    "weve",
-    "werent",
-    "wouldnt",
-    "youd",
-    "youre",
-    "youve",
+    "arent", "couldnt", "didnt", "doesnt", "dont", "hes", "heres", "im", "isnt", "itis", "ive",
+    "shes", "shouldnt", "thats", "theres", "theyre", "wasnt", "weare", "weve", "werent", "wouldnt",
+    "youd", "youre", "youve",
 ];
 
 #[allow(dead_code)]
@@ -217,9 +196,8 @@ mod tests {
             extended_loaded: false,
         };
 
-        manager.parse_frequency_data(
-            "weare 191043\nitis 415910\nyoure 1360397\nwe 1000\nare 1000\n",
-        );
+        manager
+            .parse_frequency_data("weare 191043\nitis 415910\nyoure 1360397\nwe 1000\nare 1000\n");
 
         assert!(!manager.contains("weare"));
         assert!(!manager.contains("itis"));

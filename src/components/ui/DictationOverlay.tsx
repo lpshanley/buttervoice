@@ -1,9 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useAtomValue } from 'jotai';
 import { Box } from '@mantine/core';
-import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { dictationStateAtom, inputLevelAtom } from '../../stores/app';
-import { tauriAvailable } from '../../lib/tauri';
 
 type OverlayPresentation = 'shell' | 'window';
 
@@ -180,16 +178,9 @@ export function DictationOverlay({ presentation = 'shell' }: DictationOverlayPro
 
   levelRef.current = Math.max(0, Math.min(100, inputLevel)) / 100;
 
-  // HUD window show/hide
-  useEffect(() => {
-    if (presentation !== 'window' || !tauriAvailable) return;
-    const hudWindow = getCurrentWebviewWindow();
-    if (visible) {
-      hudWindow.show().catch(() => {});
-    } else {
-      hudWindow.hide().catch(() => {});
-    }
-  }, [presentation, visible]);
+  // HUD window visibility is owned by the Rust side (emit_state in
+  // app_state.rs); showing/hiding from the webview raced with it and could
+  // leave the window orphaned on screen.
 
   // Canvas animation loop — unified for both recording and processing
   useEffect(() => {

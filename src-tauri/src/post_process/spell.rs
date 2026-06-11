@@ -18,6 +18,10 @@ pub struct SpellChecker {
 
 const CUSTOM_WORD_FREQ: u64 = 500_000_000;
 
+/// Minimum word length for which distance-3 corrections are considered.
+/// Mirrors the default 0.3 max edit distance ratio (3 edits / 10 chars).
+const MIN_WORD_LEN_FOR_DISTANCE3: usize = 10;
+
 impl SpellChecker {
     fn build_symspell_from_freqs(entries: &HashMap<String, u64>) -> SymSpell<AsciiStringStrategy> {
         let mut symspell: SymSpell<AsciiStringStrategy> = SymSpellBuilder::default()
@@ -126,14 +130,13 @@ impl SpellChecker {
 
         let orig_len = original.len() as f64;
 
-        candidates
-            .max_by(|a, b| {
-                let score_a = self.candidate_score(original, orig_len, a);
-                let score_b = self.candidate_score(original, orig_len, b);
-                score_a
-                    .partial_cmp(&score_b)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
+        candidates.max_by(|a, b| {
+            let score_a = self.candidate_score(original, orig_len, a);
+            let score_b = self.candidate_score(original, orig_len, b);
+            score_a
+                .partial_cmp(&score_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     }
 
     /// Blended reranking score: 50% distance + 35% frequency + 15% length similarity.
@@ -160,11 +163,12 @@ impl SpellChecker {
         self.process_with_confidence(text, None)
     }
 
-    /// Process text with optional whisper token confidence blending.
+    /// Process text with optional whisper token confidence dampening.
     ///
-    /// When `whisper_conf` is provided, the final edit confidence blends the
-    /// spell-checker's own confidence with whisper's uncertainty about the
-    /// original token: `final = 0.55 * spell_conf + 0.45 * (1.0 - whisper_p)`.
+    /// When `whisper_conf` is provided, the spell-checker's own confidence
+    /// is scaled down for tokens whisper was confident about (see
+    /// [`super::whisper_confidence::dampen_confidence`]). Whisper confidence
+    /// never raises an edit's confidence.
     pub fn process_with_confidence(
         &self,
         text: &str,
@@ -220,6 +224,13 @@ impl SpellChecker {
                         continue;
                     }
 
+                    // Distance-3 corrections rewrite a large fraction of a
+                    // word; only consider them for long words where 3 edits
+                    // is still a minor change.
+                    if best.distance == 3 && lower.len() < MIN_WORD_LEN_FOR_DISTANCE3 {
+                        continue;
+                    }
+
                     // Do not degrade valid contractions into apostrophe-less
                     // single tokens, e.g. "don't" -> "dont" or
                     // "we're" -> "weare".
@@ -231,19 +242,16 @@ impl SpellChecker {
                     let replacement = match_case(word, &best.term);
 
                     // Combined confidence: edit distance + frequency evidence
-                    let spell_conf =
-                        self.compute_confidence(&lower, best.count, best.distance);
+                    let spell_conf = self.compute_confidence(&lower, best.count, best.distance);
 
-                    // Blend with whisper token confidence when available.
-                    // Whisper's `p` = confidence the token is correct, so
-                    // (1 - p) = uncertainty. High whisper confidence suppresses
-                    // corrections; low whisper confidence permits them.
-                    let confidence = match whisper_conf
-                        .and_then(|wc| wc.confidence_for_span(*offset, word.len()))
-                    {
-                        Some(wp) => (0.55 * spell_conf + 0.45 * (1.0 - wp)).clamp(0.0, 1.0),
-                        None => spell_conf,
-                    };
+                    // Dampen by whisper token confidence when available: the
+                    // more certain whisper was about the original token, the
+                    // less it should be second-guessed. Never boosts.
+                    let confidence = super::whisper_confidence::dampen_confidence(
+                        spell_conf,
+                        whisper_conf.and_then(|wc| wc.confidence_for_span(*offset, word.len())),
+                        super::whisper_confidence::SPELL_MAX_SUPPRESSION,
+                    );
 
                     edits.push(TextEdit {
                         offset: *offset,
@@ -595,5 +603,82 @@ mod tests {
         let checker = checker_with_freqs(&[]);
         let best = checker.pick_best_candidate("test", &[]);
         assert!(best.is_none());
+    }
+
+    // ── Whisper confidence dampening tests ──
+
+    fn checker_for_recieve() -> SpellChecker {
+        let mut checker = SpellChecker::new_empty();
+        checker
+            .base_word_freqs
+            .insert("receive".to_string(), 500_000_000);
+        checker
+            .base_word_freqs
+            .insert("will".to_string(), 500_000_000);
+        checker.word_freqs = checker.base_word_freqs.clone();
+        checker.symspell = SpellChecker::build_symspell_from_freqs(&checker.word_freqs);
+        checker
+    }
+
+    fn confidence_map(text: &str, words: &[(&str, f32)]) -> WhisperConfidenceMap {
+        let tokens: Vec<crate::whisper_backend::TokenConfidence> = words
+            .iter()
+            .map(|(w, p)| crate::whisper_backend::TokenConfidence {
+                text: format!(" {w}"),
+                prob: *p,
+            })
+            .collect();
+        WhisperConfidenceMap::build(text, &tokens)
+    }
+
+    #[test]
+    fn high_whisper_prob_suppresses_correction() {
+        let checker = checker_for_recieve();
+        let text = "will recieve";
+        let map = confidence_map(text, &[("will", 0.97), ("recieve", 0.97)]);
+
+        let plain = checker.process(text);
+        let damped = checker.process_with_confidence(text, Some(&map));
+        assert_eq!(plain.len(), 1);
+        assert_eq!(damped.len(), 1);
+        assert!(
+            damped[0].confidence < 0.7,
+            "high-wp edit should fall below the default gate, got {}",
+            damped[0].confidence
+        );
+        assert!(damped[0].confidence < plain[0].confidence);
+    }
+
+    #[test]
+    fn low_whisper_prob_does_not_boost_correction() {
+        let checker = checker_for_recieve();
+        let text = "will recieve";
+        let map = confidence_map(text, &[("will", 0.2), ("recieve", 0.2)]);
+
+        let plain = checker.process(text);
+        let damped = checker.process_with_confidence(text, Some(&map));
+        assert_eq!(plain.len(), 1);
+        assert_eq!(damped.len(), 1);
+        assert_eq!(
+            damped[0].confidence, plain[0].confidence,
+            "low whisper prob must leave the spell confidence unchanged"
+        );
+    }
+
+    #[test]
+    fn distance3_skipped_for_short_words() {
+        let mut checker = SpellChecker::new_empty();
+        checker
+            .base_word_freqs
+            .insert("banana".to_string(), 5_000_000_000);
+        checker.word_freqs = checker.base_word_freqs.clone();
+        checker.symspell = SpellChecker::build_symspell_from_freqs(&checker.word_freqs);
+
+        // "bununu" → "banana" is distance 3 on a 6-char word; must be skipped.
+        let edits = checker.process("bununu");
+        assert!(
+            edits.is_empty(),
+            "distance-3 correction on a short word should be skipped: {edits:?}"
+        );
     }
 }

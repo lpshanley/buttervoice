@@ -14,9 +14,7 @@ struct BenchmarkCase {
 fn load_spell_cases() -> Vec<BenchmarkCase> {
     let raw = include_str!("fixtures/post_process_benchmark.json");
     let all: Vec<BenchmarkCase> = serde_json::from_str(raw).expect("fixture json should parse");
-    all.into_iter()
-        .filter(|c| c.domain == "spelling")
-        .collect()
+    all.into_iter().filter(|c| c.domain == "spelling").collect()
 }
 
 fn spell_settings() -> Settings {

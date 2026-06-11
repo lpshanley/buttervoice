@@ -206,9 +206,8 @@ impl PostProcessor {
 
         // Build whisper confidence map after structural stages complete.
         // Word identity is preserved through stages 1-4, so alignment works.
-        let whisper_conf_map = token_confidences.map(|tokens| {
-            whisper_confidence::WhisperConfidenceMap::build(&current_text, tokens)
-        });
+        let whisper_conf_map = token_confidences
+            .map(|tokens| whisper_confidence::WhisperConfidenceMap::build(&current_text, tokens));
         let wc_ref = whisper_conf_map.as_ref();
 
         // Stage 5: Spell correction (toggled)
@@ -370,7 +369,14 @@ impl PostProcessor {
         stage_acc: &mut StageAccumulator,
         whisper_conf: Option<&whisper_confidence::WhisperConfidenceMap>,
     ) -> String {
-        self.run_stage_inner(stage, input, process_fn, safety_gate, stage_acc, whisper_conf)
+        self.run_stage_inner(
+            stage,
+            input,
+            process_fn,
+            safety_gate,
+            stage_acc,
+            whisper_conf,
+        )
     }
 
     fn run_stage_inner(

@@ -135,8 +135,8 @@ pub fn init(enabled: bool, otlp_endpoint: &str) {
         .with_level(true)
         .compact();
 
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("buttervoice=info"));
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("buttervoice=info"));
 
     let registry = tracing_subscriber::registry()
         .with(env_filter)
@@ -146,13 +146,15 @@ pub fn init(enabled: bool, otlp_endpoint: &str) {
         let otel_trace_layer = tracing_opentelemetry::layer().with_tracer(tp.tracer(SERVICE_NAME));
 
         if let Some(ref lp) = logger_provider {
-            let otel_log_layer = opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(lp);
+            let otel_log_layer =
+                opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(lp);
             registry.with(otel_trace_layer).with(otel_log_layer).init();
         } else {
             registry.with(otel_trace_layer).init();
         }
     } else if let Some(ref lp) = logger_provider {
-        let otel_log_layer = opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(lp);
+        let otel_log_layer =
+            opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(lp);
         registry.with(otel_log_layer).init();
     } else {
         registry.init();
@@ -187,8 +189,8 @@ fn init_stderr_only() {
         .with_level(true)
         .compact();
 
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("buttervoice=info"));
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("buttervoice=info"));
 
     tracing_subscriber::registry()
         .with(env_filter)
@@ -228,7 +230,10 @@ pub fn record_dictation_metrics(
     );
     latency_hist.record(
         transcription_duration_ms as f64,
-        &[KeyValue::new("stage", "transcription"), KeyValue::new("model_id", model_id.to_string())],
+        &[
+            KeyValue::new("stage", "transcription"),
+            KeyValue::new("model_id", model_id.to_string()),
+        ],
     );
     if post_process_duration_ms > 0 {
         latency_hist.record(
@@ -259,7 +264,8 @@ pub fn record_dictation_metrics(
     // RTF (Real-Time Factor) — processing time / audio duration
     if recording_duration_ms > 0 {
         let rtf = meter.f64_gauge("dictation.rtf").build();
-        let processing_time = transcription_duration_ms + post_process_duration_ms + cleanup_duration_ms;
+        let processing_time =
+            transcription_duration_ms + post_process_duration_ms + cleanup_duration_ms;
         rtf.record(
             processing_time as f64 / recording_duration_ms as f64,
             &[KeyValue::new("model_id", model_id.to_string())],
@@ -308,6 +314,22 @@ pub fn record_llm_result_fail(error_code: &str) {
 pub fn record_vad_run() {
     let meter = global::meter(SERVICE_NAME);
     let counter = meter.u64_counter("dictation.vad.runs").build();
+    counter.add(1, &[]);
+}
+
+/// Record a dictation skipped because VAD detected no speech.
+pub fn record_no_speech_skip() {
+    let meter = global::meter(SERVICE_NAME);
+    let counter = meter.u64_counter("dictation.no_speech_skips").build();
+    counter.add(1, &[]);
+}
+
+/// Record a transcript altered or dropped by the hallucination filter.
+pub fn record_hallucination_filtered() {
+    let meter = global::meter(SERVICE_NAME);
+    let counter = meter
+        .u64_counter("dictation.hallucinations_filtered")
+        .build();
     counter.add(1, &[]);
 }
 
@@ -373,10 +395,7 @@ pub fn record_spell_corrections(corrections: &[(i32, f32)]) {
         .build();
 
     for (distance, confidence) in corrections {
-        distance_counter.add(
-            1,
-            &[KeyValue::new("distance", format!("{distance}"))],
-        );
+        distance_counter.add(1, &[KeyValue::new("distance", format!("{distance}"))]);
         confidence_hist.record(*confidence as f64, &[]);
     }
 }

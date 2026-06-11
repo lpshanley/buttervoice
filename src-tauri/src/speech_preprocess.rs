@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use webrtc_vad::{SampleRate, Vad, VadMode};
 
 const VAD_FRAME_MS: u32 = 30;
-const VAD_LEADING_PADDING_MS: u32 = 300;
+const VAD_LEADING_PADDING_MS: u32 = 450;
 const VAD_TRAILING_PADDING_MS: u32 = 500;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,7 +107,11 @@ pub fn preprocess_wav_with_vad(
         });
     }
 
-    let mut vad = Vad::new_with_rate_and_mode(sample_rate, VadMode::Aggressive);
+    // Quality is the most permissive webrtc mode: it detects quiet onsets and
+    // trailing consonants that Aggressive scores as non-speech, which both
+    // clipped words at utterance boundaries and produced false "no speech"
+    // verdicts.
+    let mut vad = Vad::new_with_rate_and_mode(sample_rate, VadMode::Quality);
     let mut first_voice_idx = None;
     let mut last_voice_idx = None;
 
@@ -283,6 +287,32 @@ mod tests {
 
         assert_eq!(outcome.status, PreprocessStatus::Trimmed);
         assert!(outcome.output_duration_ms >= 1_400);
+
+        let _ = fs::remove_file(wav);
+        if let Some(path) = outcome.cleanup_path {
+            let _ = fs::remove_file(path);
+        }
+        let _ = fs::remove_dir_all(scratch_dir);
+    }
+
+    #[test]
+    fn short_leading_silence_is_kept_within_padding() {
+        let wav = temp_wav_path("vad-short-lead");
+        let scratch_dir = std::env::temp_dir().join(format!("buttervoice-vad-{}", unique_suffix()));
+        let mut samples = Vec::new();
+        // Leading silence shorter than VAD_LEADING_PADDING_MS must survive
+        // intact (trim_start saturates at 0); the long tail is still trimmed.
+        append_constant(&mut samples, 16_000, 400, 0);
+        append_constant(&mut samples, 16_000, 1_000, 6_000);
+        append_constant(&mut samples, 16_000, 2_000, 0);
+        write_wav(&wav, 16_000, &samples);
+
+        let outcome = preprocess_wav_with_vad(&wav, &scratch_dir, "short-lead-test").unwrap();
+
+        assert_eq!(outcome.status, PreprocessStatus::Trimmed);
+        // Leading 400ms kept + speech 1000ms + trailing padding 500ms ≈ 1900ms.
+        assert!(outcome.output_duration_ms >= 1_800);
+        assert!(outcome.output_duration_ms < outcome.raw_duration_ms);
 
         let _ = fs::remove_file(wav);
         if let Some(path) = outcome.cleanup_path {

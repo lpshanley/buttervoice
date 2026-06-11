@@ -211,10 +211,9 @@ mod tests {
 
     #[test]
     fn remote_backend_status_does_not_require_local_bundle() {
-        let service = SpeechService::new(
-            std::env::temp_dir().join("buttervoice-speech-service-test"),
-        )
-        .unwrap();
+        let service =
+            SpeechService::new(std::env::temp_dir().join("buttervoice-speech-service-test"))
+                .unwrap();
 
         let settings = Settings {
             speech_provider: SpeechProvider::RemoteOpenaiCompatible,

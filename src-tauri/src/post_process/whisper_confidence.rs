@@ -1,5 +1,30 @@
 use crate::whisper_backend::TokenConfidence;
 
+/// Whisper probability above which corrections start being suppressed.
+pub const DAMPEN_START_PROB: f32 = 0.60;
+/// Maximum fraction of stage confidence removed at whisper prob 1.0 for
+/// spell corrections.
+pub const SPELL_MAX_SUPPRESSION: f32 = 0.35;
+
+/// Whisper token confidence may only DAMPEN a stage's own confidence,
+/// never raise it.
+///
+/// When the probability is unknown or at most [`DAMPEN_START_PROB`], the
+/// stage confidence passes through untouched. As the probability rises
+/// toward 1.0 the confidence is scaled down linearly by up to
+/// `max_suppression` — the more certain whisper was about a token, the
+/// less it should be second-guessed.
+pub fn dampen_confidence(stage_conf: f32, whisper_prob: Option<f32>, max_suppression: f32) -> f32 {
+    let Some(wp) = whisper_prob else {
+        return stage_conf;
+    };
+    if wp <= DAMPEN_START_PROB {
+        return stage_conf;
+    }
+    let t = ((wp - DAMPEN_START_PROB) / (1.0 - DAMPEN_START_PROB)).clamp(0.0, 1.0);
+    (stage_conf * (1.0 - max_suppression * t)).clamp(0.0, 1.0)
+}
+
 /// Maps byte spans in post-processed text back to Whisper token probabilities.
 ///
 /// Built after structural pipeline stages (sentence segmentation, punctuation,
@@ -189,11 +214,7 @@ mod tests {
     #[test]
     fn punctuation_added_by_pipeline() {
         // Pipeline added a comma — words should still align
-        let tokens = vec![
-            tok(" Hello", 0.95),
-            tok(" world", 0.80),
-            tok(" foo", 0.60),
-        ];
+        let tokens = vec![tok(" Hello", 0.95), tok(" world", 0.80), tok(" foo", 0.60)];
         let text = "Hello, world. Foo";
         let map = WhisperConfidenceMap::build(text, &tokens);
 
@@ -212,5 +233,48 @@ mod tests {
         // Span covering both words [0, 11)
         let conf = map.confidence_for_span(0, 11).unwrap();
         assert!((conf - 0.80).abs() < 0.01);
+    }
+
+    // ── dampen_confidence tests ──
+
+    #[test]
+    fn dampen_no_data_passthrough() {
+        assert_eq!(dampen_confidence(0.85, None, SPELL_MAX_SUPPRESSION), 0.85);
+    }
+
+    #[test]
+    fn dampen_low_wp_no_boost() {
+        // Low whisper probability must leave the stage confidence exactly
+        // as-is — never raise it.
+        assert_eq!(
+            dampen_confidence(0.72, Some(0.2), SPELL_MAX_SUPPRESSION),
+            0.72
+        );
+        assert_eq!(
+            dampen_confidence(0.72, Some(DAMPEN_START_PROB), SPELL_MAX_SUPPRESSION),
+            0.72
+        );
+    }
+
+    #[test]
+    fn dampen_high_wp_suppresses() {
+        // A strong ed1 correction (0.93) on a token whisper was very sure
+        // about (0.95) must fall below the default 0.7 gate.
+        let damped = dampen_confidence(0.93, Some(0.95), SPELL_MAX_SUPPRESSION);
+        assert!(damped < 0.7, "expected < 0.7, got {damped}");
+    }
+
+    #[test]
+    fn dampen_never_boosts_and_is_monotonic() {
+        let mut prev = f32::MAX;
+        for wp in [0.0, 0.3, 0.6, 0.7, 0.8, 0.9, 1.0] {
+            let damped = dampen_confidence(0.9, Some(wp), SPELL_MAX_SUPPRESSION);
+            assert!(damped <= 0.9, "boosted at wp={wp}: {damped}");
+            assert!(damped <= prev, "not monotonic at wp={wp}");
+            prev = damped;
+        }
+        // Full suppression amount at wp = 1.0.
+        let floor = dampen_confidence(0.9, Some(1.0), SPELL_MAX_SUPPRESSION);
+        assert!((floor - 0.9 * (1.0 - SPELL_MAX_SUPPRESSION)).abs() < 1e-6);
     }
 }

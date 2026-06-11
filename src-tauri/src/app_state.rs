@@ -169,6 +169,8 @@ pub struct PipelineMetricsSnapshot {
     pub vad_skipped_unsupported_format: u64,
     pub vad_skipped_unsupported_sample_rate: u64,
     pub vad_fallback_raw_no_speech: u64,
+    pub no_speech_skips: u64,
+    pub hallucinations_filtered: u64,
     pub audio_batches_dropped: u64,
     pub stage_latency_histograms: HashMap<String, StageLatencyHistogram>,
     pub last_100_failures: Vec<PipelineFailureEvent>,
@@ -215,6 +217,7 @@ struct PreprocessStageOutcome {
     audio_path: PathBuf,
     cleanup_path: Option<PathBuf>,
     duration_ms: u64,
+    status: Option<PreprocessStatus>,
 }
 
 impl AppState {
@@ -588,6 +591,25 @@ impl AppState {
             };
             let preprocess_outcome =
                 self.run_preprocess_stage(&trace_id, &audio_path, &resolved_settings);
+
+            // VAD found no voiced frames: sending the raw (effectively
+            // silent) audio to whisper invites hallucinations such as
+            // "Thank you." or "[BLANK_AUDIO]", so skip transcription.
+            if matches!(
+                preprocess_outcome.status,
+                Some(PreprocessStatus::UsedRawNoSpeech)
+            ) {
+                self.debug_trace(
+                    "transcribe",
+                    format!("request_id={trace_id} skipped: vad detected no speech"),
+                );
+                self.metrics_increment_no_speech_skip();
+                self.finish_trace();
+                self.emit_partial_transcript(String::new());
+                self.set_state(DictationState::Idle);
+                return;
+            }
+
             let request = TranscribeRequest {
                 request_id: trace_id.clone(),
                 audio_path: preprocess_outcome.audio_path.clone(),
@@ -661,7 +683,37 @@ impl AppState {
                         return;
                     }
 
-                    let response_text = normalize_transcript_text(&response.text);
+                    let avg_token_prob = response
+                        .token_confidences
+                        .as_deref()
+                        .filter(|tokens| !tokens.is_empty())
+                        .map(|tokens| {
+                            tokens.iter().map(|tc| tc.prob).sum::<f32>() / tokens.len() as f32
+                        });
+                    let filtered = crate::transcript_filter::filter_hallucinations(
+                        &normalize_transcript_text(&response.text),
+                        avg_token_prob,
+                    );
+                    if filtered.annotations_stripped || filtered.phrase_dropped {
+                        self.debug_trace(
+                            "transcribe",
+                            format!(
+                                "request_id={} hallucination_filter annotations_stripped={} phrase_dropped={} avg_token_prob={:?}",
+                                response.request_id,
+                                filtered.annotations_stripped,
+                                filtered.phrase_dropped,
+                                avg_token_prob
+                            ),
+                        );
+                        self.metrics_increment_hallucination_filtered();
+                    }
+                    let response_text = filtered.text;
+                    if response_text.is_empty() {
+                        self.finish_trace();
+                        self.emit_partial_transcript(String::new());
+                        self.set_state(DictationState::Idle);
+                        return;
+                    }
                     self.debug_trace(
                         "transcribe",
                         format!(
@@ -994,7 +1046,12 @@ impl AppState {
 
         let post_process_outcome = {
             let _pp_span = tracing::info_span!("dictation.post_processing").entered();
-            self.run_post_process_stage(&request_id_for_log, &raw_text, &settings, token_confidences.as_deref())
+            self.run_post_process_stage(
+                &request_id_for_log,
+                &raw_text,
+                &settings,
+                token_confidences.as_deref(),
+            )
         };
         if let Some(output) = post_process_outcome.output.clone() {
             final_text = output;
@@ -1201,7 +1258,8 @@ impl AppState {
             OutputDestination::from_u8(self.output_destination.load(Ordering::Relaxed));
         let _injection_span = tracing::info_span!("dictation.text_injection",
             destination = ?current_dest,
-        ).entered();
+        )
+        .entered();
         match current_dest {
             OutputDestination::Input => {
                 self.set_state(DictationState::Injecting);
@@ -1281,7 +1339,11 @@ impl AppState {
         self.set_state(DictationState::PostProcessing);
         self.metrics_increment_pp_runs();
         let pp_start = Instant::now();
-        match self.post_processor.lock().run(raw_text, settings, token_confidences) {
+        match self
+            .post_processor
+            .lock()
+            .run(raw_text, settings, token_confidences)
+        {
             Ok(result) => {
                 self.debug_trace(
                     "post_process",
@@ -1305,8 +1367,8 @@ impl AppState {
                     .filter_map(|edit| {
                         edit.rule_id.strip_prefix("spell_ed").and_then(|d| {
                             d.parse::<i32>().ok().map(|distance| {
-                                let original = &raw_text
-                                    [edit.offset..edit.offset.saturating_add(edit.length).min(raw_text.len())];
+                                let original = &raw_text[edit.offset
+                                    ..edit.offset.saturating_add(edit.length).min(raw_text.len())];
                                 tracing::info!(
                                     original = %original,
                                     correction = %edit.replacement,
@@ -1369,6 +1431,7 @@ impl AppState {
                 outcome.audio_path = result.audio_path;
                 outcome.cleanup_path = result.cleanup_path;
                 outcome.duration_ms = result.duration_ms;
+                outcome.status = Some(result.status);
                 if result.duration_ms > 0 {
                     self.metrics_observe_stage_latency("preprocess", result.duration_ms);
                 }
@@ -1784,6 +1847,21 @@ impl AppState {
         crate::telemetry::record_vad_run();
     }
 
+    fn metrics_increment_no_speech_skip(&self) {
+        let mut metrics = self.pipeline_metrics.lock();
+        metrics.snapshot.no_speech_skips = metrics.snapshot.no_speech_skips.saturating_add(1);
+        drop(metrics);
+        crate::telemetry::record_no_speech_skip();
+    }
+
+    fn metrics_increment_hallucination_filtered(&self) {
+        let mut metrics = self.pipeline_metrics.lock();
+        metrics.snapshot.hallucinations_filtered =
+            metrics.snapshot.hallucinations_filtered.saturating_add(1);
+        drop(metrics);
+        crate::telemetry::record_hallucination_filtered();
+    }
+
     fn metrics_record_vad_result(
         &self,
         status: PreprocessStatus,
@@ -1869,25 +1947,41 @@ impl AppState {
 
     fn emit_state(&self, state: DictationState) {
         let _ = self.app_handle.emit("dictation-state", state);
-        if matches!(
+        let show = matches!(
             state,
             DictationState::Recording
                 | DictationState::Transcribing
                 | DictationState::PostProcessing
                 | DictationState::Injecting
-        ) {
-            if let Some(window) = self.app_handle.get_webview_window("hud") {
+        );
+        if let Some(window) = self.app_handle.get_webview_window("hud") {
+            if show {
                 self.position_hud_window(&window);
                 let _ = window.show();
+            } else {
+                // Hide from Rust rather than delegating to the webview:
+                // a missed event or reload must not leave the HUD orphaned
+                // on screen.
+                let _ = window.hide();
             }
         }
     }
 
-    fn position_hud_window<R: tauri::Runtime>(&self, window: &tauri::WebviewWindow<R>) {
-        let monitor = window
-            .current_monitor()
+    fn position_hud_window(&self, window: &tauri::WebviewWindow) {
+        // Prefer the monitor under the cursor: the hidden HUD window's own
+        // current_monitor() reflects where it last was (initially the
+        // primary display), not where the user is working.
+        let monitor = self
+            .app_handle
+            .cursor_position()
             .ok()
-            .flatten()
+            .and_then(|pos| {
+                self.app_handle
+                    .monitor_from_point(pos.x, pos.y)
+                    .ok()
+                    .flatten()
+            })
+            .or_else(|| window.current_monitor().ok().flatten())
             .or_else(|| window.primary_monitor().ok().flatten());
         let Some(monitor) = monitor else {
             return;

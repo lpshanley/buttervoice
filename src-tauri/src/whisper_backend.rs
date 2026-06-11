@@ -541,6 +541,9 @@ impl WhisperBackend {
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
         params.set_suppress_blank(true);
+        // Suppress bracketed annotation tokens ([Music], (applause), ♪) at
+        // sampling time — a common hallucination on silent/noisy audio.
+        params.set_suppress_non_speech_tokens(true);
 
         if request.threads > 0 {
             params.set_n_threads(request.threads as i32);
@@ -548,41 +551,44 @@ impl WhisperBackend {
 
         let start = Instant::now();
 
-        let mut state = ctx.create_state().map_err(|e| {
-            anyhow!("failed to create whisper state: {e}")
-        })?;
+        let mut state = ctx
+            .create_state()
+            .map_err(|e| anyhow!("failed to create whisper state: {e}"))?;
 
-        state.full(params, audio_samples).map_err(|e| {
-            anyhow!("whisper inference failed: {e}")
-        })?;
+        state
+            .full(params, audio_samples)
+            .map_err(|e| anyhow!("whisper inference failed: {e}"))?;
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
-        let num_segments = state.full_n_segments().map_err(|e| {
-            anyhow!("failed to get segment count: {e}")
-        })?;
+        let num_segments = state
+            .full_n_segments()
+            .map_err(|e| anyhow!("failed to get segment count: {e}"))?;
 
         let mut text = String::new();
         let mut token_confidences = Vec::new();
         for i in 0..num_segments {
-            let segment_text = state.full_get_segment_text(i).map_err(|e| {
-                anyhow!("failed to get segment {i} text: {e}")
-            })?;
+            let segment_text = state
+                .full_get_segment_text(i)
+                .map_err(|e| anyhow!("failed to get segment {i} text: {e}"))?;
             text.push_str(&segment_text);
 
-            let n_tokens = state.full_n_tokens(i).map_err(|e| {
-                anyhow!("failed to get token count for segment {i}: {e}")
-            })?;
+            let n_tokens = state
+                .full_n_tokens(i)
+                .map_err(|e| anyhow!("failed to get token count for segment {i}: {e}"))?;
             for t in 0..n_tokens {
-                let tok_text = state.full_get_token_text_lossy(i, t).map_err(|e| {
-                    anyhow!("failed to get token {t} text in segment {i}: {e}")
-                })?;
-                let prob = state.full_get_token_prob(i, t).map_err(|e| {
-                    anyhow!("failed to get token {t} prob in segment {i}: {e}")
-                })?;
+                let tok_text = state
+                    .full_get_token_text_lossy(i, t)
+                    .map_err(|e| anyhow!("failed to get token {t} text in segment {i}: {e}"))?;
+                let prob = state
+                    .full_get_token_prob(i, t)
+                    .map_err(|e| anyhow!("failed to get token {t} prob in segment {i}: {e}"))?;
                 // Skip special tokens (empty, whitespace-only, [_BEG_], etc.)
                 if !tok_text.trim().is_empty() && !tok_text.starts_with('[') {
-                    token_confidences.push(TokenConfidence { text: tok_text, prob });
+                    token_confidences.push(TokenConfidence {
+                        text: tok_text,
+                        prob,
+                    });
                 }
             }
         }

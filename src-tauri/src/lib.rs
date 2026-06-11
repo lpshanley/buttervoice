@@ -16,6 +16,7 @@ mod speech_backend;
 mod speech_preprocess;
 mod telemetry;
 mod text_inject_macos;
+mod transcript_filter;
 mod tray;
 mod usage_stats;
 mod whisper_backend;
@@ -511,14 +512,18 @@ pub fn run() {
         .on_menu_event(|app, event| tray::on_tray_menu_event(app, event.id().as_ref()))
         .on_window_event(handle_window_event)
         .setup(|app| {
-            let state = AppState::bootstrap(app.handle().clone())
-                .map_err(|err| -> Box<dyn std::error::Error> {
+            let state = AppState::bootstrap(app.handle().clone()).map_err(
+                |err| -> Box<dyn std::error::Error> {
                     Box::new(std::io::Error::other(err.to_string()))
-                })?;
+                },
+            )?;
 
             // Initialize OpenTelemetry (before any tracing calls).
             let settings = state.settings_store().get();
-            telemetry::init(settings.telemetry_enabled, &settings.telemetry_otlp_endpoint);
+            telemetry::init(
+                settings.telemetry_enabled,
+                &settings.telemetry_otlp_endpoint,
+            );
 
             state.preflight_permissions();
             app.manage(state.clone());
@@ -529,6 +534,7 @@ pub fn run() {
 
             tray::refresh_login_menu_label(app.handle())?;
             tray::show_settings_window(app.handle())?;
+            configure_hud_window(app.handle());
 
             let hotkey_config = state.hotkey_config();
             spawn_hotkey_listener_with_retry(state.clone(), hotkey_config);
@@ -598,6 +604,47 @@ fn spawn_mic_watcher(state: Arc<AppState>) {
     });
 }
 
+fn configure_hud_window(app: &tauri::AppHandle) {
+    let Some(hud) = app.get_webview_window("hud") else {
+        return;
+    };
+    // The HUD is purely visual — let all mouse events pass through at the
+    // OS level. CSS pointer-events does not affect OS hit testing on a
+    // transparent window.
+    if let Err(err) = hud.set_ignore_cursor_events(true) {
+        eprintln!("failed setting hud ignore-cursor-events: {err}");
+    }
+    // Re-assert at runtime: the tauri.conf.json flag is not always applied
+    // reliably at window creation.
+    if let Err(err) = hud.set_visible_on_all_workspaces(true) {
+        eprintln!("failed setting hud visible-on-all-workspaces: {err}");
+    }
+    #[cfg(target_os = "macos")]
+    configure_hud_collection_behavior(&hud);
+}
+
+/// Allow the HUD to follow the active Space, including Spaces owned by
+/// fullscreen apps. Tauri's `visibleOnAllWorkspaces` only sets
+/// CanJoinAllSpaces; without FullScreenAuxiliary the window never appears
+/// over fullscreen applications. Must run after
+/// `set_visible_on_all_workspaces`, which rewrites the collection behavior.
+#[cfg(target_os = "macos")]
+#[allow(deprecated)] // cocoa is the crate already in use; objc2 migration is separate work
+fn configure_hud_collection_behavior(hud: &tauri::WebviewWindow) {
+    use cocoa::appkit::{NSWindow, NSWindowCollectionBehavior};
+
+    let Ok(ns_window) = hud.ns_window() else {
+        return;
+    };
+    let ns_window = ns_window as cocoa::base::id;
+    unsafe {
+        let behavior = ns_window.collectionBehavior()
+            | NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces
+            | NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary;
+        ns_window.setCollectionBehavior_(behavior);
+    }
+}
+
 fn handle_window_event<R: tauri::Runtime>(window: &tauri::Window<R>, event: &WindowEvent) {
     if let WindowEvent::CloseRequested { api, .. } = event {
         match window.label() {
@@ -615,4 +662,3 @@ fn handle_window_event<R: tauri::Runtime>(window: &tauri::Window<R>, event: &Win
         }
     }
 }
-
