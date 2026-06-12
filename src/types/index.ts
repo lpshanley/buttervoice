@@ -6,7 +6,7 @@ export type PermissionState = 'granted' | 'denied' | 'unknown';
 export type PermissionKind = 'microphone' | 'accessibility' | 'input_monitoring';
 
 export type ComputeMode = 'auto' | 'cpu' | 'gpu';
-export type SpeechProvider = 'local_whispercpp' | 'remote_openai_compatible';
+export type SpeechProvider = 'local_whispercpp' | 'remote_openai_compatible' | 'remote_grok';
 export type SpeechRemotePreset = 'speaches' | 'openai' | 'custom';
 export type AudioChannelMode = 'left' | 'right' | 'mono_mix';
 export type HighPassFilter = 'off' | 'hz80' | 'hz120';
@@ -73,6 +73,10 @@ export interface Settings {
   speech_remote_model: string;
   speech_remote_api_key: string;
   speech_remote_api_key_configured: boolean;
+  grok_api_key: string;
+  grok_api_key_configured: boolean;
+  grok_text_formatting: boolean;
+  grok_filler_words: boolean;
   model_id: string;
   compute_mode: ComputeMode;
   keep_mic_stream_open: boolean;
@@ -143,6 +147,9 @@ export interface SettingsPatch {
   speech_remote_base_url?: string;
   speech_remote_model?: string;
   speech_remote_api_key?: string;
+  grok_api_key?: string;
+  grok_text_formatting?: boolean;
+  grok_filler_words?: boolean;
   model_id?: string;
   compute_mode?: ComputeMode;
   keep_mic_stream_open?: boolean;

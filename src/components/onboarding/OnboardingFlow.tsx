@@ -75,7 +75,7 @@ export function OnboardingFlow() {
   }
 
   async function handleDownloadModel() {
-    if (settings?.speech_provider === 'remote_openai_compatible') {
+    if (settings && settings.speech_provider !== 'local_whispercpp') {
       setOnboardingDismissed(true);
       addToast('info', 'Configure your remote speech provider on the Speech settings page.');
       return;
@@ -219,11 +219,13 @@ export function OnboardingFlow() {
         {step === 'model' && (
           <Paper p="lg" radius="md" withBorder>
             <Stack gap="md">
-              {settings?.speech_provider === 'remote_openai_compatible' ? (
+              {settings && settings.speech_provider !== 'local_whispercpp' ? (
                 <>
                   <Text fw={500}>Configure Remote Speech</Text>
                   <Text size="sm" c="dimmed">
-                    Remote transcription is selected. Finish setup by adding a base URL and remote model on the Speech settings page.
+                    {settings.speech_provider === 'remote_grok'
+                      ? 'Grok transcription is selected. Finish setup by adding your xAI API key on the Speech settings page.'
+                      : 'Remote transcription is selected. Finish setup by adding a base URL and remote model on the Speech settings page.'}
                   </Text>
                   <Button size="xs" onClick={handleDownloadModel} style={{ alignSelf: 'flex-start' }}>
                     Finish in Speech Settings

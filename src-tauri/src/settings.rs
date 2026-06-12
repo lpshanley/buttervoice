@@ -11,7 +11,7 @@ use crate::hotkey_macos::{DictationMode, HotkeyKey};
 use crate::models;
 use crate::secrets;
 
-pub const SETTINGS_SCHEMA_VERSION: u32 = 16;
+pub const SETTINGS_SCHEMA_VERSION: u32 = 17;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -105,6 +105,7 @@ pub enum SpeechProvider {
     #[default]
     LocalWhispercpp,
     RemoteOpenaiCompatible,
+    RemoteGrok,
 }
 
 impl SpeechProvider {
@@ -112,6 +113,7 @@ impl SpeechProvider {
         match self {
             Self::LocalWhispercpp => "local_whispercpp",
             Self::RemoteOpenaiCompatible => "remote_openai_compatible",
+            Self::RemoteGrok => "remote_grok",
         }
     }
 
@@ -187,6 +189,11 @@ pub struct Settings {
     #[serde(default, skip_serializing)]
     pub speech_remote_api_key: String,
     pub speech_remote_api_key_configured: bool,
+    #[serde(default, skip_serializing)]
+    pub grok_api_key: String,
+    pub grok_api_key_configured: bool,
+    pub grok_text_formatting: bool,
+    pub grok_filler_words: bool,
     pub model_id: String,
     pub compute_mode: ComputeMode,
     pub keep_mic_stream_open: bool,
@@ -262,6 +269,9 @@ pub struct SettingsPatch {
     pub speech_remote_base_url: Option<String>,
     pub speech_remote_model: Option<String>,
     pub speech_remote_api_key: Option<String>,
+    pub grok_api_key: Option<String>,
+    pub grok_text_formatting: Option<bool>,
+    pub grok_filler_words: Option<bool>,
     pub model_id: Option<String>,
     pub compute_mode: Option<ComputeMode>,
     pub keep_mic_stream_open: Option<bool>,
@@ -355,6 +365,10 @@ impl Default for Settings {
             speech_remote_model: String::new(),
             speech_remote_api_key: String::new(),
             speech_remote_api_key_configured: false,
+            grok_api_key: String::new(),
+            grok_api_key_configured: false,
+            grok_text_formatting: true,
+            grok_filler_words: false,
             model_id: models::default_model_id().to_string(),
             compute_mode: ComputeMode::default(),
             keep_mic_stream_open: false,
@@ -419,6 +433,9 @@ impl Settings {
         match self.speech_provider {
             SpeechProvider::LocalWhispercpp => self.model_id.clone(),
             SpeechProvider::RemoteOpenaiCompatible => self.speech_remote_model.trim().to_string(),
+            // Grok exposes a single hosted STT model with no model parameter; this label
+            // only feeds telemetry and history display.
+            SpeechProvider::RemoteGrok => "grok-stt".to_string(),
         }
     }
 }
@@ -463,6 +480,22 @@ impl SettingsStore {
             requires_save = true;
         } else if let Ok(configured) = secrets::load_speech_api_key().map(|v| v.is_some()) {
             settings.speech_remote_api_key_configured = configured;
+            requires_save = true;
+        }
+
+        if !settings.grok_api_key.trim().is_empty() {
+            match secrets::store_grok_api_key(&settings.grok_api_key) {
+                Ok(configured) => {
+                    settings.grok_api_key_configured = configured;
+                }
+                Err(err) => {
+                    eprintln!("failed migrating Grok API key to Keychain: {err:#}");
+                }
+            }
+            settings.grok_api_key.clear();
+            requires_save = true;
+        } else if let Ok(configured) = secrets::load_grok_api_key().map(|v| v.is_some()) {
+            settings.grok_api_key_configured = configured;
             requires_save = true;
         }
 
@@ -556,6 +589,18 @@ impl SettingsStore {
                 .context("failed storing speech_remote_api_key in Keychain")?;
             settings.speech_remote_api_key.clear();
             settings.speech_remote_api_key_configured = configured;
+        }
+        if let Some(grok_api_key) = patch.grok_api_key {
+            let configured = secrets::store_grok_api_key(&grok_api_key)
+                .context("failed storing grok_api_key in Keychain")?;
+            settings.grok_api_key.clear();
+            settings.grok_api_key_configured = configured;
+        }
+        if let Some(grok_text_formatting) = patch.grok_text_formatting {
+            settings.grok_text_formatting = grok_text_formatting;
+        }
+        if let Some(grok_filler_words) = patch.grok_filler_words {
+            settings.grok_filler_words = grok_filler_words;
         }
         if let Some(model_id) = patch.model_id {
             settings.model_id = model_id;
@@ -888,6 +933,60 @@ mod tests {
                 .and_then(|value| value.as_bool()),
             Some(true)
         );
+    }
+
+    #[test]
+    fn settings_v16_migration_gets_grok_defaults() {
+        let settings: Settings = serde_json::from_str(
+            r#"{"schema_version":16,"hotkey":"right_option","model_id":"base.en"}"#,
+        )
+        .unwrap();
+        assert!(settings.grok_api_key.is_empty());
+        assert!(!settings.grok_api_key_configured);
+        assert!(settings.grok_text_formatting);
+        assert!(!settings.grok_filler_words);
+    }
+
+    #[test]
+    fn settings_patch_parses_grok_provider_and_fields() {
+        let patch: SettingsPatch =
+            serde_json::from_str(r#"{"speech_provider":"remote_grok"}"#).unwrap();
+        assert_eq!(patch.speech_provider, Some(SpeechProvider::RemoteGrok));
+
+        let patch: SettingsPatch = serde_json::from_str(
+            r#"{"grok_api_key":"xai-secret","grok_text_formatting":false,"grok_filler_words":true}"#,
+        )
+        .unwrap();
+        assert_eq!(patch.grok_api_key.as_deref(), Some("xai-secret"));
+        assert_eq!(patch.grok_text_formatting, Some(false));
+        assert_eq!(patch.grok_filler_words, Some(true));
+    }
+
+    #[test]
+    fn grok_api_key_is_not_serialized() {
+        let settings = Settings {
+            grok_api_key: "secret".to_string(),
+            grok_api_key_configured: true,
+            ..Settings::default()
+        };
+
+        let raw = serde_json::to_value(settings).unwrap();
+        let obj = raw.as_object().unwrap();
+        assert!(!obj.contains_key("grok_api_key"));
+        assert_eq!(
+            obj.get("grok_api_key_configured")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn grok_provider_uses_fixed_model_label() {
+        let settings = Settings {
+            speech_provider: SpeechProvider::RemoteGrok,
+            ..Settings::default()
+        };
+        assert_eq!(settings.active_speech_model_id(), "grok-stt");
     }
 
     #[test]

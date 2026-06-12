@@ -2,6 +2,7 @@ mod app_state;
 mod audio;
 mod content_classification;
 mod dock_macos;
+mod grok_speech;
 mod hotkey_macos;
 mod llm_cleanup;
 mod llm_guard;

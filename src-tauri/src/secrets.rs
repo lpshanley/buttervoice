@@ -5,6 +5,7 @@ use anyhow::{anyhow, Context, Result};
 const SERVICE: &str = "ButterVoice.LlmCleanup";
 const LLM_ACCOUNT: &str = "llm_api_key";
 const SPEECH_ACCOUNT: &str = "speech_api_key";
+const GROK_ACCOUNT: &str = "grok_speech_api_key";
 
 fn load_api_key(account: &str) -> Result<Option<String>> {
     let output = Command::new("security")
@@ -98,4 +99,12 @@ pub fn load_speech_api_key() -> Result<Option<String>> {
 
 pub fn store_speech_api_key(key: &str) -> Result<bool> {
     store_api_key(SPEECH_ACCOUNT, key)
+}
+
+pub fn load_grok_api_key() -> Result<Option<String>> {
+    load_api_key(GROK_ACCOUNT)
+}
+
+pub fn store_grok_api_key(key: &str) -> Result<bool> {
+    store_api_key(GROK_ACCOUNT, key)
 }

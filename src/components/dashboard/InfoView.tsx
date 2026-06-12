@@ -200,7 +200,7 @@ function EmptyState() {
                 <Anchor component={Link} to="/settings/permissions" size="sm">Grant permissions</Anchor>
               ) : !hasModel && settings?.speech_provider === 'local_whispercpp' ? (
                 <Anchor component={Link} to="/settings/models" size="sm">Download a model</Anchor>
-              ) : settings?.speech_provider === 'remote_openai_compatible' ? (
+              ) : settings && settings.speech_provider !== 'local_whispercpp' ? (
                 <Anchor component={Link} to="/settings/models" size="sm">Configure remote speech</Anchor>
               ) : null}
             </Group>

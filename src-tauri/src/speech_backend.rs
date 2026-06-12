@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use parking_lot::Mutex;
 use tauri::AppHandle;
 
+use crate::grok_speech::{build_grok_config, GrokSpeechBackend, GrokSpeechConfig};
 use crate::models;
 use crate::remote_speech::{build_remote_config, RemoteSpeechBackend, SpeechModelEntry};
 use crate::settings::{ComputeMode, Settings, SpeechProvider};
@@ -16,6 +17,16 @@ pub struct SpeechService {
     model_cache_dir: PathBuf,
     local_backend: Mutex<Option<Arc<WhisperBackend>>>,
     remote_backend: RemoteSpeechBackend,
+    grok_backend: GrokSpeechBackend,
+}
+
+fn grok_config_from(settings: &Settings) -> GrokSpeechConfig {
+    build_grok_config(
+        &settings.grok_api_key,
+        settings.grok_text_formatting,
+        settings.grok_filler_words,
+        &settings.post_process_custom_dictionary,
+    )
 }
 
 impl SpeechService {
@@ -31,6 +42,7 @@ impl SpeechService {
             model_cache_dir,
             local_backend: Mutex::new(None),
             remote_backend: RemoteSpeechBackend,
+            grok_backend: GrokSpeechBackend,
         })
     }
 
@@ -51,6 +63,9 @@ impl SpeechService {
                 )?;
                 self.remote_backend.transcribe(&config, request)
             }
+            SpeechProvider::RemoteGrok => self
+                .grok_backend
+                .transcribe(&grok_config_from(settings), request),
         }
     }
 
@@ -121,6 +136,14 @@ impl SpeechService {
                     },
                 }
             }
+            SpeechProvider::RemoteGrok => {
+                let mut status = self
+                    .grok_backend
+                    .backend_status(&grok_config_from(settings));
+                status.binary_available = true;
+                status.selected_compute_mode = settings.compute_mode.as_str().to_string();
+                status
+            }
         }
     }
 
@@ -166,6 +189,10 @@ impl SpeechService {
     }
 
     pub fn list_remote_models(&self, settings: &Settings) -> Result<Vec<SpeechModelEntry>> {
+        // Grok exposes a single hosted STT model and no listing endpoint.
+        if matches!(settings.speech_provider, SpeechProvider::RemoteGrok) {
+            return Ok(Vec::new());
+        }
         let config = build_remote_config(
             settings.speech_provider,
             settings.speech_remote_preset,
@@ -177,6 +204,11 @@ impl SpeechService {
     }
 
     pub fn test_remote_connection(&self, settings: &Settings) -> Result<String> {
+        if matches!(settings.speech_provider, SpeechProvider::RemoteGrok) {
+            return self
+                .grok_backend
+                .test_connection(&grok_config_from(settings));
+        }
         let config = build_remote_config(
             settings.speech_provider,
             settings.speech_remote_preset,

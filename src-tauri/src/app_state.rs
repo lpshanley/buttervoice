@@ -21,7 +21,9 @@ use crate::permissions_macos;
 use crate::persona;
 use crate::post_process::PostProcessor;
 use crate::secrets;
-use crate::settings::{self, ComputeMode, OutputDestination, Settings, SettingsStore};
+use crate::settings::{
+    self, ComputeMode, OutputDestination, Settings, SettingsStore, SpeechProvider,
+};
 use crate::speech_backend::SpeechService;
 use crate::speech_preprocess::{self, PreprocessStatus};
 use crate::text_inject_macos;
@@ -1752,6 +1754,10 @@ impl AppState {
         let mut resolved = settings.clone();
         resolved.speech_remote_api_key = secrets::load_speech_api_key()?.unwrap_or_default();
         resolved.speech_remote_api_key_configured = !resolved.speech_remote_api_key.is_empty();
+        if matches!(resolved.speech_provider, SpeechProvider::RemoteGrok) {
+            resolved.grok_api_key = secrets::load_grok_api_key()?.unwrap_or_default();
+            resolved.grok_api_key_configured = !resolved.grok_api_key.is_empty();
+        }
         Ok(resolved)
     }
 

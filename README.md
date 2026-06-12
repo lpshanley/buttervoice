@@ -10,7 +10,7 @@ Built with [Tauri 2](https://v2.tauri.app/), React 19, and Rust.
 2. Release the key — audio is sent to a local Whisper model for transcription
 3. The transcribed text is typed into whatever text field is currently focused
 
-Everything runs locally. No audio leaves your machine unless you opt into the optional LLM cleanup feature.
+Everything runs locally by default. No audio leaves your machine unless you opt into a remote transcription provider or the optional LLM cleanup feature.
 
 ## Features
 
@@ -18,6 +18,7 @@ Everything runs locally. No audio leaves your machine unless you opt into the op
 - **Offline transcription** using whisper.cpp with Metal GPU acceleration on Apple Silicon
 - **Text injection** directly into the focused input field (or clipboard fallback)
 - **Post-processing pipeline** — spell correction, punctuation repair, truecasing, number normalization, grammar rules
+- **Optional remote transcription** — OpenAI-compatible servers (Speaches, OpenAI) or xAI's Grok speech-to-text with your own API key
 - **Optional LLM cleanup** via any OpenAI-compatible API (OpenRouter, local models, etc.)
 - **Model management** — download and switch between Whisper models from tiny to large-v3
 - **Audio controls** — device selection, channel mode, high-pass filter, input gain

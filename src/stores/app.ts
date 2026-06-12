@@ -57,6 +57,9 @@ export const hasSpeechProviderConfiguredAtom = atom((get) => {
   if (settings.speech_provider === 'local_whispercpp') {
     return get(hasModelDownloadedAtom);
   }
+  if (settings.speech_provider === 'remote_grok') {
+    return settings.grok_api_key_configured;
+  }
   return (
     settings.speech_remote_base_url.trim().length > 0 &&
     settings.speech_remote_model.trim().length > 0

@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useAtomValue, useSetAtom } from 'jotai';
-import { Check, X, ChevronUp, ChevronDown, ChevronsUpDown, Mic, Cpu, SlidersHorizontal, Server } from 'lucide-react';
+import { Check, X, ChevronUp, ChevronDown, ChevronsUpDown, Mic, Cpu, SlidersHorizontal, Server, Sparkles } from 'lucide-react';
 import {
   Stack, Group, Text, Paper, Badge, Radio, Button, Center,
   Progress, ActionIcon, Box, SimpleGrid, UnstyledButton,
@@ -27,6 +27,7 @@ import { invoke, listen } from '../../lib/tauri';
 import { WhisperTuning } from '../settings/WhisperTuning';
 import { RuntimeSettings } from '../settings/RuntimeSettings';
 import { SpeechRemoteSettings } from '../settings/SpeechRemoteSettings';
+import { GrokSpeechSettings } from '../settings/GrokSpeechSettings';
 import type { ModelDownloadProgress, ModelInfo, Settings, SpeechProvider } from '../../types';
 
 function formatBytes(bytes: number): string {
@@ -56,6 +57,8 @@ export function VoiceModels() {
   const setDeletingModels = useSetAtom(deletingModelsAtom);
   const setDownloadProgress = useSetAtom(downloadProgressAtom);
   const isLocalProvider = settings?.speech_provider === 'local_whispercpp';
+  const isGrokProvider = settings?.speech_provider === 'remote_grok';
+  const isOpenaiCompatibleProvider = settings?.speech_provider === 'remote_openai_compatible';
 
   useEffect(() => {
     const unlisten = listen<ModelDownloadProgress>('model-download-progress', (payload) => {
@@ -144,7 +147,9 @@ export function VoiceModels() {
         'success',
         provider === 'local_whispercpp'
           ? 'Local speech provider selected.'
-          : 'Remote speech provider selected.',
+          : provider === 'remote_grok'
+            ? 'Grok speech provider selected.'
+            : 'Remote speech provider selected.',
       );
     } catch (error) {
       addToast('error', `Failed to update settings: ${String(error)}`);
@@ -326,15 +331,16 @@ export function VoiceModels() {
       <SectionCard icon={Mic} title="Speech Provider">
         <Stack gap="md">
           <Text size="xs" c="dimmed">
-            Choose whether transcription runs locally with whisper.cpp or through a remote OpenAI-compatible speech API such as Speaches.
+            Choose whether transcription runs locally with whisper.cpp, through a remote OpenAI-compatible speech API such as Speaches, or through xAI&apos;s hosted Grok speech-to-text.
           </Text>
 
-          <SimpleGrid cols={2}>
+          <SimpleGrid cols={3}>
             <UnstyledButton onClick={() => switchProvider('local_whispercpp')}>
               <Paper
                 p="md"
                 radius="md"
                 withBorder
+                h="100%"
                 style={{
                   borderColor: isLocalProvider ? 'var(--mantine-color-blue-6)' : undefined,
                   backgroundColor: isLocalProvider ? 'var(--mantine-color-blue-light)' : undefined,
@@ -352,15 +358,34 @@ export function VoiceModels() {
                 p="md"
                 radius="md"
                 withBorder
+                h="100%"
                 style={{
-                  borderColor: !isLocalProvider ? 'var(--mantine-color-blue-6)' : undefined,
-                  backgroundColor: !isLocalProvider ? 'var(--mantine-color-blue-light)' : undefined,
+                  borderColor: isOpenaiCompatibleProvider ? 'var(--mantine-color-blue-6)' : undefined,
+                  backgroundColor: isOpenaiCompatibleProvider ? 'var(--mantine-color-blue-light)' : undefined,
                 }}
               >
                 <Stack gap={4} align="center" ta="center">
                   <Server size={18} color="var(--mantine-color-dimmed)" />
                   <Text size="sm" fw={500}>Remote</Text>
                   <Text size="xs" c="dimmed">Send audio to Speaches, OpenAI, or a custom hosted API.</Text>
+                </Stack>
+              </Paper>
+            </UnstyledButton>
+            <UnstyledButton onClick={() => switchProvider('remote_grok')}>
+              <Paper
+                p="md"
+                radius="md"
+                withBorder
+                h="100%"
+                style={{
+                  borderColor: isGrokProvider ? 'var(--mantine-color-blue-6)' : undefined,
+                  backgroundColor: isGrokProvider ? 'var(--mantine-color-blue-light)' : undefined,
+                }}
+              >
+                <Stack gap={4} align="center" ta="center">
+                  <Sparkles size={18} color="var(--mantine-color-dimmed)" />
+                  <Text size="sm" fw={500}>Grok (xAI)</Text>
+                  <Text size="xs" c="dimmed">Hosted speech-to-text from xAI. Bring your own API key.</Text>
                 </Stack>
               </Paper>
             </UnstyledButton>
@@ -450,6 +475,10 @@ export function VoiceModels() {
             )}
           </Paper>
         </Stack>
+      </SectionCard>
+      ) : isGrokProvider ? (
+      <SectionCard icon={Sparkles} title="Grok Provider">
+        <GrokSpeechSettings />
       </SectionCard>
       ) : (
       <SectionCard icon={Server} title="Remote Provider">
