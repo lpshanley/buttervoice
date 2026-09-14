@@ -4,42 +4,109 @@ import { Box } from '@mantine/core';
 import { dictationStateAtom, inputLevelAtom } from '../../stores/app';
 
 type OverlayPresentation = 'shell' | 'window';
+type Rgb = readonly [number, number, number];
 
 const OVERLAY_WIDTH = 'min(12rem, calc(100vw - 0.75rem))';
 const PROCESSING_STATES = ['transcribing', 'post_processing', 'injecting'] as const;
 
+/** Duration of the recording -> processing canvas crossfade. */
+const BLEND_MS = 350;
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Palettes
+ *
+ * Recording follows the app's `butter` theme ramp (see src/main.tsx) so the
+ * HUD reads as part of the brand. Processing stays cool for at-a-glance
+ * contrast, but in a soft periwinkle that sits comfortably next to gold.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+const RECORDING_PALETTE = {
+  /** butter.2 — rear, widest layer */
+  back: [253, 226, 138] as Rgb,
+  /** butter.3 — middle layer */
+  mid: [251, 208, 77] as Rgb,
+  /** butter.5 — front, most saturated layer */
+  front: [232, 163, 8] as Rgb,
+  /** butter.1 — highlight stroke along the front edge */
+  highlight: [254, 240, 199] as Rgb,
+  /** butter.6 — deeper amber toward the pill ends */
+  edge: [200, 125, 4] as Rgb,
+  /** butter.3 — glow / chrome tint */
+  glow: [251, 208, 77] as Rgb,
+} as const;
+
+const PROCESSING_PALETTE = {
+  /** resting bar colour */
+  base: [96, 108, 190] as Rgb,
+  /** colour as the luminous sweep passes */
+  lit: [176, 186, 255] as Rgb,
+  /** glow / chrome tint */
+  glow: [130, 150, 250] as Rgb,
+} as const;
+
+function rgba([r, g, b]: Rgb, a: number): string {
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
+
+function mix(a: Rgb, b: Rgb, t: number): Rgb {
+  return [
+    Math.round(a[0] + (b[0] - a[0]) * t),
+    Math.round(a[1] + (b[1] - a[1]) * t),
+    Math.round(a[2] + (b[2] - a[2]) * t),
+  ];
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
  * Recording Visualization — "Ember Flow"
  *
- * Three overlapping waveform layers in warm orange tones. Each layer has
- * distinct frequency, phase speed, and opacity, creating a sense of
- * organic depth. The topmost layer gets a subtle highlight stroke along
- * its edge. Soft glow intensifies with input level.
+ * Three overlapping waveform layers in butter/gold tones. Each layer has a
+ * distinct frequency, phase speed, and opacity, creating organic depth. A
+ * soft radial core glow sits behind the layers and swells with input level,
+ * the front layer gets a pale highlight stroke, and the whole wave dissolves
+ * into the pill ends via an alpha mask. Callers clear the canvas.
  * ───────────────────────────────────────────────────────────────────────── */
+
+interface RecordingFrame {
+  phase: number;
+  /** Smoothed, perceptually-shaped input level in [0, 1]. */
+  energy: number;
+  /** 0–1 draw opacity (used for the state crossfade). */
+  opacity: number;
+}
 
 function drawRecording(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
-  phase: number,
-  level: number,
+  { phase, energy, opacity }: RecordingFrame,
 ) {
-  const midY = h / 2;
-  const amp = Math.max(0.08, Math.min(level * 2.4, 1)) * midY * 0.78;
+  if (opacity <= 0.005) return;
 
-  ctx.clearRect(0, 0, w, h);
+  const midY = h / 2;
+  const amp = energy * midY * 0.82;
+  const { back, mid, front, highlight, edge } = RECORDING_PALETTE;
+
+  ctx.save();
+
+  // Soft radial core glow behind the wave — swells with level
+  const coreR = w * (0.22 + energy * 0.2);
+  const core = ctx.createRadialGradient(w / 2, midY, 0, w / 2, midY, coreR);
+  core.addColorStop(0, rgba(mid, (0.05 + energy * 0.2) * opacity));
+  core.addColorStop(0.6, rgba(front, (0.02 + energy * 0.08) * opacity));
+  core.addColorStop(1, rgba(front, 0));
+  ctx.fillStyle = core;
+  ctx.fillRect(0, 0, w, h);
 
   const layers = [
-    { freq: [2.2, 4.8], spd: [0.6, 0.85], scale: 0.45, rgb: [255, 175, 90], a: 0.2 },
-    { freq: [3.2, 5.5], spd: [1.0, 1.3], scale: 0.7, rgb: [255, 130, 50], a: 0.35 },
-    { freq: [3.8, 7.2], spd: [1.25, 0.7], scale: 1.0, rgb: [255, 105, 25], a: 0.52 },
+    { freq: [2.2, 4.8], spd: [0.6, 0.85], scale: 0.45, rgb: back, a: 0.22 },
+    { freq: [3.2, 5.5], spd: [1.0, 1.3], scale: 0.7, rgb: mid, a: 0.38 },
+    { freq: [3.8, 7.2], spd: [1.25, 0.7], scale: 1.0, rgb: front, a: 0.58 },
   ];
 
   let lastTopY: number[] = [];
 
   for (const layer of layers) {
     const a = amp * layer.scale;
-    const [r, g, b] = layer.rgb;
 
     const topY: number[] = [];
     for (let x = 0; x <= w; x++) {
@@ -52,8 +119,8 @@ function drawRecording(
     }
 
     ctx.save();
-    ctx.shadowColor = `rgba(${r}, ${g}, ${b}, ${0.1 + level * 0.22})`;
-    ctx.shadowBlur = 3 + level * 12;
+    ctx.shadowColor = rgba(layer.rgb, (0.1 + energy * 0.22) * opacity);
+    ctx.shadowBlur = 3 + energy * 12;
 
     // Symmetric filled waveform
     ctx.beginPath();
@@ -63,10 +130,12 @@ function drawRecording(
     for (let x = w; x >= 0; x--) ctx.lineTo(x, midY + (midY - topY[x]));
     ctx.closePath();
 
-    const grad = ctx.createLinearGradient(0, midY - a, 0, midY + a);
-    grad.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${layer.a * 0.5})`);
-    grad.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, ${layer.a})`);
-    grad.addColorStop(1, `rgba(${r}, ${g}, ${b}, ${layer.a * 0.5})`);
+    // Horizontal gradient: bright at the centre, deeper amber toward the ends
+    const la = layer.a * opacity;
+    const grad = ctx.createLinearGradient(0, 0, w, 0);
+    grad.addColorStop(0, rgba(mix(layer.rgb, edge, 0.7), la * 0.55));
+    grad.addColorStop(0.5, rgba(layer.rgb, la));
+    grad.addColorStop(1, rgba(mix(layer.rgb, edge, 0.7), la * 0.55));
     ctx.fillStyle = grad;
     ctx.fill();
     ctx.restore();
@@ -74,40 +143,59 @@ function drawRecording(
     lastTopY = topY;
   }
 
-  // Highlight stroke on the topmost layer edge
+  // Highlight stroke along the front layer's upper edge
   if (lastTopY.length > 0) {
     ctx.beginPath();
     ctx.moveTo(0, midY);
     for (let x = 0; x <= w; x++) ctx.lineTo(x, lastTopY[x]);
-    ctx.strokeStyle = `rgba(255, 200, 130, ${0.12 + level * 0.3})`;
+    ctx.strokeStyle = rgba(highlight, (0.14 + energy * 0.34) * opacity);
     ctx.lineWidth = 0.9;
     ctx.stroke();
   }
+
+  // Edge fade: dissolve the wave before it reaches the rounded pill ends
+  ctx.globalCompositeOperation = 'destination-in';
+  const fade = ctx.createLinearGradient(0, 0, w, 0);
+  fade.addColorStop(0, 'rgba(0, 0, 0, 0)');
+  fade.addColorStop(0.14, 'rgba(0, 0, 0, 1)');
+  fade.addColorStop(0.86, 'rgba(0, 0, 0, 1)');
+  fade.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = fade;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.restore();
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * Processing Visualization — "Cascade Bars"
  *
- * A row of vertical bar segments in cool blue tones. Two luminous sweeps
- * travel across them at different speeds, causing bars to surge in height
- * and brightness as the sweep passes. The wrap-aware distance calculation
- * ensures the sweep loops seamlessly. A gentle breathing oscillation
- * keeps bars alive even between sweeps.
+ * A row of rounded bars in periwinkle tones, each with a lighter cap. Two
+ * luminous sweeps travel across at different speeds, causing bars to surge
+ * in height and brightness as they pass. Wrap-aware distance keeps the loop
+ * seamless; a gentle breathing oscillation keeps bars alive between sweeps.
+ * Callers clear the canvas.
  * ───────────────────────────────────────────────────────────────────────── */
+
+interface ProcessingFrame {
+  time: number;
+  opacity: number;
+  reducedMotion: boolean;
+}
 
 function drawProcessing(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
-  time: number,
+  { time, opacity, reducedMotion }: ProcessingFrame,
 ) {
-  ctx.clearRect(0, 0, w, h);
+  if (opacity <= 0.005) return;
 
   const midY = h / 2;
-  const count = 20;
+  const count = 22;
   const gap = 2.5;
   const barW = (w - gap * (count - 1)) / count;
   const maxH = h * 0.56;
+  const { base, lit, glow } = PROCESSING_PALETTE;
 
   // Two sweeps at different speeds, wrapping smoothly
   const s1 = (time * 0.00042) % 1;
@@ -117,34 +205,38 @@ function drawProcessing(
     const t = i / (count - 1);
     const x = i * (barW + gap);
 
-    // Wrap-aware distance from each sweep
-    const rawD1 = Math.abs(t - s1);
-    const rawD2 = Math.abs(t - s2);
-    const d1 = Math.min(rawD1, 1 - rawD1);
-    const d2 = Math.min(rawD2, 1 - rawD2);
-    const sw1 = Math.max(0, 1 - d1 * 5);
-    const sw2 = Math.max(0, 1 - d2 * 6);
-    const sweep = Math.max(sw1 * sw1, sw2 * sw2 * 0.55);
+    let sweep = 0;
+    if (!reducedMotion) {
+      const rawD1 = Math.abs(t - s1);
+      const rawD2 = Math.abs(t - s2);
+      const d1 = Math.min(rawD1, 1 - rawD1);
+      const d2 = Math.min(rawD2, 1 - rawD2);
+      const sw1 = Math.max(0, 1 - d1 * 5);
+      const sw2 = Math.max(0, 1 - d2 * 6);
+      sweep = Math.max(sw1 * sw1, sw2 * sw2 * 0.55);
+    }
 
     // Gentle breathing + sweep-driven surge
     const breath = 0.14 + Math.sin(t * Math.PI * 2.5 + time * 0.002) * 0.05;
     const barH = (breath + sweep * 0.7) * maxH;
 
-    // Interpolate from muted blue to vivid highlight blue
-    const r = Math.round(55 + sweep * 85);
-    const g = Math.round(115 + sweep * 80);
-    const b = Math.round(205 + sweep * 50);
-    const alpha = 0.28 + sweep * 0.62;
+    const body = mix(base, lit, sweep);
+    const cap = mix(body, lit, 0.5);
+    const alpha = (0.3 + sweep * 0.62) * opacity;
 
     const y = midY - barH / 2;
     const radius = Math.min(barW * 0.32, 2.5);
 
     ctx.save();
     if (sweep > 0.12) {
-      ctx.shadowColor = `rgba(80, 150, 255, ${sweep * 0.35})`;
+      ctx.shadowColor = rgba(glow, sweep * 0.38 * opacity);
       ctx.shadowBlur = 4 + sweep * 12;
     }
-    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    const grad = ctx.createLinearGradient(0, y, 0, y + barH);
+    grad.addColorStop(0, rgba(cap, alpha));
+    grad.addColorStop(0.45, rgba(body, alpha));
+    grad.addColorStop(1, rgba(body, alpha * 0.8));
+    ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.roundRect(x, y, barW, barH, radius);
     ctx.fill();
@@ -169,20 +261,26 @@ export function DictationOverlay({ presentation = 'shell' }: DictationOverlayPro
   );
   const visible = isRecording || isProcessing;
 
+  const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animRef = useRef<number>(0);
   const phaseRef = useRef(0);
   const smoothLevelRef = useRef(0);
   const levelRef = useRef(0);
   const startTimeRef = useRef(0);
+  const recordingRef = useRef(isRecording);
+  /** 0 = fully recording visual, 1 = fully processing visual. */
+  const blendRef = useRef(isRecording ? 0 : 1);
 
   levelRef.current = Math.max(0, Math.min(100, inputLevel)) / 100;
+  recordingRef.current = isRecording;
 
   // HUD window visibility is owned by the Rust side (emit_state in
   // app_state.rs); showing/hiding from the webview raced with it and could
   // leave the window orphaned on screen.
 
-  // Canvas animation loop — unified for both recording and processing
+  // Canvas animation loop — a single loop for both states so the
+  // recording -> processing switch can crossfade instead of cutting.
   useEffect(() => {
     if (!visible) {
       smoothLevelRef.current = 0;
@@ -193,6 +291,10 @@ export function DictationOverlay({ presentation = 'shell' }: DictationOverlayPro
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    const reducedMotion =
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
     canvas.width = rect.width * dpr;
@@ -202,23 +304,53 @@ export function DictationOverlay({ presentation = 'shell' }: DictationOverlayPro
     const w = rect.width;
     const h = rect.height;
     startTimeRef.current = performance.now();
+    // Enter directly in the current state — no crossfade on appearance.
+    blendRef.current = recordingRef.current ? 0 : 1;
+    let lastFrame = startTimeRef.current;
 
-    const draw = () => {
-      if (isRecording) {
-        smoothLevelRef.current +=
-          (levelRef.current - smoothLevelRef.current) * 0.22;
-        drawRecording(ctx, w, h, phaseRef.current, smoothLevelRef.current);
-        phaseRef.current -= 0.06;
-      } else {
-        const elapsed = performance.now() - startTimeRef.current;
-        drawProcessing(ctx, w, h, elapsed);
-      }
+    const draw = (now: number) => {
+      const dt = Math.min(64, now - lastFrame);
+      lastFrame = now;
+      const elapsed = now - startTimeRef.current;
+
+      // Crossfade between the two visuals
+      const target = recordingRef.current ? 0 : 1;
+      const step = dt / BLEND_MS;
+      if (blendRef.current < target) blendRef.current = Math.min(target, blendRef.current + step);
+      else if (blendRef.current > target) blendRef.current = Math.max(target, blendRef.current - step);
+      const blend = blendRef.current;
+
+      // Perceptual level shaping + asymmetric smoothing: blooms quickly on
+      // syllables (attack) and settles gracefully afterwards (release).
+      const shaped = recordingRef.current ? Math.pow(levelRef.current, 0.6) : 0;
+      const coeff = shaped > smoothLevelRef.current ? 0.35 : 0.08;
+      smoothLevelRef.current += (shaped - smoothLevelRef.current) * coeff;
+      const smooth = smoothLevelRef.current;
+
+      // Idle shimmer: a slow, low-amplitude breath so silence isn't a flat line
+      const quiet = 1 - Math.min(1, smooth * 4);
+      const shimmer = reducedMotion
+        ? 0.03
+        : (0.5 + 0.5 * Math.sin(elapsed * 0.0016)) * 0.06 * quiet;
+      const energy = Math.min(1, Math.max(0.06, smooth + shimmer));
+
+      // Voice-reactive chrome glow (consumed by the glow layer's opacity)
+      frameRef.current?.style.setProperty('--bv-level', energy.toFixed(3));
+
+      ctx.clearRect(0, 0, w, h);
+      drawRecording(ctx, w, h, { phase: phaseRef.current, energy, opacity: 1 - blend });
+      drawProcessing(ctx, w, h, { time: elapsed, opacity: blend, reducedMotion });
+
+      // Level-driven phase speed: the wave travels faster as you speak
+      const speed = (0.045 + smooth * 0.05) * (reducedMotion ? 0.5 : 1);
+      phaseRef.current -= speed * (dt / 16.67);
+
       animRef.current = requestAnimationFrame(draw);
     };
 
     animRef.current = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(animRef.current);
-  }, [visible, isRecording]);
+  }, [visible]);
 
   if (!visible) return null;
 
@@ -246,67 +378,68 @@ export function DictationOverlay({ presentation = 'shell' }: DictationOverlayPro
           pointerEvents: 'none',
         };
 
-  // Build the multi-layer shadow
-  const recordingShadow = isWindow
-    ? [
-        '0 0 0 1px rgba(255, 125, 40, 0.08)',
-        'inset 0 1px 0 rgba(255, 180, 100, 0.06)',
-        '0 2px 6px rgba(0, 0, 0, 0.4)',
-        '0 6px 24px rgba(255, 120, 30, 0.16)',
-        '0 0 48px rgba(255, 100, 20, 0.1)',
-      ].join(', ')
-    : [
-        '0 0 0 1px rgba(255, 125, 40, 0.08)',
-        'inset 0 1px 0 rgba(255, 180, 100, 0.06)',
-        '0 4px 16px rgba(0, 0, 0, 0.35)',
-        '0 6px 20px rgba(255, 120, 30, 0.12)',
-      ].join(', ');
+  const tintRgb = isRecording ? RECORDING_PALETTE.glow : PROCESSING_PALETTE.glow;
 
-  const processingShadow = isWindow
-    ? [
-        '0 0 0 1px rgba(80, 140, 240, 0.06)',
-        'inset 0 1px 0 rgba(140, 180, 255, 0.05)',
-        '0 2px 6px rgba(0, 0, 0, 0.4)',
-        '0 6px 24px rgba(60, 130, 240, 0.14)',
-        '0 0 48px rgba(60, 130, 240, 0.07)',
-      ].join(', ')
-    : [
-        '0 0 0 1px rgba(80, 140, 240, 0.06)',
-        'inset 0 1px 0 rgba(140, 180, 255, 0.05)',
-        '0 4px 16px rgba(0, 0, 0, 0.35)',
-        '0 6px 20px rgba(60, 130, 240, 0.1)',
-      ].join(', ');
+  // Static base shadow: depth + a whisper of tint. The voice-reactive part
+  // lives on a separate glow layer so it can animate via opacity alone.
+  const baseShadow = [
+    `inset 0 1px 0 ${rgba(tintRgb, 0.07)}`,
+    isWindow ? '0 2px 6px rgba(0, 0, 0, 0.42)' : '0 4px 16px rgba(0, 0, 0, 0.35)',
+    `0 6px 20px ${rgba(tintRgb, 0.08)}`,
+  ].join(', ');
 
-  const pillAnimation = isRecording
-    ? 'buttervoice-overlay-in 220ms ease-out, buttervoice-recording-glow 2.8s ease-in-out infinite'
-    : 'buttervoice-overlay-in 220ms ease-out';
+  const glowShadow = isWindow
+    ? [`0 6px 26px ${rgba(tintRgb, 0.3)}`, `0 0 52px ${rgba(tintRgb, 0.18)}`].join(', ')
+    : [`0 6px 22px ${rgba(tintRgb, 0.26)}`, `0 0 40px ${rgba(tintRgb, 0.14)}`].join(', ');
+
+  // Gradient border ring: transparent border + two backgrounds, one clipped
+  // to the padding box (warm glass) and one to the border box (gold ring).
+  const ring = `linear-gradient(180deg, ${rgba(tintRgb, 0.36)}, ${rgba(tintRgb, 0.07)})`;
+  const glass = 'linear-gradient(180deg, rgba(24, 19, 12, 0.94), rgba(10, 9, 8, 0.97))';
 
   return (
     <Box style={wrapperStyle}>
       <Box
+        ref={frameRef}
         style={{
-          animation: pillAnimation,
+          position: 'relative',
           width: OVERLAY_WIDTH,
-          padding: '0.4rem 0.55rem',
-          borderRadius: '999px',
-          border: isRecording
-            ? '1px solid rgba(255, 140, 50, 0.28)'
-            : '1px solid rgba(100, 155, 240, 0.22)',
-          background: 'rgba(10, 10, 12, 0.92)',
-          backdropFilter: 'blur(16px) saturate(1.3)',
-          WebkitBackdropFilter: 'blur(16px) saturate(1.3)',
-          boxShadow: isRecording ? recordingShadow : processingShadow,
-          transition: 'border-color 400ms ease, box-shadow 400ms ease',
+          animation: 'buttervoice-overlay-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both',
         }}
       >
-        <canvas
-          ref={canvasRef}
+        <Box
+          aria-hidden
           style={{
-            width: '100%',
-            height: '2.25rem',
-            display: 'block',
+            position: 'absolute',
+            inset: 0,
+            borderRadius: '999px',
+            boxShadow: glowShadow,
+            opacity: isRecording ? 'calc(0.2 + var(--bv-level, 0) * 0.8)' : 0.55,
+            transition: 'box-shadow 400ms ease, opacity 400ms ease',
           }}
         />
+        <Box
+          style={{
+            position: 'relative',
+            padding: '0.4rem 0.55rem',
+            borderRadius: '999px',
+            border: '1px solid transparent',
+            background: `${glass} padding-box, ${ring} border-box`,
+            backdropFilter: 'blur(16px) saturate(1.3)',
+            WebkitBackdropFilter: 'blur(16px) saturate(1.3)',
+            boxShadow: baseShadow,
+            transition: 'box-shadow 400ms ease',
+          }}
+        >
+          <canvas
+            ref={canvasRef}
+            style={{
+              width: '100%',
+              height: '2.25rem',
+              display: 'block',
+            }}
+          />
+        </Box>
       </Box>
     </Box>
   );
