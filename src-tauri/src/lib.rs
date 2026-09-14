@@ -10,6 +10,7 @@ mod models;
 mod permissions_macos;
 mod persona;
 pub mod post_process;
+mod recording_control;
 mod remote_speech;
 mod secrets;
 pub mod settings;
@@ -29,7 +30,7 @@ use app_state::{
     AppState, DebugLogEntry, DictationState, PipelineMetricsSnapshot, TranscriptLogEntry,
 };
 use audio::MicDevice;
-use hotkey_macos::{DictationMode, HotkeyPresetInfo};
+use hotkey_macos::HotkeyPresetInfo;
 use llm_cleanup::LlmModelEntry;
 use models::ModelInfo;
 use permissions_macos::{PermissionKind, PermissionsStatus};
@@ -556,38 +557,10 @@ fn spawn_hotkey_listener_with_retry(
     std::thread::spawn(move || loop {
         let hotkey_state = state.clone();
         match hotkey_macos::spawn_hotkey_listener(config, move |event| {
-            let mode = config.dictation_mode();
-
-            match mode {
-                DictationMode::PushToTalk => match event {
-                    hotkey_macos::HotkeyEvent::Pressed => {
-                        eprintln!("hotkey event: pressed (push-to-talk)");
-                        hotkey_state.start_recording();
-                    }
-                    hotkey_macos::HotkeyEvent::Released => {
-                        eprintln!("hotkey event: released (push-to-talk)");
-                        hotkey_state.clone().stop_and_transcribe();
-                    }
-                },
-                DictationMode::Toggle => match event {
-                    hotkey_macos::HotkeyEvent::Pressed => {
-                        let current = hotkey_state.get_dictation_state();
-                        if matches!(current, DictationState::Recording) {
-                            eprintln!("hotkey event: pressed (toggle → stop)");
-                            hotkey_state.clone().stop_and_transcribe();
-                        } else if matches!(current, DictationState::Idle | DictationState::Error) {
-                            eprintln!("hotkey event: pressed (toggle → start)");
-                            hotkey_state.start_recording();
-                        }
-                    }
-                    hotkey_macos::HotkeyEvent::Released => {
-                        // In toggle mode, release is a no-op
-                    }
-                },
-            }
+            hotkey_state.handle_hotkey_event(event);
         }) {
             Ok(()) => {
-                eprintln!("hotkey listener started");
+                eprintln!("hotkey listener supervisor started");
                 return;
             }
             Err(err) => {

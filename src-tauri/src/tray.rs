@@ -10,6 +10,7 @@ use crate::settings::SettingsPatch;
 const MENU_SETTINGS: &str = "settings";
 const MENU_TOGGLE_LOGIN: &str = "toggle_launch_at_login";
 const MENU_DEBUG_START: &str = "debug_start_dictation";
+const MENU_STOP: &str = "stop_dictation";
 const MENU_QUIT: &str = "quit";
 pub const TRAY_ID: &str = "main";
 
@@ -28,6 +29,7 @@ fn build_tray_menu<R: Runtime>(
         .text(MENU_TOGGLE_LOGIN, login_label)
         .separator()
         .text(MENU_DEBUG_START, "Start Dictation (Debug)")
+        .text(MENU_STOP, "Stop Dictation")
         .separator()
         .text(MENU_QUIT, "Quit")
         .build()
@@ -77,6 +79,10 @@ pub(crate) fn on_tray_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) {
         MENU_DEBUG_START => {
             let state = app.state::<std::sync::Arc<AppState>>().inner().clone();
             state.start_recording();
+        }
+        MENU_STOP => {
+            let state = app.state::<std::sync::Arc<AppState>>().inner().clone();
+            state.stop_and_transcribe();
         }
         MENU_QUIT => {
             crate::telemetry::shutdown();

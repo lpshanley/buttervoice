@@ -128,6 +128,9 @@ export function HotkeySettings() {
       <Text size="xs" c="dimmed">
         {activeMode.detail}
       </Text>
+      <Text size="xs" c="dimmed">
+        Shortcut and mode changes apply after the current recording ends.
+      </Text>
     </Stack>
   );
 }

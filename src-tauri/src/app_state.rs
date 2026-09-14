@@ -14,12 +14,13 @@ use uuid::Uuid;
 
 use crate::audio::{AudioCapture, CaptureTuning};
 use crate::content_classification::{self, ContentClassificationResult};
-use crate::hotkey_macos::HotkeyConfig;
+use crate::hotkey_macos::{DictationMode, HotkeyConfig, HotkeyEvent};
 use crate::llm_cleanup;
 use crate::llm_guard;
 use crate::permissions_macos;
 use crate::persona;
 use crate::post_process::PostProcessor;
+use crate::recording_control::{RecordingControl, RecordingSource, StopRequest};
 use crate::secrets;
 use crate::settings::{
     self, ComputeMode, OutputDestination, Settings, SettingsStore, SpeechProvider,
@@ -42,7 +43,7 @@ pub enum DictationState {
 }
 
 impl DictationState {
-    fn try_start_recording(&mut self) -> bool {
+    pub(crate) fn try_start_recording(&mut self) -> bool {
         if !matches!(self, Self::Idle | Self::Error) {
             return false;
         }
@@ -67,8 +68,7 @@ pub struct AppState {
     audio: AudioCapture,
     backend: SpeechService,
     recordings_dir: PathBuf,
-    dictation_state: Mutex<DictationState>,
-    recording_started_at: Mutex<Option<Instant>>,
+    recording_control: Arc<Mutex<RecordingControl>>,
     active_trace_id: Mutex<Option<String>>,
     transcript_logs: Mutex<Vec<TranscriptLogEntry>>,
     debug_logs: Mutex<Vec<DebugLogEntry>>,
@@ -272,8 +272,7 @@ impl AppState {
             audio: AudioCapture::new(),
             backend,
             recordings_dir,
-            dictation_state: Mutex::new(DictationState::Idle),
-            recording_started_at: Mutex::new(None),
+            recording_control: Arc::new(Mutex::new(RecordingControl::default())),
             active_trace_id: Mutex::new(None),
             transcript_logs: Mutex::new(Vec::new()),
             debug_logs: Mutex::new(Vec::new()),
@@ -423,7 +422,7 @@ impl AppState {
     }
 
     pub fn get_dictation_state(&self) -> DictationState {
-        *self.dictation_state.lock()
+        self.recording_control.lock().state
     }
 
     pub fn audio_input_level_percent(&self) -> u8 {
@@ -490,8 +489,56 @@ impl AppState {
     }
 
     pub fn start_recording(self: &Arc<Self>) {
-        let mut state = self.dictation_state.lock();
-        if !state.try_start_recording() {
+        self.start_recording_from(RecordingSource::Manual);
+    }
+
+    pub fn handle_hotkey_event(self: &Arc<Self>, event: HotkeyEvent) {
+        match event {
+            HotkeyEvent::Pressed { binding, press_id } => {
+                if binding.mode == DictationMode::Toggle
+                    && self.clone().stop_recording_for(
+                        StopRequest::TogglePress { binding, press_id },
+                        "toggle_press",
+                    )
+                {
+                    return;
+                }
+                self.start_recording_from(RecordingSource::Hotkey { binding, press_id });
+            }
+            HotkeyEvent::Released {
+                binding,
+                press_id,
+                reason,
+            } => {
+                self.clone().stop_recording_for(
+                    StopRequest::Release { binding, press_id },
+                    &format!("release:{reason:?}"),
+                );
+            }
+            HotkeyEvent::Interrupted {
+                revision,
+                through_press_id,
+                reason,
+            } => {
+                self.recording_diagnostic(
+                    format!("listener_interrupted revision={revision} through_press_id={through_press_id} reason={reason:?}"),
+                    None,
+                );
+                self.clone().stop_recording_for(
+                    StopRequest::Interrupted {
+                        revision,
+                        through_press_id,
+                    },
+                    &format!("listener_interrupted:{reason:?}"),
+                );
+            }
+        }
+    }
+
+    fn start_recording_from(self: &Arc<Self>, source: RecordingSource) {
+        let mut control = self.recording_control.lock();
+        let trace_id = Uuid::new_v4().to_string();
+        if !control.start(source, self.hotkey_config.snapshot(), trace_id.clone()) {
             return;
         }
 
@@ -499,7 +546,7 @@ impl AppState {
         let capture_tuning = capture_tuning(&settings);
         // Generate trace_id before recording so the WAV file can be named
         // after it, establishing a single correlation key across all artifacts.
-        let trace_id = self.begin_trace();
+        *self.active_trace_id.lock() = Some(trace_id.clone());
         let result = self.audio.start_recording(
             &self.recordings_dir,
             &trace_id,
@@ -511,56 +558,75 @@ impl AppState {
         match result {
             Ok(_) => {
                 self.metrics_increment_started();
-                *self.recording_started_at.lock() = Some(Instant::now());
-                drop(state);
-                self.debug_trace_with_trace(
-                    "trace",
-                    format!(
-                        "start pid={} instance_id={}",
-                        std::process::id(),
-                        self.instance_id
-                    ),
-                    Some(trace_id),
-                );
+                if let Some(session) = control.session.as_mut() {
+                    session.started_at = Instant::now();
+                }
+                drop(control);
+                self.recording_diagnostic(format!("start source={source:?}"), Some(trace_id));
                 self.emit_partial_transcript(String::new());
-                self.emit_state(DictationState::Recording);
+                self.emit_state();
                 self.apply_tray_icon_state(DictationState::Recording);
             }
             Err(err) => {
+                control.session = None;
+                self.apply_saved_hotkey(&control);
+                drop(control);
                 eprintln!("failed starting recording: {err:#}");
+                self.recording_diagnostic(
+                    format!("start_failed error={err:#}"),
+                    Some(trace_id.clone()),
+                );
                 self.push_error_log(
                     trace_id,
                     settings.active_speech_model_id(),
                     format!("failed starting recording: {err:#}"),
                 );
-                drop(state);
+                self.finish_trace();
                 self.set_state(DictationState::Error);
             }
         }
     }
 
     pub fn stop_and_transcribe(self: Arc<Self>) {
-        {
-            let mut state = self.dictation_state.lock();
-            if !matches!(*state, DictationState::Recording) {
-                return;
-            }
-            *state = DictationState::Transcribing;
-        }
+        self.stop_recording_for(StopRequest::Manual, "manual_stop");
+    }
 
-        let trace_id = self.ensure_active_trace_id();
-        let recording_duration_ms = self
-            .recording_started_at
-            .lock()
-            .take()
-            .map(|started_at| started_at.elapsed().as_millis() as u64)
-            .unwrap_or(0);
-        self.set_state(DictationState::Transcribing);
+    fn stop_recording_for(self: Arc<Self>, request: StopRequest, reason: &str) -> bool {
+        let session = {
+            let mut control = self.recording_control.lock();
+            let Some(session) = control.stop(request) else {
+                return false;
+            };
+            session
+        };
+
+        let trace_id = session.trace_id;
+        let recording_duration_ms = session.started_at.elapsed().as_millis() as u64;
+        self.recording_diagnostic(
+            format!(
+                "stop reason={reason} source={:?} duration_ms={recording_duration_ms}",
+                session.source
+            ),
+            Some(trace_id.clone()),
+        );
 
         std::thread::spawn(move || {
-            let (audio_path, audio_batches_dropped) = match self.audio.stop_recording() {
+            // The UI update is queued from this worker, so audio shutdown is
+            // not held up by native HUD work. Show Processing even when file
+            // finalization takes longer than closing the microphone.
+            self.emit_state();
+            let stopped = self.audio.stop_recording();
+            // Configuration may query physical key state. Apply it only after
+            // capture has stopped, so an input-service problem cannot delay
+            // microphone shutdown. Processing still blocks new recordings.
+            self.apply_saved_hotkey(&self.recording_control.lock());
+            let (audio_path, audio_batches_dropped) = match stopped {
                 Ok(result) => result,
                 Err(err) => {
+                    self.recording_diagnostic(
+                        format!("stop_failed error={err:#}"),
+                        Some(trace_id.clone()),
+                    );
                     eprintln!("failed stopping recording: {err:#}");
                     let settings = self.settings_store.get();
                     self.push_error_log(
@@ -575,6 +641,8 @@ impl AppState {
                     return;
                 }
             };
+
+            self.recording_diagnostic("capture_stopped".to_string(), Some(trace_id.clone()));
 
             let recording_file = audio_path
                 .file_name()
@@ -769,16 +837,31 @@ impl AppState {
                 }
             }
         });
+        true
     }
 
     pub fn set_state(&self, state: DictationState) {
-        *self.dictation_state.lock() = state;
-        self.emit_state(state);
+        self.recording_control.lock().state = state;
+        self.emit_state();
         self.apply_tray_icon_state(state);
     }
 
     fn debug_logging_enabled(&self) -> bool {
         self.settings_store.get().debug_logging
+    }
+
+    // Lifecycle diagnostics intentionally contain no dictated text and remain
+    // available when verbose debug logging is disabled.
+    fn recording_diagnostic(&self, message: String, trace_id: Option<String>) {
+        tracing::info!(trace_id = ?trace_id, message = %message, "recording_control");
+        self.push_debug_log("recording", message, trace_id);
+    }
+
+    // Caller holds recording_control so configuration and recording ownership
+    // cannot change between checking the session and applying this snapshot.
+    fn apply_saved_hotkey(&self, control: &RecordingControl) -> bool {
+        let settings = self.settings_store.get();
+        control.configure_hotkey(self.hotkey_config, settings.hotkey, settings.dictation_mode)
     }
 
     fn debug_trace(&self, scope: &str, message: impl Into<String>) {
@@ -812,24 +895,6 @@ impl AppState {
             }
         }
         self.push_debug_log(scope, message, trace_id);
-    }
-
-    fn begin_trace(&self) -> String {
-        let trace_id = Uuid::new_v4().to_string();
-        *self.active_trace_id.lock() = Some(trace_id.clone());
-        trace_id
-    }
-
-    fn ensure_active_trace_id(&self) -> String {
-        let mut active_trace_id = self.active_trace_id.lock();
-        match active_trace_id.clone() {
-            Some(existing) => existing,
-            None => {
-                let trace_id = Uuid::new_v4().to_string();
-                *active_trace_id = Some(trace_id.clone());
-                trace_id
-            }
-        }
     }
 
     fn finish_trace(&self) {
@@ -899,14 +964,16 @@ impl AppState {
         }
 
         if previous.hotkey != next.hotkey || previous.dictation_mode != next.dictation_mode {
-            self.hotkey_config.update(&next.hotkey, next.dictation_mode);
-            let spec = next.hotkey.spec();
-            self.debug_trace(
-                "settings",
+            let deferred = {
+                let control = self.recording_control.lock();
+                !self.apply_saved_hotkey(&control)
+            };
+            self.recording_diagnostic(
                 format!(
-                    "hotkey config updated: key={} (keycode={}) mode={:?}",
-                    spec.display_label, spec.keycode, next.dictation_mode
+                    "hotkey_settings deferred={deferred} key={:?} mode={:?}",
+                    next.hotkey, next.dictation_mode
                 ),
+                None,
             );
         }
 
@@ -1953,42 +2020,43 @@ impl AppState {
         });
     }
 
-    fn emit_state(&self, state: DictationState) {
-        let _ = self.app_handle.emit("dictation-state", state);
-        let show = matches!(
-            state,
-            DictationState::Recording
-                | DictationState::Transcribing
-                | DictationState::PostProcessing
-                | DictationState::Injecting
-        );
-        if let Some(window) = self.app_handle.get_webview_window("hud") {
-            if show {
-                self.position_hud_window(&window);
-                let _ = window.show();
-            } else {
-                // Hide from Rust rather than delegating to the webview:
-                // a missed event or reload must not leave the HUD orphaned
-                // on screen.
-                let _ = window.hide();
+    fn emit_state(&self) {
+        let control = self.recording_control.clone();
+        let app = self.app_handle.clone();
+        // Publish the current state on the UI thread. A delayed publication
+        // from startup must never restore Recording after a stop completed.
+        if let Err(err) = self.app_handle.run_on_main_thread(move || {
+            let state = control.lock().state;
+            let _ = app.emit("dictation-state", state);
+            let show = matches!(
+                state,
+                DictationState::Recording
+                    | DictationState::Transcribing
+                    | DictationState::PostProcessing
+                    | DictationState::Injecting
+            );
+            if let Some(window) = app.get_webview_window("hud") {
+                if show {
+                    Self::position_hud_window(&app, &window);
+                    let _ = window.show();
+                } else {
+                    // Native hiding also covers a missed webview event.
+                    let _ = window.hide();
+                }
             }
+        }) {
+            eprintln!("failed scheduling dictation state publication: {err}");
         }
     }
 
-    fn position_hud_window(&self, window: &tauri::WebviewWindow) {
+    fn position_hud_window(app: &AppHandle, window: &tauri::WebviewWindow) {
         // Prefer the monitor under the cursor: the hidden HUD window's own
         // current_monitor() reflects where it last was (initially the
         // primary display), not where the user is working.
-        let monitor = self
-            .app_handle
+        let monitor = app
             .cursor_position()
             .ok()
-            .and_then(|pos| {
-                self.app_handle
-                    .monitor_from_point(pos.x, pos.y)
-                    .ok()
-                    .flatten()
-            })
+            .and_then(|pos| app.monitor_from_point(pos.x, pos.y).ok().flatten())
             .or_else(|| window.current_monitor().ok().flatten())
             .or_else(|| window.primary_monitor().ok().flatten());
         let Some(monitor) = monitor else {

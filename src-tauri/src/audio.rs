@@ -25,6 +25,10 @@ const MAX_INPUT_GAIN_DB: f32 = 24.0;
 const WHISPER_SAMPLE_RATE: u32 = 16_000;
 const RESAMPLER_CHUNK_SIZE: usize = 1024;
 const STAGING_CHANNEL_CAPACITY: usize = 128;
+// A command drains the queue as it existed when the command was selected. The
+// staging channel is bounded, so this keeps the control path finite while
+// still accounting for every batch that was already queued at that point.
+const MAX_SNAPSHOT_DRAIN_BATCHES: usize = STAGING_CHANNEL_CAPACITY;
 const I16_SCALE: f32 = 32_768.0;
 
 type SharedError = Arc<Mutex<Option<String>>>;
@@ -528,6 +532,46 @@ struct PersistentCapture {
     active_path: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct CaptureConfig {
+    preferred_mic: Option<String>,
+    keep_mic_stream_open: bool,
+    capture_tuning: CaptureTuning,
+}
+
+impl CaptureConfig {
+    fn new(
+        preferred_mic: Option<String>,
+        keep_mic_stream_open: bool,
+        capture_tuning: CaptureTuning,
+    ) -> Self {
+        Self {
+            preferred_mic,
+            keep_mic_stream_open,
+            capture_tuning: capture_tuning.sanitize(),
+        }
+    }
+}
+
+#[derive(Default)]
+struct CaptureConfigState {
+    pending: Option<CaptureConfig>,
+}
+
+impl CaptureConfigState {
+    fn request(&mut self, config: CaptureConfig, defer: bool) {
+        if defer {
+            // Replacing the pending value coalesces a burst of settings
+            // updates into one rebuild after the recording stops.
+            self.pending = Some(config);
+        }
+    }
+
+    fn take_pending(&mut self) -> Option<CaptureConfig> {
+        self.pending.take()
+    }
+}
+
 enum AudioCommand {
     Start {
         out_dir: PathBuf,
@@ -569,6 +613,7 @@ impl AudioCapture {
         std::thread::spawn(move || {
             let mut active: Option<ActiveRecording> = None;
             let mut persistent: Option<PersistentCapture> = None;
+            let mut config_state = CaptureConfigState::default();
 
             while let Ok(command) = command_rx.recv() {
                 match command {
@@ -580,17 +625,19 @@ impl AudioCapture {
                         capture_tuning,
                         response,
                     } => {
+                        let config =
+                            CaptureConfig::new(preferred_mic, keep_mic_stream_open, capture_tuning);
                         input_level_peak_worker.store(0, Ordering::Relaxed);
                         if active.is_some() || has_persistent_recording(&persistent) {
                             let _ = response.send(Err("recording already in progress".to_string()));
                             continue;
                         }
 
-                        if keep_mic_stream_open {
+                        if config.keep_mic_stream_open {
                             let result = ensure_persistent_capture(
                                 &mut persistent,
-                                preferred_mic.as_deref(),
-                                capture_tuning,
+                                config.preferred_mic.as_deref(),
+                                config.capture_tuning,
                                 input_level_peak_worker.clone(),
                             )
                             .and_then(|_| {
@@ -608,8 +655,8 @@ impl AudioCapture {
                         match start_recording_inner(
                             &out_dir,
                             &trace_id,
-                            preferred_mic.as_deref(),
-                            capture_tuning,
+                            config.preferred_mic.as_deref(),
+                            config.capture_tuning,
                             input_level_peak_worker.clone(),
                         ) {
                             Ok(recording) => {
@@ -624,19 +671,37 @@ impl AudioCapture {
                     }
                     AudioCommand::Stop { response } => {
                         if let Some(recording) = active.take() {
+                            let recording_result = stop_recording_inner(recording);
                             let stop_result =
-                                stop_recording_inner(recording).map_err(|err| err.to_string());
+                                complete_stop_with_deferred_config(recording_result, || {
+                                    apply_pending_capture_config(
+                                        &mut persistent,
+                                        &mut config_state,
+                                        input_level_peak_worker.clone(),
+                                    )
+                                });
                             if persistent.is_none() {
                                 input_level_peak_worker.store(0, Ordering::Relaxed);
                             }
-                            let _ = response.send(stop_result);
+                            let _ = response.send(stop_result.map_err(|err| err.to_string()));
                             continue;
                         }
 
                         if has_persistent_recording(&persistent) {
-                            let result = stop_persistent_recording(persistent.as_mut())
-                                .map_err(|err| err.to_string());
-                            let _ = response.send(result);
+                            // Keep the recording result independent from a
+                            // deferred rebuild/shutdown. In particular, a
+                            // finalization error must not prevent a requested
+                            // persistent-capture shutdown.
+                            let recording_result = stop_persistent_recording(persistent.as_mut());
+                            let stop_result =
+                                complete_stop_with_deferred_config(recording_result, || {
+                                    apply_pending_capture_config(
+                                        &mut persistent,
+                                        &mut config_state,
+                                        input_level_peak_worker.clone(),
+                                    )
+                                });
+                            let _ = response.send(stop_result.map_err(|err| err.to_string()));
                             continue;
                         }
 
@@ -651,18 +716,23 @@ impl AudioCapture {
                         capture_tuning,
                         response,
                     } => {
-                        if active.is_some() || has_persistent_recording(&persistent) {
-                            let _ = response
-                                .send(Err("cannot reconfigure capture while recording is active"
-                                    .to_string()));
+                        let config =
+                            CaptureConfig::new(preferred_mic, keep_mic_stream_open, capture_tuning);
+                        let defer = active.is_some() || has_persistent_recording(&persistent);
+                        config_state.request(config.clone(), defer);
+                        if defer {
+                            // Configuration changes are acknowledged here and
+                            // applied once the current recording has stopped.
+                            // Coalescing leaves only the latest desired state.
+                            let _ = response.send(Ok(()));
                             continue;
                         }
 
-                        let result = if keep_mic_stream_open {
+                        let result = if config.keep_mic_stream_open {
                             ensure_persistent_capture(
                                 &mut persistent,
-                                preferred_mic.as_deref(),
-                                capture_tuning,
+                                config.preferred_mic.as_deref(),
+                                config.capture_tuning,
                                 input_level_peak_worker.clone(),
                             )
                         } else {
@@ -800,15 +870,26 @@ fn ensure_persistent_capture(
     let requested = preferred_mic.map(ToOwned::to_owned);
     let sanitized_tuning = capture_tuning.sanitize();
     let should_rebuild = match persistent.as_ref() {
-        Some(existing) => {
-            existing.preferred_mic != requested || existing.capture_tuning != sanitized_tuning
-        }
+        Some(existing) => capture_config_needs_rebuild(
+            existing.preferred_mic.as_deref(),
+            existing.capture_tuning,
+            shared_error_message(&existing.processor.fatal_error).is_some(),
+            requested.as_deref(),
+            sanitized_tuning,
+        ),
         None => true,
     };
 
     if should_rebuild {
         if let Some(existing) = persistent.take() {
-            shutdown_persistent_capture(existing)?;
+            if let Err(err) = shutdown_persistent_capture(existing) {
+                // A failed stream/processor is no longer reusable. The
+                // stream is dropped and processor shutdown is attempted;
+                // normal shutdown responses also join the worker. Continue
+                // with the requested rebuild so one transient failure does
+                // not poison future recordings.
+                eprintln!("audio capture cleanup before rebuild failed: {err}");
+            }
         }
         *persistent = Some(start_persistent_capture(
             requested,
@@ -818,6 +899,56 @@ fn ensure_persistent_capture(
     }
 
     Ok(())
+}
+
+fn capture_config_needs_rebuild(
+    existing_preferred_mic: Option<&str>,
+    existing_tuning: CaptureTuning,
+    existing_failed: bool,
+    requested_preferred_mic: Option<&str>,
+    requested_tuning: CaptureTuning,
+) -> bool {
+    existing_failed
+        || existing_preferred_mic != requested_preferred_mic
+        || existing_tuning != requested_tuning.sanitize()
+}
+
+fn complete_stop_with_deferred_config<T>(
+    recording_result: Result<T>,
+    apply_config: impl FnOnce() -> Result<()>,
+) -> Result<T> {
+    if let Err(err) = apply_config() {
+        eprintln!("deferred audio capture configuration failed: {err}");
+    }
+    recording_result
+}
+
+fn apply_pending_capture_config(
+    persistent: &mut Option<PersistentCapture>,
+    config_state: &mut CaptureConfigState,
+    input_level_peak: Arc<AtomicU32>,
+) -> Result<()> {
+    let Some(config) = config_state.take_pending() else {
+        return Ok(());
+    };
+
+    let result = if config.keep_mic_stream_open {
+        ensure_persistent_capture(
+            persistent,
+            config.preferred_mic.as_deref(),
+            config.capture_tuning,
+            input_level_peak.clone(),
+        )
+    } else {
+        let shutdown_result = persistent
+            .take()
+            .map(shutdown_persistent_capture)
+            .transpose();
+        input_level_peak.store(0, Ordering::Relaxed);
+        shutdown_result.map(|_| ())
+    };
+
+    result
 }
 
 fn start_persistent_capture(
@@ -1146,7 +1277,14 @@ fn run_processor_loop(
 }
 
 fn drain_pending_samples(sample_rx: &Receiver<Vec<i16>>, state: &mut ProcessorState) {
-    while let Ok(samples) = sample_rx.try_recv() {
+    // Snapshot the queue before draining. A live CPAL callback can continue
+    // enqueueing while a command is being handled; those newer batches are
+    // left for the normal loop so StopWriter/Shutdown cannot be starved.
+    let batches_to_drain = sample_rx.len().min(MAX_SNAPSHOT_DRAIN_BATCHES);
+    for _ in 0..batches_to_drain {
+        let Ok(samples) = sample_rx.try_recv() else {
+            break;
+        };
         if let Err(err) = state.process_samples(&samples) {
             set_shared_error(&state.fatal_error, err.to_string());
             break;
@@ -1561,5 +1699,107 @@ mod tests {
         let low = AudioQualityPreset::LowCpu.profile();
         assert_eq!(low.sinc_len, 128);
         assert_eq!(low.oversampling_factor, 128);
+    }
+
+    #[test]
+    fn deferred_capture_requests_coalesce_and_are_consumed_once() {
+        let tuning = CaptureTuning {
+            audio_channel_mode: AudioChannelMode::Left,
+            input_gain_db: 0.0,
+            high_pass_filter: HighPassFilter::Off,
+            audio_quality_preset: AudioQualityPreset::Balanced,
+        };
+        let first = CaptureConfig::new(Some("first".to_string()), true, tuning);
+        let latest = CaptureConfig::new(
+            Some("latest".to_string()),
+            false,
+            CaptureTuning {
+                audio_channel_mode: AudioChannelMode::Right,
+                ..tuning
+            },
+        );
+        let mut state = CaptureConfigState::default();
+
+        state.request(first, true);
+        state.request(latest.clone(), true);
+
+        assert_eq!(state.take_pending(), Some(latest));
+        assert!(state.take_pending().is_none());
+    }
+
+    #[test]
+    fn stop_seam_applies_disable_after_finalize_error_and_preserves_error() {
+        let mut disabled = false;
+        let result =
+            complete_stop_with_deferred_config::<()>(Err(anyhow!("wav finalize failed")), || {
+                disabled = true;
+                Ok(())
+            });
+
+        assert!(disabled);
+        assert_eq!(result.unwrap_err().to_string(), "wav finalize failed");
+    }
+
+    #[test]
+    fn stop_seam_preserves_recording_when_reconfiguration_fails() {
+        let result = complete_stop_with_deferred_config(Ok("recording.wav"), || {
+            Err(anyhow!("failed rebuilding microphone capture"))
+        });
+
+        assert_eq!(result.unwrap(), "recording.wav");
+    }
+
+    #[test]
+    fn fatal_persistent_capture_always_requires_rebuild() {
+        let tuning = CaptureTuning {
+            audio_channel_mode: AudioChannelMode::Left,
+            input_gain_db: 0.0,
+            high_pass_filter: HighPassFilter::Off,
+            audio_quality_preset: AudioQualityPreset::Balanced,
+        };
+
+        assert!(capture_config_needs_rebuild(
+            Some("Built-in Microphone"),
+            tuning,
+            true,
+            Some("Built-in Microphone"),
+            tuning,
+        ));
+        assert!(!capture_config_needs_rebuild(
+            Some("Built-in Microphone"),
+            tuning,
+            false,
+            Some("Built-in Microphone"),
+            tuning,
+        ));
+    }
+
+    #[test]
+    fn command_drain_processes_a_finite_queue_snapshot() {
+        let (sample_tx, sample_rx) = unbounded::<Vec<i16>>();
+        for sample in 0..(MAX_SNAPSHOT_DRAIN_BATCHES * 4) {
+            sample_tx.send(vec![sample as i16]).unwrap();
+        }
+
+        let fatal_error = Arc::new(Mutex::new(None));
+        let overflow_count = Arc::new(AtomicU64::new(0));
+        let mut state = ProcessorState::new(
+            WHISPER_SAMPLE_RATE,
+            AudioQualityPreset::Balanced,
+            MAX_SNAPSHOT_DRAIN_BATCHES * 8,
+            None,
+            false,
+            fatal_error,
+            overflow_count,
+        )
+        .unwrap();
+
+        drain_pending_samples(&sample_rx, &mut state);
+
+        assert_eq!(sample_rx.len(), MAX_SNAPSHOT_DRAIN_BATCHES * 3);
+        assert_eq!(
+            state.ring_buffer.as_ref().unwrap().len(),
+            MAX_SNAPSHOT_DRAIN_BATCHES
+        );
     }
 }
