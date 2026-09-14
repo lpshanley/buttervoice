@@ -9,6 +9,20 @@ Use a test text field as the output destination. Verify the ButterVoice HUD and
 the macOS microphone indicator separately. With persistent capture enabled, the
 microphone indicator is expected to remain on between recordings.
 
+- Quit ButterVoice and confirm it is no longer using the microphone. Relaunch
+  with **Microphone Buffer** off, record once, and stop. The OS microphone
+  indicator must turn off, and Control Center must stop listing ButterVoice as
+  currently using the microphone (a recent-use entry is separate). Repeat several
+  times with **System Default**, the current default microphone selected by name,
+  and a named non-default microphone such as a headset or dock.
+- With **Microphone Buffer** off, refresh the permission status and exercise the
+  microphone permission request. After the probe completes, ButterVoice must not
+  remain listed as currently using the microphone, including after a denied or
+  failed request. Recheck after closing Audio settings, whose level meter
+  temporarily enables the buffer.
+- Enable **Microphone Buffer**, then disable it while idle. The OS microphone
+  indicator must turn off. Repeat after changing between named microphones and
+  after disconnecting an external microphone; subsequent recording must recover.
 - With Right Option and push-to-talk selected, hold Right Option, hold Left
   Option, release Right Option, then release Left Option. Recording must end
   on the Right Option release. Repeat with the opposite order and the supported
@@ -49,3 +63,16 @@ missed-release recovery, listener interruption, and manual stop.
 These are hardware acceptance checks; the presence of this checklist does not
 indicate that sleep/wake, disconnects, or physical key sequences were exercised
 by an automated test run.
+
+## cpal 0.15 teardown limitation
+
+Input streams use a pause-on-drop owner because cpal 0.15.3's Core Audio
+disconnect listener can retain the inner stream after ButterVoice releases its
+handle. Explicitly pausing stops capture even when that reference cycle remains.
+Selecting the current default microphone by name also reuses the default device
+handle to avoid installing that listener. See [cpal #771](https://github.com/RustAudio/cpal/issues/771).
+
+This mitigates continued capture; it does not free the retained stream resources
+for non-default devices. A cpal upgrade incorporating the weak listener fix in
+[#869](https://github.com/RustAudio/cpal/pull/869) remains a follow-up, as does
+replacing the live permission probe with a native authorization-status query.

@@ -518,17 +518,47 @@ impl ProcessorState {
     }
 }
 
+/// Owns an input stream and stops capture before releasing its handle.
+///
+/// cpal 0.15's Core Audio disconnect listener can retain the inner stream
+/// (https://github.com/RustAudio/cpal/issues/771). Dropping the handle alone
+/// therefore may not stop the microphone. Also, building a stream on macOS
+/// already starts capture, so cleanup must run even without a successful play().
+pub(crate) struct MicrophoneStream<S: StreamTrait = cpal::Stream> {
+    stream: S,
+}
+
+impl<S: StreamTrait> MicrophoneStream<S> {
+    pub(crate) fn new(stream: S) -> Self {
+        Self { stream }
+    }
+
+    pub(crate) fn play(&self) -> std::result::Result<(), cpal::PlayStreamError> {
+        self.stream.play()
+    }
+}
+
+impl<S: StreamTrait> Drop for MicrophoneStream<S> {
+    fn drop(&mut self) {
+        // Keep releasing the handle and allow processor/WAV cleanup to finish
+        // even if pausing fails, for example after a device disconnects.
+        if let Err(err) = self.stream.pause() {
+            eprintln!("failed pausing microphone stream during cleanup: {err}");
+        }
+    }
+}
+
 struct ActiveRecording {
     path: PathBuf,
     processor: ProcessorHandle,
-    stream: cpal::Stream,
+    stream: MicrophoneStream,
 }
 
 struct PersistentCapture {
     preferred_mic: Option<String>,
     capture_tuning: CaptureTuning,
     processor: ProcessorHandle,
-    _stream: cpal::Stream,
+    stream: MicrophoneStream,
     active_path: Option<PathBuf>,
 }
 
@@ -1023,7 +1053,7 @@ fn start_persistent_capture(
         preferred_mic,
         capture_tuning,
         processor,
-        _stream: stream,
+        stream,
         active_path: None,
     })
 }
@@ -1060,7 +1090,7 @@ fn stop_persistent_recording(persistent: Option<&mut PersistentCapture>) -> Resu
 }
 
 fn shutdown_persistent_capture(capture: PersistentCapture) -> Result<()> {
-    drop(capture._stream);
+    drop(capture.stream);
     capture.processor.shutdown()
 }
 
@@ -1154,6 +1184,19 @@ fn stop_recording_inner(recording: ActiveRecording) -> Result<(PathBuf, u64)> {
 
 fn pick_input_device(host: &cpal::Host, preferred_name: Option<&str>) -> Result<cpal::Device> {
     if let Some(preferred_name) = preferred_name {
+        // Enumerated Core Audio devices are not marked as default, even when
+        // their name matches. Reuse the default handle to avoid cpal 0.15's
+        // retaining disconnect listener in this common case.
+        if let Some(device) = host.default_input_device() {
+            if device
+                .name()
+                .map(|name| name == preferred_name)
+                .unwrap_or(false)
+            {
+                return Ok(device);
+            }
+        }
+
         for device in host
             .input_devices()
             .context("failed enumerating input devices")?
@@ -1327,7 +1370,7 @@ fn build_stream_f32(
     overflow_count: Arc<AtomicU64>,
     mut processor: SampleProcessor,
     input_level_peak: Arc<AtomicU32>,
-) -> Result<cpal::Stream> {
+) -> Result<MicrophoneStream> {
     let channels = config.channels as usize;
     let stream_error = fatal_error.clone();
     let stream = device.build_input_stream(
@@ -1348,7 +1391,7 @@ fn build_stream_f32(
         None,
     )?;
 
-    Ok(stream)
+    Ok(MicrophoneStream::new(stream))
 }
 
 fn build_stream_i16(
@@ -1359,7 +1402,7 @@ fn build_stream_i16(
     overflow_count: Arc<AtomicU64>,
     mut processor: SampleProcessor,
     input_level_peak: Arc<AtomicU32>,
-) -> Result<cpal::Stream> {
+) -> Result<MicrophoneStream> {
     let channels = config.channels as usize;
     let stream_error = fatal_error.clone();
     let stream = device.build_input_stream(
@@ -1380,7 +1423,7 @@ fn build_stream_i16(
         None,
     )?;
 
-    Ok(stream)
+    Ok(MicrophoneStream::new(stream))
 }
 
 fn build_stream_u16(
@@ -1391,7 +1434,7 @@ fn build_stream_u16(
     overflow_count: Arc<AtomicU64>,
     mut processor: SampleProcessor,
     input_level_peak: Arc<AtomicU32>,
-) -> Result<cpal::Stream> {
+) -> Result<MicrophoneStream> {
     let channels = config.channels as usize;
     let stream_error = fatal_error.clone();
     let stream = device.build_input_stream(
@@ -1412,7 +1455,7 @@ fn build_stream_u16(
         None,
     )?;
 
-    Ok(stream)
+    Ok(MicrophoneStream::new(stream))
 }
 
 fn set_shared_error(shared_error: &SharedError, message: impl Into<String>) {
@@ -1486,6 +1529,106 @@ fn f32_to_i16(sample: f32) -> i16 {
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct RetainedStreamState {
+        capturing: bool,
+        events: Vec<&'static str>,
+    }
+
+    // Model Core Audio starting during construction and a listener retaining
+    // the capture state after our handle is released.
+    struct RetainedStream {
+        state: Arc<Mutex<RetainedStreamState>>,
+        fail_play: bool,
+        fail_pause: bool,
+    }
+
+    impl RetainedStream {
+        fn new() -> Self {
+            Self {
+                state: Arc::new(Mutex::new(RetainedStreamState {
+                    capturing: true,
+                    events: Vec::new(),
+                })),
+                fail_play: false,
+                fail_pause: false,
+            }
+        }
+    }
+
+    impl StreamTrait for RetainedStream {
+        fn play(&self) -> std::result::Result<(), cpal::PlayStreamError> {
+            if self.fail_play {
+                Err(cpal::PlayStreamError::DeviceNotAvailable)
+            } else {
+                Ok(())
+            }
+        }
+
+        fn pause(&self) -> std::result::Result<(), cpal::PauseStreamError> {
+            let mut state = self.state.lock();
+            state.events.push("pause");
+            if self.fail_pause {
+                return Err(cpal::PauseStreamError::DeviceNotAvailable);
+            }
+            state.capturing = false;
+            Ok(())
+        }
+    }
+
+    impl Drop for RetainedStream {
+        fn drop(&mut self) {
+            self.state.lock().events.push("release");
+        }
+    }
+
+    #[test]
+    fn microphone_cleanup_stops_retained_capture_with_or_without_play() {
+        for play in [false, true] {
+            let backend = RetainedStream::new();
+            let retained_state = backend.state.clone();
+            let stream = MicrophoneStream::new(backend);
+            if play {
+                stream.play().unwrap();
+            }
+            drop(stream);
+
+            let state = retained_state.lock();
+            assert!(!state.capturing, "capture survived handle release");
+            assert_eq!(state.events, ["pause", "release"]);
+        }
+    }
+
+    #[test]
+    fn microphone_cleanup_stops_capture_on_play_error_return() {
+        let mut backend = RetainedStream::new();
+        backend.fail_play = true;
+        let retained_state = backend.state.clone();
+        let result = (|| {
+            let stream = MicrophoneStream::new(backend);
+            stream.play()?;
+            Ok::<_, cpal::PlayStreamError>(())
+        })();
+
+        assert!(matches!(
+            result,
+            Err(cpal::PlayStreamError::DeviceNotAvailable)
+        ));
+        let state = retained_state.lock();
+        assert!(!state.capturing);
+        assert_eq!(state.events, ["pause", "release"]);
+    }
+
+    #[test]
+    fn microphone_cleanup_releases_handle_even_when_pause_fails() {
+        let mut backend = RetainedStream::new();
+        backend.fail_pause = true;
+        let retained_state = backend.state.clone();
+
+        drop(MicrophoneStream::new(backend));
+
+        assert_eq!(retained_state.lock().events, ["pause", "release"]);
+    }
 
     fn unique_temp_path(name: &str) -> PathBuf {
         let ts = SystemTime::now()

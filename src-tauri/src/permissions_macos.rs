@@ -1,5 +1,3 @@
-#[cfg(target_os = "macos")]
-use cpal::traits::StreamTrait;
 use cpal::traits::{DeviceTrait, HostTrait};
 use serde::{Deserialize, Serialize};
 use std::process::Command;
@@ -7,6 +5,8 @@ use std::process::Command;
 use std::time::Duration;
 use tauri::AppHandle;
 
+#[cfg(target_os = "macos")]
+use crate::audio::MicrophoneStream;
 use crate::hotkey_macos;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -180,6 +180,9 @@ fn can_open_microphone_stream(start_stream: bool) -> bool {
     let Ok(stream) = stream_result else {
         return false;
     };
+    // Core Audio starts capture during build_input_stream, including status
+    // checks that do not call play(). Pause on every exit, including play errors.
+    let stream = MicrophoneStream::new(stream);
 
     if start_stream {
         if stream.play().is_err() {
