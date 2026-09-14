@@ -71,8 +71,9 @@ impl SentenceSegmenter {
         // Walk backwards from the dot to find the word
         let before = &text[..dot_pos];
         let word_start = before
-            .rfind(|c: char| !c.is_alphabetic() && c != '.')
-            .map(|p| p + 1)
+            .char_indices()
+            .rfind(|(_, c)| !c.is_alphabetic() && *c != '.')
+            .map(|(p, c)| p + c.len_utf8())
             .unwrap_or(0);
         let word = &text[word_start..dot_pos].to_lowercase();
 

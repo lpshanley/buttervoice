@@ -1,7 +1,7 @@
 use strsim::levenshtein;
 
 use super::whisper_confidence::WhisperConfidenceMap;
-use super::TextEdit;
+use super::{PipelineStage, TextEdit};
 
 /// Safety gate that filters edits to prevent meaning drift.
 pub struct SafetyGate {
@@ -66,31 +66,40 @@ impl SafetyGate {
                 continue;
             }
 
-            // Check edit distance ratio for replacements (not insertions/deletions)
+            let original = &text[edit.offset..end];
+            // Formatting changes can replace a whole spoken number or remove
+            // punctuation. Spelling distance and rewrite budgets do not measure
+            // their safety; retain the confidence and span checks above.
+            if edit.source == PipelineStage::InverseTextNorm
+                || is_case_only_change(original, &edit.replacement)
+                || (matches!(
+                    edit.source,
+                    PipelineStage::SentenceSegmentation | PipelineStage::Punctuation
+                ) && original
+                    .chars()
+                    .chain(edit.replacement.chars())
+                    .all(|c| c.is_whitespace() || c.is_ascii_punctuation()))
+            {
+                accepted.push(edit.clone());
+                continue;
+            }
+
+            // Limit spelling and wording changes, including word deletions.
             if edit.length > 0 {
-                let original = &text[edit.offset..end];
+                let distance = levenshtein(original, &edit.replacement);
+                let ratio = distance as f32 / original.len().max(1) as f32;
 
-                // Skip the distance ratio check for pure case changes (e.g. "h" → "H",
-                // "google" → "Google").  These are safe and should not be blocked by
-                // the edit-distance heuristic which is designed for spelling corrections.
-                if !is_case_only_change(original, &edit.replacement) {
-                    let distance = levenshtein(original, &edit.replacement);
-                    let ratio = distance as f32 / original.len().max(1) as f32;
+                // Accept only close corrections when Whisper was uncertain.
+                let effective_max_ratio = match whisper_conf
+                    .and_then(|wc| wc.confidence_for_span(edit.offset, edit.length))
+                {
+                    Some(wp) if wp < 0.5 => self.max_edit_distance_ratio * 0.75,
+                    _ => self.max_edit_distance_ratio,
+                };
 
-                    // Tighten the distance ratio threshold when whisper was
-                    // uncertain about the target span (prob < 0.5). Only accept
-                    // close corrections for words whisper was already unsure about.
-                    let effective_max_ratio = match whisper_conf
-                        .and_then(|wc| wc.confidence_for_span(edit.offset, edit.length))
-                    {
-                        Some(wp) if wp < 0.5 => self.max_edit_distance_ratio * 0.75,
-                        _ => self.max_edit_distance_ratio,
-                    };
-
-                    if ratio > effective_max_ratio {
-                        rejected.push(edit.clone());
-                        continue;
-                    }
+                if ratio > effective_max_ratio {
+                    rejected.push(edit.clone());
+                    continue;
                 }
             }
 

@@ -35,9 +35,9 @@ static ANNOTATION_RE: LazyLock<Regex> = LazyLock::new(|| {
 static MUSIC_NOTES_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[♪♫♬]+").expect("music note regex must compile"));
 
-/// Phrases whisper produces for silent audio that are never plausible
-/// dictations, dropped regardless of token confidence.
-const ALWAYS_DROP_PREFIXES: &[&str] = &[
+/// Credit-style hallucinations can also be deliberate dictation, so they
+/// require the same silence evidence as other known phrases.
+const CONFIDENCE_GATED_PREFIXES: &[&str] = &[
     "subtitles by",
     "subtitled by",
     "transcribed by",
@@ -121,22 +121,18 @@ fn is_hallucinated_phrase(
         return true;
     }
 
-    if ALWAYS_DROP_PREFIXES
-        .iter()
-        .any(|prefix| normalized.starts_with(prefix))
-        || normalized.contains("amara.org")
-        || normalized.starts_with("www.")
-    {
-        return true;
-    }
-
     let looks_like_silence = no_speech_prob
         .is_some_and(|prob| prob > PHRASE_DROP_MIN_NO_SPEECH_PROB)
         || avg_token_prob.is_some_and(|prob| prob < PHRASE_DROP_MAX_AVG_PROB);
     looks_like_silence
-        && CONFIDENCE_GATED_PHRASES
+        && (CONFIDENCE_GATED_PHRASES
             .iter()
             .any(|phrase| normalized == *phrase)
+            || CONFIDENCE_GATED_PREFIXES.iter().any(|prefix| {
+                normalized
+                    .strip_prefix(prefix)
+                    .is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
+            }))
 }
 
 /// Lowercase and strip surrounding quotes plus trailing punctuation so
@@ -218,10 +214,31 @@ mod tests {
     }
 
     #[test]
-    fn drops_subtitle_credits_regardless_of_confidence() {
-        let outcome = filter("Subtitles by the Amara.org community", Some(0.95));
+    fn drops_subtitle_credits_only_with_silence_evidence() {
+        let outcome = filter("Subtitles by the Amara.org community", Some(0.2));
         assert_eq!(outcome.text, "");
         assert!(outcome.phrase_dropped);
+    }
+
+    #[test]
+    fn preserves_urls_and_confident_or_unscored_credits() {
+        for text in [
+            "www.example.com",
+            "Please visit amara.org for the schedule.",
+        ] {
+            for prob in [None, Some(0.2), Some(0.99)] {
+                assert_eq!(filter(text, prob).text, text);
+            }
+        }
+        for text in [
+            "Transcribed by Alice for the team.",
+            "Subtitles by the Amara.org community",
+        ] {
+            for prob in [None, Some(0.99)] {
+                assert_eq!(filter_hallucinations(text, prob, Some(0.01)).text, text);
+            }
+            assert!(filter_hallucinations(text, Some(0.99), Some(0.9)).phrase_dropped);
+        }
     }
 
     #[test]

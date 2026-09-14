@@ -94,6 +94,7 @@ struct StageAccumulator {
     applied: Vec<TextEdit>,
     rejected: Vec<TextEdit>,
     timings: HashMap<String, u64>,
+    confidence: Option<whisper_confidence::WhisperConfidenceMap>,
 }
 
 // ── Pipeline orchestrator ──
@@ -157,7 +158,11 @@ impl PostProcessor {
     ) -> Result<PipelineResult> {
         let pipeline_start = Instant::now();
         let mut current_text = text.to_string();
-        let mut stage_acc = StageAccumulator::default();
+        let mut stage_acc = StageAccumulator {
+            confidence: token_confidences
+                .map(|tokens| whisper_confidence::WhisperConfidenceMap::build(text, tokens)),
+            ..StageAccumulator::default()
+        };
 
         // Update safety gate from settings
         let safety_gate = SafetyGate {
@@ -204,10 +209,8 @@ impl PostProcessor {
             );
         }
 
-        // Build whisper confidence map after structural stages complete.
-        // Word identity is preserved through stages 1-4, so alignment works.
-        let whisper_conf_map = token_confidences
-            .map(|tokens| whisper_confidence::WhisperConfidenceMap::build(&current_text, tokens));
+        // Structural edits have already moved confidence spans with the text.
+        let whisper_conf_map = stage_acc.confidence.clone();
         let wc_ref = whisper_conf_map.as_ref();
 
         // Stage 5: Spell correction (toggled)
@@ -224,6 +227,8 @@ impl PostProcessor {
 
         // Stage 6: Grammar rules (toggled)
         if settings.post_process_grammar_rules_enabled {
+            let whisper_conf_map = stage_acc.confidence.clone();
+            let wc_ref = whisper_conf_map.as_ref();
             current_text = self.run_stage_with_confidence(
                 PipelineStage::GrammarRules,
                 &current_text,
@@ -411,6 +416,24 @@ impl PostProcessor {
 
         // Apply safe edits in reverse offset order to preserve positions
         let result = apply_edits(input, &safe_edits);
+        if let Some(confidence) = stage_acc.confidence.as_mut() {
+            confidence.apply_edits(input, &safe_edits);
+        }
+        for edit in &safe_edits {
+            if let Some(distance) = edit
+                .rule_id
+                .strip_prefix("spell_ed")
+                .and_then(|value| value.parse::<i32>().ok())
+            {
+                tracing::info!(
+                    original = %&input[edit.offset..edit.offset + edit.length],
+                    correction = %edit.replacement,
+                    distance,
+                    confidence = edit.confidence,
+                    "spell_correction"
+                );
+            }
+        }
         stage_acc.applied.extend(safe_edits);
         result
     }
@@ -611,5 +634,55 @@ mod tests {
         let canonical = canonicalize_edits(input, edits);
         assert_eq!(canonical.len(), 1);
         assert_eq!(canonical[0].rule_id, "spell");
+    }
+    #[test]
+    fn spelling_after_structural_changes_keeps_text_and_confidence_aligned() {
+        let processor =
+            PostProcessor::new(&std::env::temp_dir().join("buttervoice-processing-regressions"))
+                .unwrap();
+        let settings = Settings {
+            post_process_enabled: true,
+            ..Settings::default()
+        };
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(std::io::sink)
+            .finish();
+        tracing::subscriber::with_default(subscriber, || {
+            let result = processor
+                .run("Please,documnet☕ the package tomorrow.", &settings, None)
+                .unwrap();
+            assert_eq!(result.output, "Please, document☕ the package tomorrow.");
+
+            let text = "one hundred twenty three documnet for the meeting tomorrow";
+            let tokens: Vec<_> = [
+                " one",
+                " hundred",
+                " twenty",
+                " three",
+                " doc",
+                "um",
+                "net",
+                " for",
+                " the",
+                " meeting",
+                " tomorrow",
+            ]
+            .into_iter()
+            .map(|text| TokenConfidence {
+                text: text.into(),
+                prob: 0.99,
+            })
+            .collect();
+            let result = processor.run(text, &settings, Some(&tokens)).unwrap();
+            assert_eq!(result.output, "123 documnet for the meeting tomorrow.");
+            assert!(result
+                .rejected_edits
+                .iter()
+                .any(|edit| edit.source == PipelineStage::SpellCorrection));
+            assert_eq!(
+                processor.run(text, &settings, None).unwrap().output,
+                "123 document for the meeting tomorrow."
+            );
+        });
     }
 }

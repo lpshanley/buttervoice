@@ -30,14 +30,6 @@ const I16_SCALE: f32 = 32_768.0;
 type SharedError = Arc<Mutex<Option<String>>>;
 type ControlResult<T> = std::result::Result<T, String>;
 
-fn output_sample_rate(source_rate: u32) -> u32 {
-    if source_rate > WHISPER_SAMPLE_RATE {
-        WHISPER_SAMPLE_RATE
-    } else {
-        source_rate
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MicDevice {
     pub id: String,
@@ -183,13 +175,18 @@ struct RubatoSpeechResampler {
     input_buffer: Vec<Vec<f32>>,
     output_buffer: Vec<Vec<f32>>,
     pending: VecDeque<f32>,
-    delay_trim_remaining: usize,
     chunk_size: usize,
+    ratio: f64,
+    input_frames: usize,
+    output_frames: usize,
 }
 
 impl SpeechResampler {
     fn new(source_rate: u32, target_rate: u32, quality_preset: AudioQualityPreset) -> Result<Self> {
-        if source_rate <= target_rate {
+        if source_rate == 0 || target_rate == 0 {
+            return Err(anyhow!("audio sample rates must be nonzero"));
+        }
+        if source_rate == target_rate {
             return Ok(Self::Passthrough);
         }
 
@@ -213,15 +210,16 @@ impl SpeechResampler {
 
         let input_buffer = resampler.input_buffer_allocate(true);
         let output_buffer = resampler.output_buffer_allocate(true);
-        let delay_trim_remaining = resampler.output_delay();
 
         Ok(Self::Rubato(RubatoSpeechResampler {
             resampler,
             input_buffer,
             output_buffer,
             pending: VecDeque::with_capacity(RESAMPLER_CHUNK_SIZE * 2),
-            delay_trim_remaining,
             chunk_size: RESAMPLER_CHUNK_SIZE,
+            ratio: target_rate as f64 / source_rate as f64,
+            input_frames: 0,
+            output_frames: 0,
         }))
     }
 
@@ -245,6 +243,7 @@ impl SpeechResampler {
 
 impl RubatoSpeechResampler {
     fn process_batch(&mut self, input: &[i16], output: &mut Vec<i16>) -> Result<()> {
+        self.input_frames += input.len();
         self.pending
             .extend(input.iter().map(|sample| *sample as f32 / I16_SCALE));
 
@@ -271,27 +270,38 @@ impl RubatoSpeechResampler {
     }
 
     fn flush(&mut self, output: &mut Vec<i16>) -> Result<()> {
-        if self.pending.is_empty() {
-            return Ok(());
-        }
-
-        let partial = self.pending.drain(..).collect::<Vec<_>>();
-        let partial_input = vec![partial];
-        let flushed = self
-            .resampler
-            .process_partial(Some(&partial_input), None)
-            .map_err(|err| anyhow!("failed flushing resampler tail: {err}"))?;
-        if let Some(channel) = flushed.first() {
-            self.collect_output(channel, output);
+        // Drain both partial input and filter latency, even when the input was
+        // an exact multiple of the chunk size. Trim zero padding to duration.
+        while self.output_frames < self.expected_output_frames() {
+            let partial_input = vec![self.pending.drain(..).collect::<Vec<_>>()];
+            let flushed = self
+                .resampler
+                .process_partial(
+                    (!partial_input[0].is_empty()).then_some(partial_input.as_slice()),
+                    None,
+                )
+                .map_err(|err| anyhow!("failed flushing resampler tail: {err}"))?;
+            if let Some(channel) = flushed.first() {
+                self.collect_output(channel, output);
+            }
         }
 
         Ok(())
     }
 
     fn collect_output(&mut self, input: &[f32], output: &mut Vec<i16>) {
-        let skip = self.delay_trim_remaining.min(input.len());
-        self.delay_trim_remaining -= skip;
-        output.extend(input[skip..].iter().map(|sample| f32_to_i16(*sample)));
+        // SincFixedIn already aligns its first output with the input onset;
+        // output_delay describes buffered lookahead, not leading zero samples.
+        let take = input.len().min(
+            self.expected_output_frames()
+                .saturating_sub(self.output_frames),
+        );
+        output.extend(input[..take].iter().map(|sample| f32_to_i16(*sample)));
+        self.output_frames += take;
+    }
+
+    fn expected_output_frames(&self) -> usize {
+        (self.input_frames as f64 * self.ratio).round() as usize
     }
 }
 
@@ -513,7 +523,6 @@ struct ActiveRecording {
 struct PersistentCapture {
     preferred_mic: Option<String>,
     capture_tuning: CaptureTuning,
-    sample_rate_hz: u32,
     processor: ProcessorHandle,
     _stream: cpal::Stream,
     active_path: Option<PathBuf>,
@@ -823,7 +832,7 @@ fn start_persistent_capture(
         .context("failed loading default input config")?;
     let config: StreamConfig = supported_config.clone().into();
     let sample_rate_hz = config.sample_rate.0;
-    let target_rate = output_sample_rate(sample_rate_hz);
+    let target_rate = WHISPER_SAMPLE_RATE;
     let max_buffer_samples =
         (((target_rate as u64) * PERSISTENT_PREROLL_MS) / 1000).max(1) as usize;
     let processor = spawn_processor(
@@ -882,7 +891,6 @@ fn start_persistent_capture(
     Ok(PersistentCapture {
         preferred_mic,
         capture_tuning,
-        sample_rate_hz,
         processor,
         _stream: stream,
         active_path: None,
@@ -903,7 +911,7 @@ fn start_persistent_recording(
     }
 
     let out_path = out_dir.join(format!("{}.wav", trace_id));
-    let writer = create_wav_writer(&out_path, output_sample_rate(capture.sample_rate_hz))?;
+    let writer = create_wav_writer(&out_path, WHISPER_SAMPLE_RATE)?;
     capture.processor.start_writer(writer)?;
     capture.active_path = Some(out_path.clone());
     Ok(out_path)
@@ -944,7 +952,7 @@ fn start_recording_inner(
 
     let out_path = out_dir.join(format!("{}.wav", trace_id));
     let source_rate = config.sample_rate.0;
-    let writer = create_wav_writer(&out_path, output_sample_rate(source_rate))?;
+    let writer = create_wav_writer(&out_path, WHISPER_SAMPLE_RATE)?;
     let processor = spawn_processor(
         source_rate,
         capture_tuning.audio_quality_preset,
@@ -1359,7 +1367,7 @@ mod tests {
     }
 
     #[test]
-    fn speech_resampler_passthrough_for_whisper_rate_and_below() {
+    fn speech_resampler_passthrough_for_whisper_rate() {
         let samples = vec![1, -2, 3, -4, 5];
         let mut resampler = SpeechResampler::new(
             WHISPER_SAMPLE_RATE,
@@ -1371,13 +1379,82 @@ mod tests {
         resampler.process_batch(&samples, &mut output).unwrap();
         resampler.flush(&mut output).unwrap();
         assert_eq!(output, samples);
+    }
 
-        let mut resampler =
-            SpeechResampler::new(8_000, WHISPER_SAMPLE_RATE, AudioQualityPreset::Balanced).unwrap();
-        let mut output = Vec::new();
-        resampler.process_batch(&samples, &mut output).unwrap();
-        resampler.flush(&mut output).unwrap();
-        assert_eq!(output, samples);
+    #[test]
+    fn low_rate_recordings_preserve_duration_and_pitch_at_16khz() {
+        for rate in [8_000, 11_025] {
+            let input = generate_sine(rate, rate as usize);
+            let mut resampler =
+                SpeechResampler::new(rate, WHISPER_SAMPLE_RATE, AudioQualityPreset::Balanced)
+                    .unwrap();
+            let mut output = Vec::new();
+            for chunk in input.chunks(137) {
+                resampler.process_batch(chunk, &mut output).unwrap();
+            }
+            resampler.flush(&mut output).unwrap();
+            assert_eq!(
+                output.len(),
+                16_000,
+                "incorrect duration for {rate}Hz input"
+            );
+            let cycles = output
+                .windows(2)
+                .filter(|pair| pair[0] <= 0 && pair[1] > 0)
+                .count();
+            assert!(
+                (439..=441).contains(&cycles),
+                "incorrect pitch: {cycles} cycles for {rate}Hz, last strong sample {:?}",
+                output.iter().rposition(|s| s.unsigned_abs() > 100)
+            );
+            resampler.flush(&mut output).unwrap();
+            assert_eq!(output.len(), 16_000, "flushing twice appended padding");
+        }
+    }
+
+    #[test]
+    fn resampler_drains_filter_tail_after_exact_chunks() {
+        for rate in [8_000, 48_000] {
+            let input = generate_sine(rate, RESAMPLER_CHUNK_SIZE * 3);
+            let mut resampler =
+                SpeechResampler::new(rate, WHISPER_SAMPLE_RATE, AudioQualityPreset::Balanced)
+                    .unwrap();
+            let mut output = Vec::new();
+            resampler.process_batch(&input, &mut output).unwrap();
+            resampler.flush(&mut output).unwrap();
+            assert_eq!(output.len(), input.len() * 16_000 / rate as usize);
+            assert!(
+                output[output.len() - 20..]
+                    .iter()
+                    .any(|sample| sample.unsigned_abs() > 100),
+                "missing tail for {rate}Hz, last strong sample {:?}",
+                output.iter().rposition(|s| s.unsigned_abs() > 100)
+            );
+        }
+    }
+
+    #[test]
+    fn resampler_preserves_impulse_timing() {
+        for rate in [8_000, 48_000] {
+            let mut input = vec![0; rate as usize / 5];
+            input[rate as usize / 10] = 30_000;
+            let mut resampler =
+                SpeechResampler::new(rate, WHISPER_SAMPLE_RATE, AudioQualityPreset::Balanced)
+                    .unwrap();
+            let mut output = Vec::new();
+            resampler.process_batch(&input, &mut output).unwrap();
+            resampler.flush(&mut output).unwrap();
+            let peak = output
+                .iter()
+                .enumerate()
+                .max_by_key(|(_, s)| s.unsigned_abs())
+                .unwrap()
+                .0;
+            assert!(
+                peak.abs_diff(1_600) <= 2,
+                "impulse shifted to {peak} for {rate}Hz input"
+            );
+        }
     }
 
     #[test]
@@ -1415,7 +1492,7 @@ mod tests {
     }
 
     #[test]
-    fn speech_resampler_trims_initial_delay() {
+    fn speech_resampler_preserves_immediate_onset() {
         let input = vec![i16::MAX; 4_500];
         let mut resampler =
             SpeechResampler::new(48_000, WHISPER_SAMPLE_RATE, AudioQualityPreset::Balanced)

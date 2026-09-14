@@ -1,3 +1,4 @@
+use super::TextEdit;
 use crate::whisper_backend::TokenConfidence;
 
 /// Whisper probability above which corrections start being suppressed.
@@ -27,8 +28,8 @@ pub fn dampen_confidence(stage_conf: f32, whisper_prob: Option<f32>, max_suppres
 
 /// Maps byte spans in post-processed text back to Whisper token probabilities.
 ///
-/// Built after structural pipeline stages (sentence segmentation, punctuation,
-/// truecasing, ITN) by aligning whisper tokens against the current text state.
+/// Built from the original transcript and moved with accepted pipeline edits.
+#[derive(Clone)]
 pub struct WhisperConfidenceMap {
     /// (byte_offset, byte_end, probability) sorted by offset.
     spans: Vec<(usize, usize, f32)>,
@@ -38,8 +39,8 @@ impl WhisperConfidenceMap {
     /// Build the map by aligning whisper tokens against the current text.
     ///
     /// Walks words extracted from `tokens` and words from `text` in parallel,
-    /// matching by lowercased form. This handles casing/punctuation changes
-    /// from earlier pipeline stages that don't alter word identity.
+    /// matching by lowercased form. Subsequent pipeline edits move these spans
+    /// using `apply_edits`, including when number conversion changes word identity.
     pub fn build(text: &str, tokens: &[TokenConfidence]) -> Self {
         let text_words = word_spans(text);
         let token_words = flatten_token_words(tokens);
@@ -82,7 +83,7 @@ impl WhisperConfidenceMap {
     ///
     /// Returns `None` if no token data covers this span.
     pub fn confidence_for_span(&self, offset: usize, length: usize) -> Option<f32> {
-        let end = offset + length;
+        let end = offset.checked_add(length)?;
         let mut sum = 0.0_f32;
         let mut count = 0u32;
 
@@ -98,6 +99,34 @@ impl WhisperConfidenceMap {
             Some(sum / count as f32)
         } else {
             None
+        }
+    }
+
+    /// Keep confidence attached to unchanged words as edits shift their offsets.
+    /// Rewritten words lose their original confidence; casing preserves it.
+    pub fn apply_edits(&mut self, input: &str, edits: &[TextEdit]) {
+        let mut ordered: Vec<_> = edits.iter().collect();
+        ordered.sort_by_key(|edit| std::cmp::Reverse(edit.offset));
+        for edit in ordered {
+            let end = edit.offset + edit.length;
+            let delta = edit.replacement.len() as isize - edit.length as isize;
+            let case_only =
+                input[edit.offset..end].to_lowercase() == edit.replacement.to_lowercase();
+            self.spans.retain_mut(|(start, span_end, _)| {
+                if *span_end <= edit.offset {
+                    return true;
+                }
+                if *start >= end {
+                    *start = start.saturating_add_signed(delta);
+                    *span_end = span_end.saturating_add_signed(delta);
+                    return true;
+                }
+                if case_only {
+                    *span_end = span_end.saturating_add_signed(delta);
+                    return true;
+                }
+                false
+            });
         }
     }
 }
@@ -130,25 +159,39 @@ fn word_spans(text: &str) -> Vec<(usize, usize, String)> {
     spans
 }
 
-/// Flatten token list into (lowercased_word, probability) pairs.
-///
-/// Each token may contain leading/trailing whitespace or span multiple words
-/// (rare). We split on whitespace and assign the token's probability to each word.
+/// Join subword tokens before extracting words. Each word receives the mean
+/// confidence of its contributing tokens, including split contractions.
 fn flatten_token_words(tokens: &[TokenConfidence]) -> Vec<(String, f32)> {
-    let mut words = Vec::new();
-    for tok in tokens {
-        for part in tok.text.split_whitespace() {
-            // Strip leading/trailing punctuation to match word extraction from text
-            let trimmed: String = part
-                .chars()
-                .filter(|c| c.is_alphanumeric() || *c == '\'')
-                .collect();
-            if !trimmed.is_empty() {
-                words.push((trimmed.to_lowercase(), tok.prob));
+    let mut joined = String::new();
+    let spans: Vec<_> = tokens
+        .iter()
+        .map(|token| {
+            let start = joined.len();
+            joined.push_str(&token.text);
+            (start, joined.len(), token.prob)
+        })
+        .collect();
+    let mut token_idx = 0;
+    word_spans(&joined)
+        .into_iter()
+        .map(|(start, end, word)| {
+            while token_idx < spans.len() && spans[token_idx].1 <= start {
+                token_idx += 1;
             }
-        }
-    }
-    words
+            let mut sum = 0.0;
+            let mut count = 0;
+            for &(token_start, token_end, prob) in &spans[token_idx..] {
+                if token_start >= end {
+                    break;
+                }
+                if token_end > start {
+                    sum += prob;
+                    count += 1;
+                }
+            }
+            (word, sum / count as f32)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -175,6 +218,72 @@ mod tests {
         // "world" at [6, 11)
         let conf = map.confidence_for_span(6, 5).unwrap();
         assert!((conf - 0.80).abs() < 0.01);
+    }
+
+    #[test]
+    fn joins_subwords_and_preserves_confidence_for_following_words() {
+        let tokens = vec![
+            tok(" micro", 0.9),
+            tok("ser", 0.6),
+            tok("vices", 0.9),
+            tok(" are", 0.8),
+            tok(" stable", 0.7),
+        ];
+        let map = WhisperConfidenceMap::build("Microservices are stable", &tokens);
+        assert!((map.confidence_for_span(0, 13).unwrap() - 0.8).abs() < 0.001);
+        assert_eq!(map.confidence_for_span(14, 3), Some(0.8));
+        assert_eq!(map.confidence_for_span(18, 6), Some(0.7));
+    }
+
+    #[test]
+    fn handles_split_contractions_and_multiword_tokens() {
+        let tokens = vec![
+            tok(" I can", 0.9),
+            tok("'t", 0.7),
+            tok(". Please help", 0.8),
+        ];
+        let map = WhisperConfidenceMap::build("I can't. Please help", &tokens);
+        assert!((map.confidence_for_span(2, 5).unwrap() - 0.8).abs() < 0.001);
+        assert_eq!(map.confidence_for_span(9, 6), Some(0.8));
+        assert_eq!(map.confidence_for_span(16, 4), Some(0.8));
+    }
+
+    #[test]
+    fn confidence_moves_with_number_conversion_and_punctuation() {
+        use super::super::PipelineStage;
+        let text = "Twenty three,chairs";
+        let mut map = WhisperConfidenceMap::build(
+            text,
+            &[
+                tok(" twenty", 0.8),
+                tok(" three", 0.7),
+                tok(",", 0.9),
+                tok("chairs", 0.99),
+            ],
+        );
+        map.apply_edits(
+            text,
+            &[
+                TextEdit {
+                    offset: 0,
+                    length: 12,
+                    replacement: "23".into(),
+                    source: PipelineStage::InverseTextNorm,
+                    confidence: 0.8,
+                    rule_id: "itn_number".into(),
+                },
+                TextEdit {
+                    offset: 13,
+                    length: 0,
+                    replacement: " ".into(),
+                    source: PipelineStage::Punctuation,
+                    confidence: 0.9,
+                    rule_id: "space".into(),
+                },
+            ],
+        );
+        assert_eq!(map.confidence_for_span(4, 6), Some(0.99));
+        assert_eq!(map.confidence_for_span(0, 2), None);
     }
 
     #[test]

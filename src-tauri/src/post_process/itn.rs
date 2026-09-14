@@ -187,7 +187,7 @@ impl InverseTextNormalizer {
                 if lower == cp.word {
                     // Look backwards to find the number
                     if i > 0 {
-                        let num_result = self.parse_number_words_before(&words, i);
+                        let num_result = self.parse_number_words_before(text, &words, i);
                         if let Some((num_start_idx, value)) = num_result {
                             let span_start = words[num_start_idx].0;
                             let span_end = words[i].0 + words[i].1.len();
@@ -247,7 +247,15 @@ impl InverseTextNormalizer {
                 || self.multipliers.contains_key(lower.as_str())
             {
                 // Try to parse a multi-word number starting here
-                let (end_idx, value) = self.parse_number_words_forward(&words, i);
+                let (end_idx, value) = self.parse_number_words_forward(text, &words, i);
+                let touches_decimal = (i > 0 && words[i - 1].1.eq_ignore_ascii_case("point"))
+                    || words
+                        .get(end_idx + 1)
+                        .is_some_and(|(_, word)| word.eq_ignore_ascii_case("point"));
+                let Some(value) = value.filter(|_| !touches_decimal) else {
+                    i = end_idx + 1;
+                    continue;
+                };
 
                 if end_idx > i {
                     let span_start = words[i].0;
@@ -280,35 +288,87 @@ impl InverseTextNormalizer {
     }
 
     /// Parse number words going forward from index `start`.
-    /// Returns (last_index_consumed, value).
-    fn parse_number_words_forward(&self, words: &[(usize, &str)], start: usize) -> (usize, u64) {
+    /// Returns (last_index_consumed, value). Ambiguous sequences have no value
+    /// but are consumed together so their suffix is not converted separately.
+    fn parse_number_words_forward(
+        &self,
+        text: &str,
+        words: &[(usize, &str)],
+        start: usize,
+    ) -> (usize, Option<u64>) {
         let mut total: u64 = 0;
         let mut current: u64 = 0;
         let mut last_valid = start;
         let mut found_any = false;
+        let mut valid = true;
+        let mut last_cardinal = None;
+        let mut previous_multiplier = None;
+        let mut last_large_multiplier = u64::MAX;
 
         let mut i = start;
         while i < words.len() {
+            if i > start {
+                let previous_end = words[i - 1].0 + words[i - 1].1.len();
+                if !text[previous_end..words[i].0]
+                    .chars()
+                    .all(|c| c.is_whitespace() || c == '-')
+                {
+                    break;
+                }
+            }
             let lower = words[i].1.to_lowercase();
 
             if let Some(&val) = self.cardinal_map.get(lower.as_str()) {
-                current += val;
+                // Adjacent cardinals only combine as tens + units. Treat digit
+                // strings and colloquial forms such as "one forty" as ambiguous.
+                if let Some(previous) = last_cardinal {
+                    if !(previous >= 20 && previous % 10 == 0 && (1..10).contains(&val)) {
+                        valid = false;
+                    }
+                }
+                match current.checked_add(val) {
+                    Some(sum) => current = sum,
+                    None => valid = false,
+                }
+                last_cardinal = Some(val);
+                previous_multiplier = None;
                 last_valid = i;
                 found_any = true;
             } else if let Some(&mult) = self.multipliers.get(lower.as_str()) {
+                if previous_multiplier.is_some_and(|previous| previous >= mult) {
+                    valid = false;
+                }
                 if current == 0 {
                     current = 1;
                 }
                 if mult >= 1000 {
-                    total += current * mult;
+                    if mult >= last_large_multiplier {
+                        valid = false;
+                    }
+                    last_large_multiplier = mult;
+                    match current
+                        .checked_mul(mult)
+                        .and_then(|part| total.checked_add(part))
+                    {
+                        Some(sum) => total = sum,
+                        None => valid = false,
+                    }
                     current = 0;
                 } else {
-                    current *= mult;
+                    match current.checked_mul(mult) {
+                        Some(product) => current = product,
+                        None => valid = false,
+                    }
                 }
+                last_cardinal = None;
+                previous_multiplier = Some(mult);
                 last_valid = i;
                 found_any = true;
             } else if lower == "and" && found_any && i + 1 < words.len() {
                 // "one hundred and twenty" — skip "and" if followed by more numbers
+                if total == 0 && current < 100 {
+                    break;
+                }
                 let next_lower = words[i + 1].1.to_lowercase();
                 if self.cardinal_map.contains_key(next_lower.as_str())
                     || self.multipliers.contains_key(next_lower.as_str())
@@ -326,16 +386,16 @@ impl InverseTextNormalizer {
         }
 
         if !found_any {
-            return (start, 0);
+            return (start, None);
         }
 
-        total += current;
-        (last_valid, total)
+        (last_valid, total.checked_add(current).filter(|_| valid))
     }
 
     /// Look backwards from `currency_idx` to find number words.
     fn parse_number_words_before(
         &self,
+        text: &str,
         words: &[(usize, &str)],
         currency_idx: usize,
     ) -> Option<(usize, u64)> {
@@ -359,12 +419,23 @@ impl InverseTextNormalizer {
             i -= 1;
         }
 
-        if start >= currency_idx {
+        while start < currency_idx && words[start].1.eq_ignore_ascii_case("and") {
+            start += 1;
+        }
+        if start >= currency_idx || (start > 0 && words[start - 1].1.eq_ignore_ascii_case("point"))
+        {
             return None;
         }
 
-        let (end, value) = self.parse_number_words_forward(words, start);
-        if value > 0 && end < currency_idx {
+        let (end, value) = self.parse_number_words_forward(text, words, start);
+        let value = value?;
+        let number_end = words[end].0 + words[end].1.len();
+        if value > 0
+            && end + 1 == currency_idx
+            && text[number_end..words[currency_idx].0]
+                .chars()
+                .all(char::is_whitespace)
+        {
             Some((start, value))
         } else {
             None

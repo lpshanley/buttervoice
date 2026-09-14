@@ -19,7 +19,8 @@ use crate::settings::ComputeMode;
 /// Per-token confidence from Whisper inference.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenConfidence {
-    /// Token text as emitted by whisper (may include leading space).
+    /// Token text as emitted by Whisper. Concatenation preserves word boundaries;
+    /// providers returning whole words must include separating whitespace.
     pub text: String,
     /// Whisper probability for this token, 0.0..1.0.
     pub prob: f32,
@@ -82,9 +83,34 @@ pub struct BackendStatus {
 pub struct WhisperBackend {
     model_cache_dir: PathBuf,
     runtime_state: Mutex<RuntimeState>,
-    /// Cached whisper context: (model_id, context).
-    /// Re-created when the model changes.
-    cached_context: Mutex<Option<(String, Arc<WhisperContext>)>>,
+    /// Re-created when either the model or the compute mode changes.
+    cached_context: Mutex<Option<CachedContext<WhisperContext>>>,
+}
+
+struct CachedContext<T> {
+    model_id: String,
+    use_gpu: bool,
+    context: Arc<T>,
+}
+
+fn get_or_create_cached_context<T>(
+    cached: &mut Option<CachedContext<T>>,
+    model_id: &str,
+    use_gpu: bool,
+    create: impl FnOnce() -> Result<T>,
+) -> Result<Arc<T>> {
+    if let Some(entry) = cached.as_ref() {
+        if entry.model_id == model_id && entry.use_gpu == use_gpu {
+            return Ok(entry.context.clone());
+        }
+    }
+    let context = Arc::new(create()?);
+    *cached = Some(CachedContext {
+        model_id: model_id.to_string(),
+        use_gpu,
+        context: context.clone(),
+    });
+    Ok(context)
 }
 
 // WhisperContext is Send+Sync but whisper-rs doesn't mark it as such in all
@@ -388,7 +414,10 @@ impl WhisperBackend {
         }
         // Invalidate cached context if we just deleted the loaded model.
         let mut cached = self.cached_context.lock();
-        if cached.as_ref().is_some_and(|(id, _)| id == model_id) {
+        if cached
+            .as_ref()
+            .is_some_and(|entry| entry.model_id == model_id)
+        {
             *cached = None;
         }
         Ok(())
@@ -492,26 +521,17 @@ impl WhisperBackend {
         use_gpu: bool,
     ) -> Result<Arc<WhisperContext>> {
         let mut cached = self.cached_context.lock();
-        if let Some((id, ctx)) = cached.as_ref() {
-            if id == model_id {
-                return Ok(ctx.clone());
-            }
-        }
-
-        let mut ctx_params = WhisperContextParameters::default();
-        ctx_params.use_gpu(use_gpu);
-
-        let ctx = WhisperContext::new_with_params(
-            model_path
-                .to_str()
-                .ok_or_else(|| anyhow!("model path is not valid UTF-8"))?,
-            ctx_params,
-        )
-        .map_err(|e| anyhow!("failed to initialize whisper context: {e}"))?;
-
-        let ctx = Arc::new(ctx);
-        *cached = Some((model_id.to_string(), ctx.clone()));
-        Ok(ctx)
+        get_or_create_cached_context(&mut cached, model_id, use_gpu, || {
+            let mut ctx_params = WhisperContextParameters::default();
+            ctx_params.use_gpu(use_gpu);
+            WhisperContext::new_with_params(
+                model_path
+                    .to_str()
+                    .ok_or_else(|| anyhow!("model path is not valid UTF-8"))?,
+                ctx_params,
+            )
+            .map_err(|e| anyhow!("failed to initialize whisper context: {e}"))
+        })
     }
 
     fn run_whisper(
@@ -535,6 +555,10 @@ impl WhisperBackend {
 
         if !request.language.is_empty() && request.language != "auto" {
             params.set_language(Some(&request.language));
+        } else {
+            // FullParams defaults to English. A null language enables detection
+            // while continuing transcription (detect_language alone stops early).
+            params.set_language(None);
         }
 
         if !request.prompt.is_empty() {
@@ -635,6 +659,14 @@ fn load_audio_samples(audio_path: &Path) -> Result<Vec<f32>> {
         .with_context(|| format!("failed opening audio file {}", audio_path.display()))?;
     let spec = reader.spec();
 
+    if spec.channels != 1 || spec.sample_rate != 16_000 {
+        bail!(
+            "Whisper requires mono 16000 Hz audio, got {} channels at {} Hz",
+            spec.channels,
+            spec.sample_rate
+        );
+    }
+
     if spec.bits_per_sample == 16 && spec.sample_format == hound::SampleFormat::Int {
         let samples: Vec<f32> = reader
             .into_samples::<i16>()
@@ -694,4 +726,60 @@ fn is_probably_silent_wav(audio_file: &Path) -> bool {
     }
 
     !saw_sample || peak < 256
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn context_cache_reuses_only_the_same_model_and_compute_mode() {
+        let mut cached = None;
+        let cpu = get_or_create_cached_context(&mut cached, "model-a", false, || Ok(1)).unwrap();
+        let reused = get_or_create_cached_context(&mut cached, "model-a", false, || {
+            panic!("unnecessary reload")
+        })
+        .unwrap();
+        assert!(Arc::ptr_eq(&cpu, &reused));
+        let gpu = get_or_create_cached_context(&mut cached, "model-a", true, || Ok(2)).unwrap();
+        assert_eq!(*gpu, 2);
+        assert!(!Arc::ptr_eq(&cpu, &gpu));
+        let cpu_again =
+            get_or_create_cached_context(&mut cached, "model-a", false, || Ok(3)).unwrap();
+        assert_eq!(*cpu_again, 3);
+        let other_model =
+            get_or_create_cached_context(&mut cached, "model-b", false, || Ok(4)).unwrap();
+        assert_eq!(*other_model, 4);
+    }
+
+    #[test]
+    fn audio_loader_rejects_wrong_rate_or_channels() {
+        for (sample_rate, channels) in [(8_000, 1), (16_000, 2), (16_000, 1)] {
+            let path = std::env::temp_dir().join(format!(
+                "buttervoice-audio-contract-{}.wav",
+                uuid::Uuid::new_v4()
+            ));
+            let mut writer = hound::WavWriter::create(
+                &path,
+                hound::WavSpec {
+                    channels,
+                    sample_rate,
+                    bits_per_sample: 16,
+                    sample_format: hound::SampleFormat::Int,
+                },
+            )
+            .unwrap();
+            for _ in 0..160 {
+                writer.write_sample(16384_i16).unwrap();
+            }
+            writer.finalize().unwrap();
+            let result = load_audio_samples(&path);
+            fs::remove_file(path).unwrap();
+            if sample_rate == 16_000 && channels == 1 {
+                assert_eq!(result.unwrap(), vec![0.5; 160]);
+            } else {
+                assert!(result.unwrap_err().to_string().contains("mono 16000 Hz"));
+            }
+        }
+    }
 }

@@ -41,6 +41,16 @@ pub enum DictationState {
     Error,
 }
 
+impl DictationState {
+    fn try_start_recording(&mut self) -> bool {
+        if !matches!(self, Self::Idle | Self::Error) {
+            return false;
+        }
+        *self = Self::Recording;
+        true
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelDownloadProgress {
     pub model_id: String,
@@ -480,11 +490,8 @@ impl AppState {
     }
 
     pub fn start_recording(self: &Arc<Self>) {
-        let state = self.dictation_state.lock();
-        if matches!(
-            *state,
-            DictationState::Recording | DictationState::Transcribing | DictationState::Injecting
-        ) {
+        let mut state = self.dictation_state.lock();
+        if !state.try_start_recording() {
             return;
         }
 
@@ -516,7 +523,8 @@ impl AppState {
                     Some(trace_id),
                 );
                 self.emit_partial_transcript(String::new());
-                self.set_state(DictationState::Recording);
+                self.emit_state(DictationState::Recording);
+                self.apply_tray_icon_state(DictationState::Recording);
             }
             Err(err) => {
                 eprintln!("failed starting recording: {err:#}");
@@ -1364,24 +1372,16 @@ impl AppState {
                 outcome.edits_rejected = result.rejected_edits.len() as u32;
                 self.metrics_add_pp_edits(outcome.edits_applied, outcome.edits_rejected);
 
-                // Log and record spell-specific corrections
+                // Record spell-specific corrections. Text is logged within the
+                // pipeline stage, where edit offsets refer to the correct input.
                 let spell_corrections: Vec<(i32, f32)> = result
                     .applied_edits
                     .iter()
                     .filter_map(|edit| {
                         edit.rule_id.strip_prefix("spell_ed").and_then(|d| {
-                            d.parse::<i32>().ok().map(|distance| {
-                                let original = &raw_text[edit.offset
-                                    ..edit.offset.saturating_add(edit.length).min(raw_text.len())];
-                                tracing::info!(
-                                    original = %original,
-                                    correction = %edit.replacement,
-                                    distance = distance,
-                                    confidence = edit.confidence,
-                                    "spell_correction"
-                                );
-                                (distance, edit.confidence)
-                            })
+                            d.parse::<i32>()
+                                .ok()
+                                .map(|distance| (distance, edit.confidence))
                         })
                     })
                     .collect();
@@ -2378,10 +2378,58 @@ fn purge_recordings(recordings_dir: &std::path::Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::DictationState;
     use super::{
         needs_inter_injection_space, normalize_transcript_text, recent_inter_injection_context,
         should_prepend_inter_injection_space,
     };
+    use parking_lot::Mutex;
+    use std::sync::{Arc, Barrier};
+
+    #[test]
+    fn recording_cannot_restart_until_processing_and_output_finish() {
+        let mut state = DictationState::Idle;
+        assert!(state.try_start_recording());
+        assert!(!state.try_start_recording());
+        for busy in [
+            DictationState::Transcribing,
+            DictationState::PostProcessing,
+            DictationState::Injecting,
+        ] {
+            state = busy;
+            assert!(
+                !state.try_start_recording(),
+                "accepted recording during {busy:?}"
+            );
+        }
+        state = DictationState::Idle;
+        assert!(state.try_start_recording());
+        state = DictationState::Error;
+        assert!(state.try_start_recording());
+    }
+
+    #[test]
+    fn concurrent_recording_starts_claim_one_session() {
+        let state = Arc::new(Mutex::new(DictationState::Idle));
+        let barrier = Arc::new(Barrier::new(2));
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                let state = state.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    state.lock().try_start_recording()
+                })
+            })
+            .collect();
+        assert_eq!(
+            handles
+                .into_iter()
+                .map(|h| usize::from(h.join().unwrap()))
+                .sum::<usize>(),
+            1
+        );
+    }
 
     #[test]
     fn normalize_transcript_text_collapses_whitespace() {

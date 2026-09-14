@@ -146,7 +146,9 @@ impl GrokSpeechBackend {
             .into_iter()
             .filter_map(|word| {
                 word.confidence.map(|prob| TokenConfidence {
-                    text: word.text,
+                    // This provider returns whole words; add boundaries so the
+                    // shared confidence mapper can also join Whisper subwords.
+                    text: format!(" {}", word.text.trim()),
                     prob,
                 })
             })
@@ -490,7 +492,12 @@ mod tests {
         assert_eq!(response.backend.as_deref(), Some("remote/grok"));
         let confidences = response.token_confidences.unwrap();
         assert_eq!(confidences.len(), 3);
-        assert_eq!(confidences[0].text, "hello");
+        assert_eq!(confidences[0].text, " hello");
+        let map = crate::post_process::whisper_confidence::WhisperConfidenceMap::build(
+            &response.text,
+            &confidences,
+        );
+        assert!(map.confidence_for_span(11, 4).is_some());
         assert!((confidences[0].prob - 0.97).abs() < f32::EPSILON);
 
         let _ = fs::remove_file(audio);

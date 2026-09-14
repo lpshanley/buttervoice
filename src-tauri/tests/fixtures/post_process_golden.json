@@ -28,5 +28,60 @@
       "post_process_itn_enabled": false,
       "post_process_grammar_rules_enabled": false
     }
+  },
+  {
+    "name": "curly_apostrophe_at_sentence_boundary",
+    "input": "I can’t. Please help.",
+    "expected_output": "I can’t. Please help."
+  },
+  {
+    "name": "unicode_dash_at_sentence_boundary",
+    "input": "Hello—world.Next sentence.",
+    "expected_output": "Hello—world. Next sentence."
+  },
+  {
+    "name": "number_conversion_with_default_safety",
+    "input": "We need twenty three chairs for the meeting",
+    "expected_output": "We need 23 chairs for the meeting."
+  },
+  {
+    "name": "currency_conversion_with_default_safety",
+    "input": "I paid twenty five dollars for the book",
+    "expected_output": "I paid $25 for the book."
+  },
+  {
+    "name": "number_conversion_of_entire_utterance",
+    "input": "twenty three",
+    "expected_output": "23"
+  },
+  {
+    "name": "punctuation_deletions_with_default_safety",
+    "input": "Hello , world!!",
+    "expected_output": "Hello, world!"
+  },
+  {
+    "name": "ambiguous_digit_sequence_is_preserved",
+    "input": "The code is five five five one two three four five six seven",
+    "expected_output": "The code is five five five one two three four five six seven."
+  },
+  {
+    "name": "colloquial_numbers_are_not_added",
+    "input": "The reading is one forty over ninety",
+    "expected_output": "The reading is one forty over ninety."
+  },
+  {
+    "name": "decimal_words_are_not_partially_rewritten",
+    "input": "Sales reached two point five million dollars",
+    "expected_output": "Sales reached two point five million dollars."
+  },
+  {
+    "name": "comma_separates_number_groups",
+    "input": "The numbers are twenty three, fifty six",
+    "expected_output": "The numbers are 23, 56."
+  },
+  {
+    "name": "number_conjunction_is_preserved",
+    "input": "There are twenty three and forty five chairs",
+    "expected_output": "There are 23 and 45 chairs."
   }
 ]
