@@ -15,6 +15,10 @@ microphone indicator is expected to remain on between recordings.
   left/right Control and Command shortcuts.
 - Exercise rapid taps and ordinary long holds. A physical press/release pair
   must produce at most one recording and one finalization.
+- Hold Right Option for at least five seconds without pressing another key.
+  Recording and the HUD must stay active until release; the watchdog must not
+  log `release:MissedRelease` while it is held. Repeat for every modifier preset,
+  including Fn, and confirm toggle mode still starts and stops on separate presses.
 - Test Fn and a custom non-modifier shortcut. Holding a repeating key in toggle
   mode must not repeatedly stop and restart recording.
 - Change the shortcut and mode during push-to-talk recording. The original

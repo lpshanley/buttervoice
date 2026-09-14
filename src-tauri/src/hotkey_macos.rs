@@ -6,14 +6,16 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(all(target_os = "macos", not(test)))]
 fn physical_key_is_down(keycode: i64) -> bool {
-    if !(0..=127).contains(&keycode) {
-        return false;
-    }
     #[link(name = "ApplicationServices", kind = "framework")]
     extern "C" {
         fn CGEventSourceKeyState(source_state: i32, keycode: u16) -> bool;
+        fn CGEventSourceFlagsState(source_state: i32) -> u64;
     }
-    unsafe { CGEventSourceKeyState(1, keycode as u16) }
+    query_physical_key_state(
+        keycode,
+        |keycode| unsafe { CGEventSourceKeyState(1, keycode as u16) },
+        || unsafe { CGEventSourceFlagsState(1) },
+    )
 }
 
 // Unit tests supply held/up observations directly. Reading HID state here
@@ -293,6 +295,25 @@ fn modifier_flag_mask(keycode: i64) -> u64 {
         63 => 0x0080_0000,
         _ => 0,
     }
+}
+
+fn query_physical_key_state(
+    keycode: i64,
+    query_key: impl FnOnce(i64) -> bool,
+    query_flags: impl FnOnce() -> u64,
+) -> bool {
+    if !(0..=127).contains(&keycode) {
+        return false;
+    }
+    // Modifier keys produce flags-changed events. The ordinary key-state
+    // table can report them as up throughout a hold, causing the watchdog to
+    // synthesize a release after two polls. Use the same side-specific flags
+    // as the event callback for polling, startup, and reconfiguration.
+    let flag_mask = modifier_flag_mask(keycode);
+    if flag_mask != 0 {
+        return modifier_edge(query_flags(), flag_mask) == InputEdge::Down;
+    }
+    query_key(keycode)
 }
 
 fn decode_key_event(
@@ -1057,6 +1078,104 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn watchdog_keeps_held_modifiers_recording_when_key_table_reports_up() {
+        for keycode in [54, 55, 56, 57, 58, 59, 60, 61, 62, 63] {
+            let mut state = state(HotkeyKey::Custom {
+                keycode,
+                is_modifier: true,
+            });
+            let binding = state.binding;
+            let held_flags = modifier_flag_mask(keycode);
+            let press_id = match state.edge(binding, InputEdge::Down) {
+                Some(HotkeyEvent::Pressed { press_id, .. }) => press_id,
+                _ => panic!("expected press"),
+            };
+
+            // Modifier flags remain down throughout a long hold even when
+            // the ordinary key-state table reports false on every poll.
+            for _ in 0..20 {
+                let held = query_physical_key_state(keycode, |_| false, || held_flags);
+                assert!(
+                    state.watchdog_check(binding, held).is_none(),
+                    "watchdog released held modifier {keycode}"
+                );
+            }
+            assert!(matches!(
+                state.edge(binding, InputEdge::Up),
+                Some(HotkeyEvent::Released {
+                    press_id: released_id,
+                    reason: HotkeyReleaseReason::KeyReleased,
+                    ..
+                }) if released_id == press_id
+            ));
+        }
+    }
+
+    #[test]
+    fn modifier_polling_recovers_missed_release_with_opposite_side_held() {
+        for (keycode, other_mask, aggregate) in [
+            (54, 0x08, 0x10_0000),
+            (55, 0x10, 0x10_0000),
+            (56, 0x04, 0x02_0000),
+            (60, 0x02, 0x02_0000),
+            (58, 0x40, 0x08_0000),
+            (61, 0x20, 0x08_0000),
+            (59, 0x2000, 0x04_0000),
+            (62, 0x01, 0x04_0000),
+            // Caps Lock may remain toggled after the physical key is up.
+            (57, 0, 0x01_0000),
+            (63, 0, 0),
+        ] {
+            let mut state = state(HotkeyKey::Custom {
+                keycode,
+                is_modifier: true,
+            });
+            let binding = state.binding;
+            assert!(state.edge(binding, InputEdge::Down).is_some());
+            let both_held = modifier_flag_mask(keycode) | other_mask | aggregate;
+            let held = query_physical_key_state(keycode, |_| false, || both_held);
+            assert!(held, "modifier {keycode} must be held");
+            assert!(state.watchdog_check(binding, held).is_none());
+
+            let released = query_physical_key_state(keycode, |_| true, || other_mask | aggregate);
+            assert!(!released, "modifier {keycode} must be released");
+            assert!(state.watchdog_check(binding, released).is_none());
+            assert!(matches!(
+                state.watchdog_check(binding, released),
+                Some(HotkeyEvent::Released {
+                    reason: HotkeyReleaseReason::MissedRelease,
+                    ..
+                })
+            ));
+            assert!(state.edge(binding, InputEdge::Up).is_none());
+        }
+    }
+
+    #[test]
+    fn ordinary_key_polling_uses_key_table_and_invalid_keys_are_not_queried() {
+        for held in [false, true] {
+            assert_eq!(
+                query_physical_key_state(
+                    96,
+                    |keycode| {
+                        assert_eq!(keycode, 96);
+                        held
+                    },
+                    || panic!("ordinary keys must use the key-state table"),
+                ),
+                held
+            );
+        }
+        for invalid in [-1, 128] {
+            assert!(!query_physical_key_state(
+                invalid,
+                |_| panic!("invalid keycode must not be queried"),
+                || panic!("invalid keycode must not be queried"),
+            ));
+        }
     }
 
     #[test]
