@@ -4,5 +4,7 @@
   <dict>
     <key>NSMicrophoneUsageDescription</key>
     <string>ButterVoice needs access to your microphone to transcribe your voice.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>ButterVoice sends telemetry to an OpenTelemetry collector on your local network.</string>
   </dict>
 </plist>
