@@ -1,14 +1,9 @@
 import { createSignal, onSettled } from "solid-js";
 import { listen } from "@tauri-apps/api/event";
+import { t } from "./i18n";
 import "./hud.css";
 
 type Status = "idle" | "listening" | "working";
-
-const LABELS: Record<Status, string> = {
-  idle: "",
-  listening: "Listening",
-  working: "Working",
-};
 
 function Hud() {
   const [status, setStatus] = createSignal<Status>("idle");
@@ -20,10 +15,15 @@ function Hud() {
     };
   });
 
+  const label = () => {
+    const now = status();
+    return now === "idle" ? "" : t(`hud.${now}`);
+  };
+
   return (
     <div class={["hud", status()]} role="status" aria-live="polite">
       <span class="dot" />
-      <span class="label">{LABELS[status()]}</span>
+      <span class="label">{label()}</span>
     </div>
   );
 }

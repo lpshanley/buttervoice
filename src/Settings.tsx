@@ -9,52 +9,45 @@ import {
   requestInputMonitoringPermission,
   requestMicrophonePermission,
 } from "tauri-plugin-macos-permissions-api";
+import { t } from "./i18n";
 import "./settings.css";
 
 type Provider = "local" | "grok";
 
-type Setup = { provider: Provider; state: string };
+type State =
+  | "starting"
+  | "ready"
+  | "model_missing"
+  | "model_unusable"
+  | "key_from_environment"
+  | "key_saved"
+  | "no_key";
 
-const PROVIDERS: { id: Provider; name: string; what: string }[] = [
-  { id: "local", name: "On this Mac", what: "Nothing you say leaves the computer." },
-  { id: "grok", name: "Grok", what: "Sends the audio to xAI to be transcribed." },
-];
+type Setup = { provider: Provider; state: State };
 
-const STATUS: Record<string, string> = {
-  starting: "Getting ready…",
-  ready: "The speech model is loaded.",
-  model_missing: "The speech model is not installed, so dictations cannot be transcribed.",
-  model_unusable: "The speech model could not be loaded.",
-  key_from_environment: "Using the key from the XAI_API_KEY environment variable.",
-  key_saved: "A key is saved in your Keychain.",
-  no_key: "No key yet. Dictations cannot be transcribed without one.",
-};
+const PROVIDERS: Provider[] = ["local", "grok"];
 
 const STILL_STARTING_RECHECK_MS = 500;
 
 type Permission = {
-  name: string;
-  why: string;
+  id: "microphone" | "input_monitoring" | "accessibility";
   check: () => Promise<boolean>;
   request: () => Promise<unknown>;
 };
 
 const PERMISSIONS: Permission[] = [
   {
-    name: "Microphone",
-    why: "To hear what you say.",
+    id: "microphone",
     check: checkMicrophonePermission,
     request: requestMicrophonePermission,
   },
   {
-    name: "Input Monitoring",
-    why: "To notice the dictation key.",
+    id: "input_monitoring",
     check: checkInputMonitoringPermission,
     request: requestInputMonitoringPermission,
   },
   {
-    name: "Accessibility",
-    why: "To type the text into other apps.",
+    id: "accessibility",
     check: checkAccessibilityPermission,
     request: requestAccessibilityPermission,
   },
@@ -115,27 +108,27 @@ function Settings() {
   return (
     <main class="settings">
       <h1>ButterVoice</h1>
-      <h2>Transcription</h2>
-      <div class="providers" role="radiogroup" aria-label="Where dictations are transcribed">
+      <h2>{t("transcription.heading")}</h2>
+      <div class="providers" role="radiogroup" aria-label={t("transcription.choice_label")}>
         <For each={PROVIDERS}>
           {(provider) => (
             <label>
               <input
                 type="radio"
                 name="provider"
-                checked={setup().provider === provider.id}
-                onChange={() => void attempt("choose_provider", { provider: provider.id })}
+                checked={setup().provider === provider}
+                onChange={() => void attempt("choose_provider", { provider })}
               />
               <span>
-                <strong>{provider.name}</strong>
-                <span class="why">{provider.what}</span>
+                <strong>{t(`provider.${provider}.name`)}</strong>
+                <span class="why">{t(`provider.${provider}.what`)}</span>
               </span>
             </label>
           )}
         </For>
       </div>
       <p class="status" role="status">
-        {STATUS[setup().state] ?? ""}
+        {t(`status.${setup().state}`)}
       </p>
       <Show when={setup().provider === "grok"}>
         <form
@@ -144,24 +137,24 @@ function Settings() {
             void attempt("save_api_key", { key: draft() });
           }}
         >
-          <label for="api-key">xAI API key</label>
+          <label for="api-key">{t("key.label")}</label>
           <div class="row">
             <input
               id="api-key"
               type="password"
               autocomplete="off"
               spellcheck="false"
-              placeholder="Paste your key"
+              placeholder={t("key.placeholder")}
               value={draft()}
               onInput={(event) => setDraft(event.currentTarget.value)}
             />
-            <button type="submit">Save</button>
+            <button type="submit">{t("key.save")}</button>
           </div>
         </form>
       </Show>
       <Show when={setup().state === "key_saved"}>
         <button type="button" class="quiet" onClick={() => void attempt("forget_api_key")}>
-          Forget the saved key
+          {t("key.forget")}
         </button>
       </Show>
       <Show when={problem()}>
@@ -169,24 +162,24 @@ function Settings() {
           {problem()}
         </p>
       </Show>
-      <h2>Permissions</h2>
+      <h2>{t("permissions.heading")}</h2>
       <ul class="permissions">
         <For each={PERMISSIONS}>
           {(permission, index) => (
             <li>
               <div>
-                <strong>{permission.name}</strong>
-                <span class="why">{permission.why}</span>
+                <strong>{t(`permission.${permission.id}.name`)}</strong>
+                <span class="why">{t(`permission.${permission.id}.why`)}</span>
               </div>
               <Show
                 when={allowed()?.[index()] === false}
-                fallback={<span class="allowed">{allowed() ? "Allowed" : ""}</span>}
+                fallback={<span class="allowed">{allowed() ? t("permissions.allowed") : ""}</span>}
               >
                 <button
                   type="button"
                   onClick={() => void permission.request().then(() => recheck())}
                 >
-                  Allow…
+                  {t("permissions.allow")}
                 </button>
               </Show>
             </li>
