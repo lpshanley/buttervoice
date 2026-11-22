@@ -173,6 +173,59 @@ pub fn save(folder: &Path, set: &SampleSet) -> Result<(), SaveError> {
     Ok(())
 }
 
+/// A set in a suite, by the name of its folder.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SuiteSet {
+    pub name: String,
+    pub set: SampleSet,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SuiteError {
+    #[error("the folder could not be read")]
+    Unreadable(#[from] std::io::Error),
+    #[error("the set {name} could not be loaded: {error}")]
+    Set { name: String, error: LoadError },
+    #[error("there are no sample sets in this folder")]
+    NoSets,
+}
+
+/// Every set in `folder`, by name, or the set `folder` is.
+pub fn load_suite(folder: &Path) -> Result<Vec<SuiteSet>, SuiteError> {
+    let named = |folder: &Path| {
+        folder
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+    };
+    let mut folders = if folder.join(DESCRIPTION).is_file() {
+        vec![folder.to_path_buf()]
+    } else {
+        let mut folders = Vec::new();
+        for entry in std::fs::read_dir(folder)? {
+            let path = entry?.path();
+            if path.join(DESCRIPTION).is_file() {
+                folders.push(path);
+            }
+        }
+        folders
+    };
+    folders.sort();
+    let sets: Vec<SuiteSet> = folders
+        .iter()
+        .map(|folder| {
+            let name = named(folder).unwrap_or_default();
+            match load(folder) {
+                Ok(set) => Ok(SuiteSet { name, set }),
+                Err(error) => Err(SuiteError::Set { name, error }),
+            }
+        })
+        .collect::<Result<_, _>>()?;
+    if sets.is_empty() {
+        return Err(SuiteError::NoSets);
+    }
+    Ok(sets)
+}
+
 pub fn load(folder: &Path) -> Result<SampleSet, LoadError> {
     let description =
         std::fs::read_to_string(folder.join(DESCRIPTION)).map_err(|_| LoadError::NotASet)?;
