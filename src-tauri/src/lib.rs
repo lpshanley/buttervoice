@@ -453,6 +453,24 @@ async fn install_update(
 }
 
 #[tauri::command]
+fn local_models(
+    transcribers: tauri::State<'_, Arc<Transcribers>>,
+) -> Vec<transcribers::LocalModel> {
+    transcribers.local_models()
+}
+
+// `async`: choosing another model loads it.
+#[tauri::command(async)]
+fn choose_local_model(
+    id: Option<String>,
+    transcribers: tauri::State<'_, Arc<Transcribers>>,
+) -> Result<(), String> {
+    transcribers
+        .choose_local_model(id)
+        .map_err(|error| not_saved(error, &transcribers))
+}
+
+#[tauri::command]
 fn cancel_model_download(transcribers: tauri::State<'_, Arc<Transcribers>>) {
     transcribers.cancel_download();
 }
@@ -733,6 +751,8 @@ pub fn run() {
             language_setup,
             microphone_setup,
             download_model,
+            local_models,
+            choose_local_model,
             check_for_update,
             update_setup,
             choose_daily_update_check,

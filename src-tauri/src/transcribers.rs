@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, PoisonError, RwLock};
 
 use buttervoice_core::api_key::{self, KeySource};
-use buttervoice_core::backend::{Backend, CATALOG, local_backend_for};
+use buttervoice_core::backend::{Backend, CATALOG, Place, best_local_fit, local_backend_for};
 use buttervoice_core::capture::CapturedAudio;
 use buttervoice_core::language::Language;
 use buttervoice_core::transcription::{Provider, Transcript, TranscriptionFailure};
@@ -38,6 +38,20 @@ pub struct Transcribed {
     pub backend: &'static str,
     pub language: Language,
     pub outcome: Result<Transcript, TranscriptionFailure>,
+}
+
+/// A model on this Mac that speaks the person's language, as the settings
+/// window lists it.
+#[derive(serde::Serialize)]
+pub struct LocalModel {
+    id: &'static str,
+    name: &'static str,
+    bytes: u64,
+    /// Benchmarked on real samples in the person's language.
+    vetted: bool,
+    recommended: bool,
+    in_use: bool,
+    downloaded: bool,
 }
 
 /// Grok's id in the catalog.
@@ -237,8 +251,44 @@ impl Transcribers {
         self.cancel_download.store(true, Ordering::Relaxed);
     }
 
+    pub fn local_models(&self) -> Vec<LocalModel> {
+        let language = self.dictation_language();
+        let recommended = best_local_fit(&CATALOG, language).map(|backend| backend.id);
+        let in_use = self.wanted_backend().map(|backend| backend.id);
+        CATALOG
+            .iter()
+            .filter(|backend| backend.place == Place::ThisMac && backend.speaks.contains(&language))
+            .filter_map(|backend| {
+                let model = backend.model?;
+                Some(LocalModel {
+                    id: backend.id,
+                    name: backend.name,
+                    bytes: model.bytes,
+                    vetted: backend.vetted_for.contains(&language),
+                    recommended: recommended == Some(backend.id),
+                    in_use: in_use == Some(backend.id),
+                    downloaded: self.models_folder.join(model.file).exists(),
+                })
+            })
+            .collect()
+    }
+
+    /// `None` goes back to the recommended model. A different model is
+    /// loaded before this returns.
+    pub fn choose_local_model(&self, id: Option<String>) -> std::io::Result<()> {
+        self.change(|preferences| preferences.local_model = id)?;
+        if self.provider() == Provider::Local && self.loaded_backend() != self.wanted_backend() {
+            self.set_up();
+        }
+        Ok(())
+    }
+
     fn wanted_backend(&self) -> Option<&'static Backend> {
-        local_backend_for(&CATALOG, self.dictation_language())
+        local_backend_for(
+            &CATALOG,
+            self.dictation_language(),
+            self.preferences().local_model.as_deref(),
+        )
     }
 
     fn loaded_backend(&self) -> Option<&'static Backend> {

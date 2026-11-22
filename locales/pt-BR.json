@@ -106,5 +106,9 @@
   "error.package_not_made": "Não foi possível criar o arquivo para enviar.",
   "samples.package": "Criar um arquivo para enviar",
   "samples.packaged": "Criado na sua pasta Downloads:",
-  "samples.package_what": "Ele contém estas gravações e o que você disse nelas. Nada é enviado: compartilhe como preferir."
+  "samples.package_what": "Ele contém estas gravações e o que você disse nelas. Nada é enviado: compartilhe como preferir.",
+  "model.heading": "Modelo neste Mac",
+  "model.recommended": "Recomendado",
+  "model.untested": "Ainda não testado com o seu idioma",
+  "model.not_downloaded": "Ainda não baixado"
 }

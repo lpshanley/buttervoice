@@ -45,6 +45,16 @@ const LANGUAGES: { tag: Locale; name: string }[] = [
   { tag: "pt-BR", name: "Português (Brasil)" },
 ];
 
+type LocalModel = {
+  id: string;
+  name: string;
+  bytes: number;
+  vetted: boolean;
+  recommended: boolean;
+  in_use: boolean;
+  downloaded: boolean;
+};
+
 type Microphone = { id: string; name: string; built_in: boolean };
 
 type MicrophoneSetup = { choice: string; connected: Microphone[] };
@@ -100,6 +110,18 @@ function Settings() {
     model_bytes: null,
   });
   const [downloaded, setDownloaded] = createSignal(0);
+  const [models, setModels] = createSignal<LocalModel[]>([]);
+
+  async function refreshModels() {
+    setModels(await invoke<LocalModel[]>("local_models"));
+  }
+
+  async function chooseModel(model: LocalModel) {
+    // Choosing the recommended model goes back to following the
+    // recommendation, so a better one later is picked up by itself.
+    await attempt("choose_local_model", { id: model.recommended ? null : model.id });
+    await refreshModels();
+  }
 
   type Found = { current: string; newer: string | null };
   const [update, setUpdate] = createSignal<"idle" | "checking" | "installing">("idle");
@@ -149,6 +171,7 @@ function Settings() {
   async function refresh() {
     const now = await invoke<Setup>("transcription_setup");
     setSetup(now);
+    void refreshModels();
     // The model loads in the background at launch; look again until it has.
     if (now.state === "starting") setTimeout(() => void refresh(), STILL_STARTING_RECHECK_MS);
   }
@@ -281,6 +304,36 @@ function Settings() {
           )}
         </For>
       </div>
+      <Show when={setup().provider === "local" && models().length > 1}>
+        <h2>{t("model.heading")}</h2>
+        <div class="providers" role="radiogroup" aria-label={t("model.heading")}>
+          <For each={models()}>
+            {(model) => (
+              <label>
+                <input
+                  type="radio"
+                  name="local-model"
+                  checked={model.in_use}
+                  onChange={() => void chooseModel(model)}
+                />
+                <span>
+                  <strong>{model.name}</strong>
+                  <span class="why">
+                    {[
+                      model.recommended ? t("model.recommended") : "",
+                      model.vetted ? "" : t("model.untested"),
+                      model.downloaded ? "" : t("model.not_downloaded"),
+                      megabytes(model.bytes),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                </span>
+              </label>
+            )}
+          </For>
+        </div>
+      </Show>
       <p class="status" role="status">
         {t(`status.${setup().state}`)}
       </p>

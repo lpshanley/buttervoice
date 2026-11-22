@@ -22,6 +22,7 @@ pub struct Model {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Backend {
     pub id: &'static str,
+    pub name: &'static str,
     pub place: Place,
     pub model: Option<Model>,
     pub speaks: &'static [Language],
@@ -36,6 +37,7 @@ pub const CATALOG: [Backend; 3] = [
     // Brazilian Portuguese, which has not been tested yet.
     Backend {
         id: "parakeet-ultra",
+        name: "Parakeet Ultra",
         place: Place::ThisMac,
         model: Some(Model {
             file: "parakeet-ultra-Q8_0.gguf",
@@ -50,6 +52,7 @@ pub const CATALOG: [Backend; 3] = [
     // English only; close behind on the same samples.
     Backend {
         id: "parakeet-tdt-0.6b-v2",
+        name: "Parakeet v2 (English only)",
         place: Place::ThisMac,
         model: Some(Model {
             file: "parakeet-tdt-0.6b-v2-Q8_0.gguf",
@@ -63,6 +66,7 @@ pub const CATALOG: [Backend; 3] = [
     },
     Backend {
         id: "grok",
+        name: "Grok",
         place: Place::Cloud,
         model: None,
         speaks: &[Language::English, Language::BrazilianPortuguese],
@@ -85,11 +89,26 @@ pub fn best_local_fit(catalog: &[Backend], language: Language) -> Option<&Backen
 }
 
 /// The model to load on this Mac for someone dictating in `language`: the
-/// best one vetted for it, or else one that at least speaks it.
-pub fn local_backend_for(catalog: &[Backend], language: Language) -> Option<&Backend> {
-    best_local_fit(catalog, language).or_else(|| {
+/// one they chose, if it speaks the language; else the best one vetted for
+/// it; else one that at least speaks it.
+pub fn local_backend_for<'a>(
+    catalog: &'a [Backend],
+    language: Language,
+    chosen: Option<&str>,
+) -> Option<&'a Backend> {
+    let speaks_it =
+        |backend: &&Backend| backend.place == Place::ThisMac && backend.speaks.contains(&language);
+    let chosen = chosen.and_then(|id| {
         catalog
             .iter()
-            .find(|backend| backend.place == Place::ThisMac && backend.speaks.contains(&language))
-    })
+            .filter(speaks_it)
+            .find(|backend| backend.id == id)
+    });
+    chosen
+        .or_else(|| best_local_fit(catalog, language))
+        .or_else(|| {
+            catalog.iter().find(|backend| {
+                backend.place == Place::ThisMac && backend.speaks.contains(&language)
+            })
+        })
 }

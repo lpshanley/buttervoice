@@ -106,5 +106,9 @@
   "error.package_not_made": "The file to send could not be made.",
   "samples.package": "Make a file to send",
   "samples.packaged": "Made in your Downloads folder:",
-  "samples.package_what": "It holds these recordings and what you said in them. Nothing is sent: share it however you like."
+  "samples.package_what": "It holds these recordings and what you said in them. Nothing is sent: share it however you like.",
+  "model.heading": "Model on this Mac",
+  "model.recommended": "Recommended",
+  "model.untested": "Not yet tested with your language",
+  "model.not_downloaded": "Not downloaded yet"
 }

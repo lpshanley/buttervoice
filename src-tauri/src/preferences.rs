@@ -16,6 +16,8 @@ pub struct Preferences {
     pub dictation_language: Option<Language>,
     pub display_language: Option<Language>,
     pub microphone: MicrophoneChoice,
+    /// The catalog id of a model chosen over the recommended one.
+    pub local_model: Option<String>,
     pub check_for_updates_daily: bool,
     /// Seconds since 1970.
     pub last_update_check: Option<u64>,
@@ -56,6 +58,7 @@ const PROVIDER: &str = "provider";
 const DICTATION_LANGUAGE: &str = "dictation_language";
 const DISPLAY_LANGUAGE: &str = "display_language";
 const MICROPHONE: &str = "microphone";
+const LOCAL_MODEL: &str = "local_model";
 const CHECK_FOR_UPDATES_DAILY: &str = "check_for_updates_daily";
 const LAST_UPDATE_CHECK: &str = "last_update_check";
 
@@ -69,6 +72,7 @@ pub fn load(file: &Path) -> Preferences {
         dictation_language: Language::from_setting(text(DICTATION_LANGUAGE)),
         display_language: Language::from_setting(text(DISPLAY_LANGUAGE)),
         microphone: MicrophoneChoice::from_setting(text(MICROPHONE)),
+        local_model: text(LOCAL_MODEL).map(str::to_string),
         // On unless turned off: keeping the team current matters more
         // than one request to GitHub a day.
         check_for_updates_daily: saved
@@ -90,6 +94,7 @@ pub fn save(file: &Path, preferences: &Preferences) -> std::io::Result<()> {
         DICTATION_LANGUAGE: preferences.dictation_language.map(Language::tag),
         DISPLAY_LANGUAGE: preferences.display_language.map(Language::tag),
         MICROPHONE: preferences.microphone.to_setting(),
+        LOCAL_MODEL: preferences.local_model,
         CHECK_FOR_UPDATES_DAILY: preferences.check_for_updates_daily,
         LAST_UPDATE_CHECK: preferences.last_update_check,
     });
@@ -114,6 +119,7 @@ mod tests {
             dictation_language: Some(Language::BrazilianPortuguese),
             display_language: Some(Language::English),
             microphone: MicrophoneChoice::Device("made-up-usb-microphone".to_string()),
+            local_model: Some("parakeet-tdt-0.6b-v2".to_string()),
             check_for_updates_daily: false,
             last_update_check: Some(1_800_000_000),
         };
@@ -136,6 +142,7 @@ mod tests {
                 dictation_language: None,
                 display_language: None,
                 microphone: MicrophoneChoice::BuiltIn,
+                local_model: None,
                 check_for_updates_daily: true,
                 last_update_check: None,
             }
@@ -177,6 +184,7 @@ mod tests {
                 dictation_language: None,
                 display_language: None,
                 microphone: MicrophoneChoice::BuiltIn,
+                local_model: None,
                 check_for_updates_daily: true,
                 last_update_check: None,
             }

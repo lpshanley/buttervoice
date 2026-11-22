@@ -16,6 +16,7 @@ const A_MODEL: Model = Model {
 fn on_this_mac(id: &'static str, vetted_for: &'static [Language]) -> Backend {
     Backend {
         id,
+        name: id,
         place: Place::ThisMac,
         model: Some(A_MODEL),
         speaks: &Language::ALL,
@@ -26,6 +27,7 @@ fn on_this_mac(id: &'static str, vetted_for: &'static [Language]) -> Backend {
 fn in_the_cloud(id: &'static str, vetted_for: &'static [Language]) -> Backend {
     Backend {
         id,
+        name: id,
         place: Place::Cloud,
         model: None,
         speaks: &Language::ALL,
@@ -138,7 +140,7 @@ fn what_runs_on_this_mac_names_a_checkable_model_file_and_a_cloud_service_names_
 
 #[test]
 fn the_model_to_load_for_a_language_is_the_one_vetted_for_it() {
-    let chosen = local_backend_for(&CATALOG, Language::English);
+    let chosen = local_backend_for(&CATALOG, Language::English, None);
 
     assert_eq!(chosen.map(|backend| backend.id), Some("parakeet-ultra"));
 }
@@ -153,7 +155,7 @@ fn without_a_model_vetted_for_the_language_one_that_speaks_it_is_loaded() {
         on_this_mac("speaks-portuguese-untested", &[Language::English]),
     ];
 
-    let chosen = local_backend_for(&catalog, Language::BrazilianPortuguese);
+    let chosen = local_backend_for(&catalog, Language::BrazilianPortuguese, None);
 
     assert_eq!(
         chosen.map(|backend| backend.id),
@@ -172,7 +174,48 @@ fn when_nothing_on_this_mac_speaks_the_language_there_is_no_model_to_load() {
     ];
 
     assert_eq!(
-        local_backend_for(&catalog, Language::BrazilianPortuguese),
+        local_backend_for(&catalog, Language::BrazilianPortuguese, None),
         None
     );
+}
+
+#[test]
+fn a_chosen_model_is_loaded_when_it_speaks_the_language() {
+    let chosen = local_backend_for(&CATALOG, Language::English, Some("parakeet-tdt-0.6b-v2"));
+
+    assert_eq!(
+        chosen.map(|backend| backend.id),
+        Some("parakeet-tdt-0.6b-v2")
+    );
+}
+
+#[test]
+fn a_chosen_model_that_does_not_speak_the_language_gives_way() {
+    let chosen = local_backend_for(
+        &CATALOG,
+        Language::BrazilianPortuguese,
+        Some("parakeet-tdt-0.6b-v2"),
+    );
+
+    assert_eq!(chosen.map(|backend| backend.id), Some("parakeet-ultra"));
+}
+
+#[test]
+fn a_chosen_model_that_is_unknown_or_in_the_cloud_gives_way() {
+    for chosen in ["no-longer-in-the-catalog", "grok"] {
+        let loaded = local_backend_for(&CATALOG, Language::English, Some(chosen));
+
+        assert_eq!(
+            loaded.map(|backend| backend.id),
+            Some("parakeet-ultra"),
+            "{chosen}"
+        );
+    }
+}
+
+#[test]
+fn every_backend_has_a_name_a_person_can_read() {
+    for backend in &CATALOG {
+        assert!(!backend.name.trim().is_empty(), "{}", backend.id);
+    }
 }
