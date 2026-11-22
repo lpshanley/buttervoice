@@ -63,6 +63,11 @@ jobs:
     runs-on: macos-latest
     # The first build compiles the local speech engine from C++.
     timeout-minutes: 45
+    env:
+      # Built for the oldest macOS the app supports, as a release is, so a
+      # problem that only shows there fails here first. Keep it equal to
+      # minimumSystemVersion in tauri.conf.json.
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install the pinned Rust toolchain
