@@ -77,5 +77,6 @@
   "samples.difference_hint": "Números escritos como algarismos, como 9:30, também aparecem como diferença.",
   "samples.no_difference": "O modelo ouviu exatamente as palavras na tela.",
   "samples.save_now": "Salvar o que você tem",
-  "samples.record_over": "Não ficou bom? Segure a tecla de novo para gravar por cima."
+  "samples.record_over": "Não ficou bom? Segure a tecla de novo para gravar por cima.",
+  "status.ready_untested": "O modelo de fala está carregado. Ele ainda não foi testado com o seu idioma, então erros são mais prováveis."
 }

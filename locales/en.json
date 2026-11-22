@@ -77,5 +77,6 @@
   "samples.difference_hint": "Numbers written as figures, like 9:30, show as differences too.",
   "samples.no_difference": "The model heard exactly the words on screen.",
   "samples.save_now": "Save what you have",
-  "samples.record_over": "Not right? Hold the key again to record over it."
+  "samples.record_over": "Not right? Hold the key again to record over it.",
+  "status.ready_untested": "The speech model is loaded. It has not been tested with your language yet, so mistakes are more likely."
 }

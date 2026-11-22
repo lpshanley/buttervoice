@@ -229,7 +229,8 @@ fn language_setup(transcribers: tauri::State<'_, Arc<Transcribers>>) -> Language
 /// The windows are told through an event, so both change without a restart.
 const DISPLAY_LANGUAGE_CHANGED: &str = "display-language";
 
-#[tauri::command]
+// `async`: a new language can mean loading a different model.
+#[tauri::command(async)]
 fn choose_language(
     language: String,
     app: tauri::AppHandle,
@@ -428,9 +429,6 @@ fn add_menu_bar_item(app: &tauri::App, language: Language) -> tauri::Result<()> 
 /// same folder, in a different shape, and this one must not overwrite it.
 const PREFERENCES_FILE: &str = "preferences.json";
 
-/// The model the local provider runs, chosen by benchmark on real dictations.
-const LOCAL_MODEL: &str = "parakeet-tdt-0.6b-v2-Q8_0.gguf";
-
 /// A session only takes dictations while its window is showing. With the
 /// window closed part-way through, dictation goes back to typing and the
 /// session waits.
@@ -487,7 +485,7 @@ pub fn run() {
             let transcribers = Transcribers::start(
                 keychain_service(&app.config().identifier),
                 preferences.clone(),
-                app.path().app_data_dir()?.join("models").join(LOCAL_MODEL),
+                app.path().app_data_dir()?.join("models"),
                 // Until a person chooses, the language closest to the one
                 // their Mac is set to stands in.
                 Language::closest_to(&sys_locale::get_locale().unwrap_or_default()),

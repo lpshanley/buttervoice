@@ -20,6 +20,7 @@ type State =
   | "model_missing"
   | "model_unusable"
   | "language_not_supported"
+  | "ready_untested"
   | "key_from_environment"
   | "key_saved"
   | "no_key";

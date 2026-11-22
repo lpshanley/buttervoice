@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, PoisonError, RwLock};
 
 use buttervoice_core::api_key::{self, KeySource};
+use buttervoice_core::backend::{Backend, CATALOG, local_backend_for};
 use buttervoice_core::capture::CapturedAudio;
 use buttervoice_core::language::Language;
 use buttervoice_core::transcription::{Provider, Transcript, TranscriptionFailure};
@@ -19,7 +20,9 @@ const API_KEY_VARIABLE: &str = "XAI_API_KEY";
 #[derive(Clone)]
 enum Ready {
     Starting,
-    Local(Arc<LocalTranscriber>),
+    Local(Arc<LocalTranscriber>, &'static Backend),
+    /// No model on this Mac speaks the person's language.
+    NoLocalModel,
     LocalModelMissing,
     LocalModelUnusable,
     Grok(Arc<GrokTranscriber>, KeySource),
@@ -34,7 +37,7 @@ pub struct Setup {
 
 pub struct Transcribers {
     keychain_service: String,
-    model_file: PathBuf,
+    models_folder: PathBuf,
     preferences: Arc<preferences::Store>,
     /// Stands in for a language the person has not chosen yet.
     system_language: Language,
@@ -48,14 +51,14 @@ impl Transcribers {
     pub fn start(
         keychain_service: String,
         preferences: Arc<preferences::Store>,
-        model_file: PathBuf,
+        models_folder: PathBuf,
         system_language: Language,
     ) -> Arc<Self> {
         let transcribers = Arc::new(Self {
             keychain_service,
             preferences,
             system_language,
-            model_file,
+            models_folder,
             ready: RwLock::new(Ready::Starting),
         });
         std::thread::spawn({
@@ -71,11 +74,11 @@ impl Transcribers {
     ) -> (Provider, Language, Result<Transcript, TranscriptionFailure>) {
         let language = self.dictation_language();
         let (provider, outcome) = match self.ready() {
-            Ready::Local(local) if !local.speaks(language) => (
+            Ready::Local(local, _) if !local.speaks(language) => (
                 Provider::Local,
                 Err(TranscriptionFailure::LanguageNotSupported),
             ),
-            Ready::Local(local) => {
+            Ready::Local(local, _) => {
                 let outcome = local.transcribe(audio, language).map_err(|error| {
                     tracing::error!(%error, "the local engine could not transcribe");
                     TranscriptionFailure::EngineFailed
@@ -87,6 +90,10 @@ impl Transcribers {
             Ready::Grok(grok, _) => (
                 Provider::Grok,
                 grok.transcribe(&audio.boosted_for_transcription(), language),
+            ),
+            Ready::NoLocalModel => (
+                Provider::Local,
+                Err(TranscriptionFailure::LanguageNotSupported),
             ),
             Ready::Starting | Ready::LocalModelMissing | Ready::LocalModelUnusable => {
                 (Provider::Local, Err(TranscriptionFailure::NotConfigured))
@@ -105,7 +112,7 @@ impl Transcribers {
     ) -> Option<(Provider, Language, Result<Transcript, TranscriptionFailure>)> {
         let language = self.dictation_language();
         match self.ready() {
-            Ready::Local(local) if local.speaks(language) => Some(self.transcribe(audio)),
+            Ready::Local(local, _) if local.speaks(language) => Some(self.transcribe(audio)),
             _ => None,
         }
     }
@@ -113,10 +120,18 @@ impl Transcribers {
     pub fn setup(&self) -> Setup {
         let state = match self.ready() {
             Ready::Starting => "starting",
-            Ready::Local(local) if !local.speaks(self.dictation_language()) => {
+            Ready::Local(local, _) if !local.speaks(self.dictation_language()) => {
                 "language_not_supported"
             }
-            Ready::Local(_) => "ready",
+            Ready::NoLocalModel => "language_not_supported",
+            // Recommendations need real samples in the language; until then
+            // the person is told the model has not been tested with it.
+            Ready::Local(_, backend)
+                if !backend.vetted_for.contains(&self.dictation_language()) =>
+            {
+                "ready_untested"
+            }
+            Ready::Local(..) => "ready",
             Ready::LocalModelMissing => "model_missing",
             Ready::LocalModelUnusable => "model_unusable",
             Ready::Grok(_, KeySource::Environment) => "key_from_environment",
@@ -137,11 +152,28 @@ impl Transcribers {
 
     /// One choice sets both the language a person dictates in and the one
     /// the app is shown in. They are saved apart so they can differ later.
+    /// A different language may need a different model, which is loaded
+    /// before this returns.
     pub fn choose_language(&self, language: Language) -> std::io::Result<()> {
         self.change(|preferences| {
             preferences.dictation_language = Some(language);
             preferences.display_language = Some(language);
-        })
+        })?;
+        if self.provider() == Provider::Local && self.loaded_backend() != self.wanted_backend() {
+            self.set_up();
+        }
+        Ok(())
+    }
+
+    fn wanted_backend(&self) -> Option<&'static Backend> {
+        local_backend_for(&CATALOG, self.dictation_language())
+    }
+
+    fn loaded_backend(&self) -> Option<&'static Backend> {
+        match self.ready() {
+            Ready::Local(_, backend) => Some(backend),
+            _ => None,
+        }
     }
 
     pub fn language_chosen(&self) -> bool {
@@ -184,17 +216,27 @@ impl Transcribers {
     }
 
     fn local_engine(&self) -> Ready {
-        match LocalTranscriber::load(&self.model_file) {
+        let Some((backend, model)) = self
+            .wanted_backend()
+            .and_then(|backend| Some((backend, backend.model?)))
+        else {
+            tracing::warn!("no model on this Mac speaks the chosen language");
+            return Ready::NoLocalModel;
+        };
+        match LocalTranscriber::load(&self.models_folder.join(model.file)) {
             Ok(local) => {
-                tracing::info!("the local speech model is loaded");
-                Ready::Local(Arc::new(local))
+                tracing::info!(backend = backend.id, "the local speech model is loaded");
+                Ready::Local(Arc::new(local), backend)
             }
             Err(LoadError::NotFound) => {
-                tracing::warn!("the local speech model is not installed");
+                tracing::warn!(
+                    backend = backend.id,
+                    "the local speech model is not installed"
+                );
                 Ready::LocalModelMissing
             }
             Err(error) => {
-                tracing::error!(%error, "the local speech model could not be loaded");
+                tracing::error!(%error, backend = backend.id, "the local speech model could not be loaded");
                 Ready::LocalModelUnusable
             }
         }
