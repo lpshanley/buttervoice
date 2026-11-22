@@ -1,44 +1,116 @@
-//! The transcription client in use, rebuilt whenever the API key changes so
-//! a newly saved key takes effect without restarting the app.
+//! The transcriber in use. It is set up again whenever the provider or the
+//! API key changes, so either takes effect without restarting the app.
 
+use std::path::PathBuf;
 use std::sync::{Arc, PoisonError, RwLock};
 
 use buttervoice_core::api_key::{self, KeySource};
+use buttervoice_core::capture::CapturedAudio;
+use buttervoice_core::transcription::{Provider, Transcript, TranscriptionFailure};
 use buttervoice_grok::GrokTranscriber;
+use buttervoice_local::{LoadError, LocalTranscriber};
 
-use crate::saved_key;
+use crate::{preferences, saved_key};
 
 const API_KEY_VARIABLE: &str = "XAI_API_KEY";
 
+#[derive(Clone)]
+enum Ready {
+    Starting,
+    Local(Arc<LocalTranscriber>),
+    LocalModelMissing,
+    LocalModelUnusable,
+    Grok(Arc<GrokTranscriber>, KeySource),
+    GrokWithoutKey,
+}
+
+pub struct Setup {
+    pub provider: Provider,
+    /// What the settings window says about the provider in use.
+    pub state: &'static str,
+}
+
 pub struct Transcribers {
     keychain_service: String,
-    current: RwLock<Option<(Arc<GrokTranscriber>, KeySource)>>,
+    preferences_file: PathBuf,
+    model_file: PathBuf,
+    provider: RwLock<Provider>,
+    ready: RwLock<Ready>,
 }
 
 impl Transcribers {
-    /// Returns at once and loads the key in the background: reading the
-    /// Keychain can wait on a system prompt, and nothing else should wait
-    /// with it.
-    pub fn start(keychain_service: String) -> Arc<Self> {
+    /// Returns at once and sets up in the background: loading a model takes
+    /// a moment and reading the Keychain can wait on a system prompt, and
+    /// nothing else should wait with either.
+    pub fn start(
+        keychain_service: String,
+        preferences_file: PathBuf,
+        model_file: PathBuf,
+    ) -> Arc<Self> {
         let transcribers = Arc::new(Self {
             keychain_service,
-            current: RwLock::new(None),
+            provider: RwLock::new(preferences::load_provider(&preferences_file)),
+            preferences_file,
+            model_file,
+            ready: RwLock::new(Ready::Starting),
         });
         std::thread::spawn({
             let transcribers = transcribers.clone();
-            move || transcribers.reload()
+            move || transcribers.set_up()
         });
         transcribers
     }
 
-    pub fn current(&self) -> Option<Arc<GrokTranscriber>> {
-        self.read()
-            .as_ref()
-            .map(|(transcriber, _)| transcriber.clone())
+    pub fn transcribe(
+        &self,
+        audio: &CapturedAudio,
+    ) -> (Provider, Result<Transcript, TranscriptionFailure>) {
+        match self.ready() {
+            Ready::Local(local) => {
+                let outcome = local.transcribe(audio).map_err(|error| {
+                    tracing::error!(%error, "the local engine could not transcribe");
+                    TranscriptionFailure::EngineFailed
+                });
+                (Provider::Local, outcome)
+            }
+            // The cloud service hears quiet speech worse; the local engine
+            // does not care.
+            Ready::Grok(grok, _) => (
+                Provider::Grok,
+                grok.transcribe(&audio.boosted_for_transcription()),
+            ),
+            Ready::Starting | Ready::LocalModelMissing | Ready::LocalModelUnusable => {
+                (Provider::Local, Err(TranscriptionFailure::NotConfigured))
+            }
+            Ready::GrokWithoutKey => (Provider::Grok, Err(TranscriptionFailure::NotConfigured)),
+        }
     }
 
-    pub fn key_source(&self) -> Option<KeySource> {
-        self.read().as_ref().map(|(_, source)| *source)
+    pub fn setup(&self) -> Setup {
+        let state = match self.ready() {
+            Ready::Starting => "starting",
+            Ready::Local(_) => "ready",
+            Ready::LocalModelMissing => "model_missing",
+            Ready::LocalModelUnusable => "model_unusable",
+            Ready::Grok(_, KeySource::Environment) => "key_from_environment",
+            Ready::Grok(_, KeySource::Saved) => "key_saved",
+            Ready::GrokWithoutKey => "no_key",
+        };
+        Setup {
+            provider: self.provider(),
+            state,
+        }
+    }
+
+    pub fn choose_provider(&self, provider: Provider) -> Result<(), String> {
+        preferences::save_provider(&self.preferences_file, provider)
+            .map_err(|error| format!("The choice could not be saved: {error}"))?;
+        *self
+            .provider
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = provider;
+        self.set_up();
+        Ok(())
     }
 
     pub fn save_key(&self, key: &str) -> Result<(), String> {
@@ -46,36 +118,65 @@ impl Transcribers {
             return Err("Enter a key first.".to_string());
         }
         saved_key::save(&self.keychain_service, key.trim())?;
-        self.reload();
+        self.set_up();
         Ok(())
     }
 
     pub fn forget_key(&self) -> Result<(), String> {
         saved_key::forget(&self.keychain_service)?;
-        self.reload();
+        self.set_up();
         Ok(())
     }
 
-    fn reload(&self) {
+    fn set_up(&self) {
+        let ready = self
+            .provider()
+            .set_up(|| self.local_engine(), || self.grok_client());
+        *self.ready.write().unwrap_or_else(PoisonError::into_inner) = ready;
+    }
+
+    fn local_engine(&self) -> Ready {
+        match LocalTranscriber::load(&self.model_file) {
+            Ok(local) => {
+                tracing::info!("the local speech model is loaded");
+                Ready::Local(Arc::new(local))
+            }
+            Err(LoadError::NotFound) => {
+                tracing::warn!("the local speech model is not installed");
+                Ready::LocalModelMissing
+            }
+            Err(error) => {
+                tracing::error!(%error, "the local speech model could not be loaded");
+                Ready::LocalModelUnusable
+            }
+        }
+    }
+
+    fn grok_client(&self) -> Ready {
         let chosen = api_key::choose(std::env::var(API_KEY_VARIABLE).ok(), || {
             saved_key::load(&self.keychain_service)
         });
-        let current = chosen.and_then(|chosen| {
-            match GrokTranscriber::new(buttervoice_grok::DEFAULT_BASE_URL, chosen.key) {
-                Ok(transcriber) => Some((Arc::new(transcriber), chosen.source)),
-                Err(error) => {
-                    tracing::error!(%error, "the transcription client could not be set up");
-                    None
-                }
-            }
-        });
-        if current.is_none() {
+        let Some(chosen) = chosen else {
             tracing::warn!("no xAI API key is available; dictations will not be transcribed");
+            return Ready::GrokWithoutKey;
+        };
+        match GrokTranscriber::new(buttervoice_grok::DEFAULT_BASE_URL, chosen.key) {
+            Ok(grok) => Ready::Grok(Arc::new(grok), chosen.source),
+            Err(error) => {
+                tracing::error!(%error, "the transcription client could not be set up");
+                Ready::GrokWithoutKey
+            }
         }
-        *self.current.write().unwrap_or_else(PoisonError::into_inner) = current;
     }
 
-    fn read(&self) -> std::sync::RwLockReadGuard<'_, Option<(Arc<GrokTranscriber>, KeySource)>> {
-        self.current.read().unwrap_or_else(PoisonError::into_inner)
+    fn provider(&self) -> Provider {
+        *self.provider.read().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn ready(&self) -> Ready {
+        self.ready
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 }

@@ -11,13 +11,26 @@ import {
 } from "tauri-plugin-macos-permissions-api";
 import "./settings.css";
 
-type KeySource = "environment" | "saved" | "none";
+type Provider = "local" | "grok";
 
-const STATUS: Record<KeySource, string> = {
-  environment: "Using the key from the XAI_API_KEY environment variable.",
-  saved: "A key is saved in your Keychain.",
-  none: "No key yet. Dictations cannot be transcribed without one.",
+type Setup = { provider: Provider; state: string };
+
+const PROVIDERS: { id: Provider; name: string; what: string }[] = [
+  { id: "local", name: "On this Mac", what: "Nothing you say leaves the computer." },
+  { id: "grok", name: "Grok", what: "Sends the audio to xAI to be transcribed." },
+];
+
+const STATUS: Record<string, string> = {
+  starting: "Getting ready…",
+  ready: "The speech model is loaded.",
+  model_missing: "The speech model is not installed, so dictations cannot be transcribed.",
+  model_unusable: "The speech model could not be loaded.",
+  key_from_environment: "Using the key from the XAI_API_KEY environment variable.",
+  key_saved: "A key is saved in your Keychain.",
+  no_key: "No key yet. Dictations cannot be transcribed without one.",
 };
+
+const STILL_STARTING_RECHECK_MS = 500;
 
 type Permission = {
   name: string;
@@ -64,12 +77,15 @@ function Settings() {
     }
   }
 
-  const [source, setSource] = createSignal<KeySource>("none");
+  const [setup, setSetup] = createSignal<Setup>({ provider: "local", state: "starting" });
   const [draft, setDraft] = createSignal("");
   const [problem, setProblem] = createSignal("");
 
   async function refresh() {
-    setSource(await invoke<KeySource>("api_key_source"));
+    const now = await invoke<Setup>("transcription_setup");
+    setSetup(now);
+    // The model loads in the background at launch; look again until it has.
+    if (now.state === "starting") setTimeout(() => void refresh(), STILL_STARTING_RECHECK_MS);
   }
 
   async function attempt(command: string, args?: Record<string, unknown>) {
@@ -99,30 +115,51 @@ function Settings() {
   return (
     <main class="settings">
       <h1>ButterVoice</h1>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          void attempt("save_api_key", { key: draft() });
-        }}
-      >
-        <label for="api-key">xAI API key</label>
-        <div class="row">
-          <input
-            id="api-key"
-            type="password"
-            autocomplete="off"
-            spellcheck="false"
-            placeholder="Paste your key"
-            value={draft()}
-            onInput={(event) => setDraft(event.currentTarget.value)}
-          />
-          <button type="submit">Save</button>
-        </div>
-      </form>
+      <h2>Transcription</h2>
+      <div class="providers" role="radiogroup" aria-label="Where dictations are transcribed">
+        <For each={PROVIDERS}>
+          {(provider) => (
+            <label>
+              <input
+                type="radio"
+                name="provider"
+                checked={setup().provider === provider.id}
+                onChange={() => void attempt("choose_provider", { provider: provider.id })}
+              />
+              <span>
+                <strong>{provider.name}</strong>
+                <span class="why">{provider.what}</span>
+              </span>
+            </label>
+          )}
+        </For>
+      </div>
       <p class="status" role="status">
-        {STATUS[source()]}
+        {STATUS[setup().state] ?? ""}
       </p>
-      <Show when={source() === "saved"}>
+      <Show when={setup().provider === "grok"}>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void attempt("save_api_key", { key: draft() });
+          }}
+        >
+          <label for="api-key">xAI API key</label>
+          <div class="row">
+            <input
+              id="api-key"
+              type="password"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Paste your key"
+              value={draft()}
+              onInput={(event) => setDraft(event.currentTarget.value)}
+            />
+            <button type="submit">Save</button>
+          </div>
+        </form>
+      </Show>
+      <Show when={setup().state === "key_saved"}>
         <button type="button" class="quiet" onClick={() => void attempt("forget_api_key")}>
           Forget the saved key
         </button>

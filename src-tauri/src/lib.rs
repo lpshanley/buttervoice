@@ -1,6 +1,7 @@
 mod hud;
 mod key_tap;
 mod microphone;
+mod preferences;
 mod saved_key;
 mod transcribers;
 mod typing;
@@ -9,14 +10,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use buttervoice_core::api_key::KeySource;
 use buttervoice_core::capture::CapturedAudio;
 use buttervoice_core::hotkey::HotkeyKey;
 use buttervoice_core::key_dictation::{
     AfterCapture, AfterTranscription, CaptureCommand, KeyDictations,
 };
 use buttervoice_core::recording::Mode;
-use buttervoice_core::transcription::{Provider, TranscriptionFailure};
+use buttervoice_core::transcription::Provider;
 use buttervoice_replay::recordings;
 use buttervoice_telemetry::{Build, BuildKind, Telemetry};
 use hud::Hud;
@@ -46,19 +46,11 @@ fn listen_for_the_dictation_key(
                     if let Some(dir) = &recordings_dir {
                         save_for_replay(dir, &audio);
                     }
-                    // The network call happens outside the lock, so key
-                    // events are still handled while it runs.
-                    let outcome = match transcribers.current() {
-                        Some(transcriber) => {
-                            transcriber.transcribe(&audio.boosted_for_transcription())
-                        }
-                        None => Err(TranscriptionFailure::NotConfigured),
-                    };
-                    let after = lock(&dictations).transcription_finished(
-                        Provider::Grok,
-                        outcome,
-                        key_tap::now(),
-                    );
+                    // Transcribing happens outside the lock, so key events
+                    // are still handled while it runs.
+                    let (provider, outcome) = transcribers.transcribe(&audio);
+                    let after =
+                        lock(&dictations).transcription_finished(provider, outcome, key_tap::now());
                     match after {
                         Some(AfterTranscription::Type(text)) => {
                             let typed = typing::type_text(&text);
@@ -143,13 +135,28 @@ fn save_for_replay(dir: &Path, audio: &CapturedAudio) {
     }
 }
 
+#[derive(serde::Serialize)]
+struct TranscriptionSetup {
+    provider: &'static str,
+    state: &'static str,
+}
+
 #[tauri::command]
-fn api_key_source(transcribers: tauri::State<'_, Arc<Transcribers>>) -> &'static str {
-    match transcribers.key_source() {
-        Some(KeySource::Environment) => "environment",
-        Some(KeySource::Saved) => "saved",
-        None => "none",
+fn transcription_setup(transcribers: tauri::State<'_, Arc<Transcribers>>) -> TranscriptionSetup {
+    let setup = transcribers.setup();
+    TranscriptionSetup {
+        provider: setup.provider.name(),
+        state: setup.state,
     }
+}
+
+// `async` keeps loading a model, or a Keychain prompt, off the main thread.
+#[tauri::command(async)]
+fn choose_provider(
+    provider: String,
+    transcribers: tauri::State<'_, Arc<Transcribers>>,
+) -> Result<(), String> {
+    transcribers.choose_provider(Provider::from_setting(Some(&provider)))
 }
 
 // `async` keeps the Keychain call, which can wait on a system prompt, off
@@ -212,6 +219,13 @@ fn add_menu_bar_item(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Not `settings.json`: the original app keeps a file of that name in the
+/// same folder, in a different shape, and this one must not overwrite it.
+const PREFERENCES_FILE: &str = "preferences.json";
+
+/// The model the local provider runs, chosen by benchmark on real dictations.
+const LOCAL_MODEL: &str = "parakeet-tdt-0.6b-v2-Q8_0.gguf";
+
 const QUIT: &str = "quit";
 const MARK_BAD: &str = "mark-bad";
 /// Both the menu item and the window it opens.
@@ -248,7 +262,12 @@ pub fn run() {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             add_menu_bar_item(app)?;
             let hud = Arc::new(Hud::set_up(app.handle())?);
-            let transcribers = Transcribers::start(keychain_service(&app.config().identifier));
+            buttervoice_local::silence_engine_log();
+            let transcribers = Transcribers::start(
+                keychain_service(&app.config().identifier),
+                app.path().app_config_dir()?.join(PREFERENCES_FILE),
+                app.path().app_data_dir()?.join("models").join(LOCAL_MODEL),
+            );
             app.manage(transcribers.clone());
             let dictations: Dictations = Arc::new(Mutex::new(KeyDictations::new(
                 HotkeyKey::RightOption,
@@ -268,7 +287,8 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            api_key_source,
+            transcription_setup,
+            choose_provider,
             save_api_key,
             forget_api_key
         ])
