@@ -1,4 +1,4 @@
-import { createSignal, onSettled, Show } from "solid-js";
+import { createSignal, For, onSettled, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { t } from "./i18n";
@@ -20,7 +20,15 @@ type Prompt = {
   conditions: string | null;
 };
 
-type Take = { heard: string | null; seconds: number };
+type Part = {
+  kind: "same" | "missing" | "extra" | "changed";
+  said: string | null;
+  heard: string | null;
+};
+
+type Take = { heard: string | null; seconds: number; difference: Part[] };
+
+type Kept = { said: string; seconds: number };
 
 type State = {
   active: boolean;
@@ -28,9 +36,19 @@ type State = {
   total: number;
   prompt: Prompt | null;
   take: Take | null;
+  kept_here: Kept | null;
+  kept: number;
 };
 
-const NOT_STARTED: State = { active: false, position: 0, total: 0, prompt: null, take: null };
+const NOT_STARTED: State = {
+  active: false,
+  position: 0,
+  total: 0,
+  prompt: null,
+  take: null,
+  kept_here: null,
+  kept: 0,
+};
 
 function Samples() {
   const [state, setState] = createSignal<State>(NOT_STARTED);
@@ -38,6 +56,19 @@ function Samples() {
   const [said, setSaid] = createSignal("");
   const [saved, setSaved] = createSignal("");
   const [problem, setProblem] = createSignal("");
+  const [recording, setRecording] = createSignal("");
+
+  // Playback reads the take, or the kept sample, straight from the app
+  // into memory: nothing is written to disk to play it.
+  async function loadRecording(now: State) {
+    if (recording()) URL.revokeObjectURL(recording());
+    if (!now.take && !now.kept_here) {
+      setRecording("");
+      return;
+    }
+    const wav = await invoke<ArrayBuffer>("samples_audio");
+    setRecording(URL.createObjectURL(new Blob([wav], { type: "audio/wav" })));
+  }
 
   async function refresh() {
     const now = await invoke<State>("samples_state");
@@ -45,6 +76,7 @@ function Samples() {
     // The box holds the words as spoken. A model writes "9:30" for "nine
     // thirty", so its text only starts the box when there was no script.
     if (now.take) setSaid(now.prompt?.say ?? now.take.heard ?? "");
+    await loadRecording(now);
   }
 
   async function act(command: string, args?: Record<string, unknown>) {
@@ -118,15 +150,56 @@ function Samples() {
       <Show when={state().active && state().prompt}>
         <p class="status" role="status">
           {t("samples.progress", { position: state().position + 1, total: state().total })}
+          {" · "}
+          {t("samples.kept_count", { kept: state().kept })}
         </p>
         <h2>{t(`samples.kind.${state().prompt?.kind ?? "read_sentence"}`)}</h2>
         <Show when={state().prompt?.instruction}>
-          <p class="status">{state().prompt?.instruction}</p>
+          <p class="instruction">{state().prompt?.instruction}</p>
         </Show>
         <Show when={state().prompt?.say}>
           <p class="say">{state().prompt?.say}</p>
         </Show>
-        <Show when={state().take} fallback={<p class="status">{t("samples.hold")}</p>}>
+        <Show when={recording()}>
+          <audio controls src={recording()} />
+        </Show>
+        <Show
+          when={state().take}
+          fallback={
+            <Show
+              when={state().kept_here}
+              fallback={<p class="status">{t("samples.hold")}</p>}
+            >
+              <p class="status">
+                {t("samples.kept_here")} <q>{state().kept_here?.said}</q>
+              </p>
+              <p class="status">{t("samples.replace_hint")}</p>
+            </Show>
+          }
+        >
+          <Show when={state().take?.difference.length}>
+            <p class="status">{t("samples.difference")}</p>
+            <Show
+              when={state().take?.difference.some((part) => part.kind !== "same")}
+              fallback={<p class="status">{t("samples.no_difference")}</p>}
+            >
+              <p class="difference">
+                <For each={state().take?.difference ?? []}>
+                  {(part) => (
+                    <>
+                      <Show when={part.kind !== "extra" && part.said}>
+                        <span class={part.kind === "same" ? "same" : "missing"}>{part.said}</span>
+                      </Show>
+                      <Show when={part.kind !== "same" && part.kind !== "missing" && part.heard}>
+                        <span class="heard">{part.heard}</span>
+                      </Show>{" "}
+                    </>
+                  )}
+                </For>
+              </p>
+              <p class="status">{t("samples.difference_hint")}</p>
+            </Show>
+          </Show>
           <Show
             when={state().prompt?.kind !== "silence"}
             fallback={<p class="status">{t("samples.nothing_said")}</p>}
@@ -140,7 +213,7 @@ function Samples() {
               onInput={(event) => setSaid(event.currentTarget.value)}
             />
             <p class="status">{t("samples.said_hint")}</p>
-            <Show when={state().take?.heard}>
+            <Show when={state().take?.heard && !state().take?.difference.length}>
               <p class="status">
                 {t("samples.heard")} <q>{state().take?.heard}</q>
               </p>
@@ -155,22 +228,42 @@ function Samples() {
             </button>
           </div>
         </Show>
-        <button type="button" class="quiet" onClick={() => void act("samples_skip")}>
-          {t("samples.skip")}
-        </button>
+        <div class="row">
+          <button
+            type="button"
+            class="quiet"
+            disabled={state().position === 0}
+            onClick={() => void act("samples_back")}
+          >
+            {t("samples.back")}
+          </button>
+          <button type="button" class="quiet" onClick={() => void act("samples_skip")}>
+            {state().kept_here ? t("samples.next") : t("samples.skip")}
+          </button>
+        </div>
       </Show>
       <Show when={state().active && !state().prompt}>
         <p class="status" role="status">
           {t("samples.done")}
         </p>
-        <button type="button" onClick={() => void finish()}>
-          {t("samples.save")}
+        <button
+          type="button"
+          class="quiet"
+          disabled={state().position === 0}
+          onClick={() => void act("samples_back")}
+        >
+          {t("samples.back")}
         </button>
       </Show>
       <Show when={state().active}>
-        <button type="button" class="quiet" onClick={() => void act("samples_cancel")}>
-          {t("samples.cancel")}
-        </button>
+        <div class="row">
+          <button type="button" disabled={state().kept === 0} onClick={() => void finish()}>
+            {state().prompt ? t("samples.save_now") : t("samples.save")}
+          </button>
+          <button type="button" class="quiet" onClick={() => void act("samples_cancel")}>
+            {t("samples.cancel")}
+          </button>
+        </div>
       </Show>
       <Show when={problem()}>
         <p class="problem" role="alert">

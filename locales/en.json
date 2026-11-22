@@ -69,5 +69,14 @@
   "microphone.system_default": "The system default",
   "microphone.system_default_what": "Whatever macOS is set to use.",
   "microphone.not_connected": "Not connected. The system default is used until it is.",
-  "microphone.chosen_device": "The microphone you chose"
+  "microphone.chosen_device": "The microphone you chose",
+  "samples.kept_count": "{{ kept }} kept so far",
+  "samples.back": "Back",
+  "samples.next": "Next",
+  "samples.kept_here": "You kept this one:",
+  "samples.replace_hint": "Hold the key to record it again and replace it.",
+  "samples.difference": "Compared with the words on screen:",
+  "samples.difference_hint": "Numbers written as figures, like 9:30, show as differences too.",
+  "samples.no_difference": "The model heard exactly the words on screen.",
+  "samples.save_now": "Save what you have"
 }

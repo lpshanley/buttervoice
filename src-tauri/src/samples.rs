@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use buttervoice_core::language::Language;
+use buttervoice_samples::diff::{Part, word_diff};
 use buttervoice_samples::session::{Session, Take};
 use buttervoice_samples::{RecordedWith, script::script};
 
@@ -20,6 +21,34 @@ pub struct PromptState {
 pub struct TakeState {
     heard: Option<String>,
     seconds: f64,
+    /// Where what the model heard differs from the prompt's words. Empty
+    /// when there are no words to compare, as for free speech.
+    difference: Vec<PartState>,
+}
+
+#[derive(serde::Serialize)]
+pub struct PartState {
+    kind: &'static str,
+    said: Option<String>,
+    heard: Option<String>,
+}
+
+impl From<Part> for PartState {
+    fn from(part: Part) -> Self {
+        let (kind, said, heard) = match part {
+            Part::Same(word) => ("same", Some(word), None),
+            Part::Missing(word) => ("missing", Some(word), None),
+            Part::Extra(word) => ("extra", None, Some(word)),
+            Part::Changed { said, heard } => ("changed", Some(said), Some(heard)),
+        };
+        PartState { kind, said, heard }
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct KeptState {
+    said: String,
+    seconds: f64,
 }
 
 #[derive(serde::Serialize)]
@@ -29,6 +58,9 @@ pub struct State {
     total: usize,
     prompt: Option<PromptState>,
     take: Option<TakeState>,
+    /// What was kept for this prompt on an earlier visit.
+    kept_here: Option<KeptState>,
+    kept: usize,
 }
 
 pub struct Recorder {
@@ -76,6 +108,24 @@ impl Recorder {
         }
     }
 
+    pub fn back(&self) {
+        if let Some(session) = self.session().as_mut() {
+            session.back();
+        }
+    }
+
+    /// The take waiting to be kept, or else what was kept for this prompt,
+    /// as a WAV file to play back.
+    pub fn audio(&self) -> Option<Vec<u8>> {
+        let session = self.session();
+        let session = session.as_ref()?;
+        let audio = match session.take() {
+            Some(take) => &take.audio,
+            None => &session.kept_here()?.audio,
+        };
+        Some(audio.to_wav())
+    }
+
     pub fn cancel(&self) {
         *self.session() = None;
     }
@@ -103,6 +153,8 @@ impl Recorder {
                 total: 0,
                 prompt: None,
                 take: None,
+                kept_here: None,
+                kept: 0,
             };
         };
         let (position, total) = session.progress();
@@ -119,7 +171,22 @@ impl Recorder {
             take: session.take().map(|take| TakeState {
                 heard: take.heard.clone(),
                 seconds: take.audio.duration().as_secs_f64(),
+                difference: match (
+                    session.prompt().and_then(|prompt| prompt.say.as_deref()),
+                    &take.heard,
+                ) {
+                    (Some(said), Some(heard)) => word_diff(said, heard)
+                        .into_iter()
+                        .map(PartState::from)
+                        .collect(),
+                    _ => Vec::new(),
+                },
             }),
+            kept_here: session.kept_here().map(|sample| KeptState {
+                said: sample.said.clone(),
+                seconds: sample.audio.duration().as_secs_f64(),
+            }),
+            kept: session.kept_count(),
         }
     }
 

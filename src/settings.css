@@ -191,3 +191,34 @@
   font-size: 12px;
   word-break: break-all;
 }
+
+.samples .instruction {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--accent);
+  font-weight: 600;
+}
+
+.samples audio {
+  width: 100%;
+}
+
+.samples .difference {
+  margin: 0;
+  line-height: 1.7;
+}
+
+.samples .difference .missing {
+  color: var(--problem);
+  text-decoration: line-through;
+}
+
+.samples .difference .heard {
+  padding: 0 3px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.settings button:disabled {
+  opacity: 0.45;
+}

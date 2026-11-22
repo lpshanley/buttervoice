@@ -311,6 +311,17 @@ fn samples_skip(recorder: tauri::State<'_, Arc<Recorder>>) {
 }
 
 #[tauri::command]
+fn samples_back(recorder: tauri::State<'_, Arc<Recorder>>) {
+    recorder.back();
+}
+
+/// The raw WAV bytes, played by the window without being written to disk.
+#[tauri::command]
+fn samples_audio(recorder: tauri::State<'_, Arc<Recorder>>) -> tauri::ipc::Response {
+    tauri::ipc::Response::new(recorder.audio().unwrap_or_default())
+}
+
+#[tauri::command]
 fn samples_cancel(recorder: tauri::State<'_, Arc<Recorder>>) {
     recorder.cancel();
 }
@@ -526,6 +537,8 @@ pub fn run() {
             samples_keep,
             samples_redo,
             samples_skip,
+            samples_back,
+            samples_audio,
             samples_cancel,
             samples_finish,
             choose_language,

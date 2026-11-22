@@ -69,5 +69,14 @@
   "microphone.system_default": "O padrão do sistema",
   "microphone.system_default_what": "O que estiver definido no macOS.",
   "microphone.not_connected": "Não conectado. O padrão do sistema é usado até que esteja.",
-  "microphone.chosen_device": "O microfone que você escolheu"
+  "microphone.chosen_device": "O microfone que você escolheu",
+  "samples.kept_count": "{{ kept }} mantidas até agora",
+  "samples.back": "Voltar",
+  "samples.next": "Próxima",
+  "samples.kept_here": "Você manteve esta:",
+  "samples.replace_hint": "Segure a tecla para gravar de novo e substituir.",
+  "samples.difference": "Comparado com as palavras na tela:",
+  "samples.difference_hint": "Números escritos como algarismos, como 9:30, também aparecem como diferença.",
+  "samples.no_difference": "O modelo ouviu exatamente as palavras na tela.",
+  "samples.save_now": "Salvar o que você tem"
 }
