@@ -27,13 +27,22 @@ fn lines_logged_for(summary: &Summary) -> Vec<Value> {
 
 fn lines_logged_for_stop(summary: &Summary, stopped_because: StopReason) -> Vec<Value> {
     lines_logged(&FinishedDictation {
-        summary: summary.clone(),
         stopped_because,
+        ..uneventful(summary.clone())
+    })
+}
+
+/// A dictation in which nothing was captured, transcribed or typed. Each test
+/// overrides the part it is about.
+fn uneventful(summary: Summary) -> FinishedDictation {
+    FinishedDictation {
+        summary,
+        stopped_because: StopReason::KeyReleased,
         audio: None,
         input: None,
         transcription: Transcription::NotAttempted,
         typing: Typing::NotAttempted,
-    })
+    }
 }
 
 fn lines_logged(dictation: &FinishedDictation) -> Vec<Value> {
@@ -93,8 +102,6 @@ fn the_line_says_why_the_dictation_stopped() {
 #[test]
 fn the_line_says_how_much_audio_was_captured_and_how_much_was_dropped() {
     let lines = lines_logged(&FinishedDictation {
-        summary: Timeline::new(DictationId(10)).summary(),
-        stopped_because: StopReason::KeyReleased,
         audio: Some(AudioStats {
             format: MONO_48K,
             duration: Duration::from_millis(500),
@@ -102,9 +109,7 @@ fn the_line_says_how_much_audio_was_captured_and_how_much_was_dropped() {
             peak: 1.0,
             rms: 0.1,
         }),
-        input: None,
-        transcription: Transcription::NotAttempted,
-        typing: Typing::NotAttempted,
+        ..uneventful(Timeline::new(DictationId(10)).summary())
     });
 
     assert_eq!(lines[0]["captured_audio_ms"], 500.0);
@@ -121,14 +126,10 @@ fn the_line_reports_a_transcription_without_the_words_that_were_said() {
     timeline.mark(Mark::TranscriptReady, at_micros(4_437_500));
 
     let lines = lines_logged(&FinishedDictation {
-        summary: timeline.summary(),
-        stopped_because: StopReason::KeyReleased,
-        audio: None,
-        input: None,
         transcription: Transcription::Succeeded(Transcript {
             text: "hello world".to_string(),
         }),
-        typing: Typing::NotAttempted,
+        ..uneventful(timeline.summary())
     });
 
     assert_eq!(lines[0]["transcription"], "succeeded");
@@ -150,12 +151,8 @@ fn the_line_says_why_a_transcription_failed() {
         (TranscriptionFailure::Unreachable, "unreachable"),
     ] {
         let lines = lines_logged(&FinishedDictation {
-            summary: summary.clone(),
-            stopped_because: StopReason::KeyReleased,
-            audio: None,
-            input: None,
             transcription: Transcription::Failed(failure),
-            typing: Typing::NotAttempted,
+            ..uneventful(summary.clone())
         });
 
         assert_eq!(lines[0]["transcription"], "failed");
@@ -166,8 +163,6 @@ fn the_line_says_why_a_transcription_failed() {
 #[test]
 fn audio_that_is_pure_silence_has_no_level_in_the_line() {
     let lines = lines_logged(&FinishedDictation {
-        summary: Timeline::new(DictationId(13)).summary(),
-        stopped_because: StopReason::KeyReleased,
         audio: Some(AudioStats {
             format: MONO_48K,
             duration: Duration::from_millis(500),
@@ -175,9 +170,7 @@ fn audio_that_is_pure_silence_has_no_level_in_the_line() {
             peak: 0.0,
             rms: 0.0,
         }),
-        input: None,
-        transcription: Transcription::NotAttempted,
-        typing: Typing::NotAttempted,
+        ..uneventful(Timeline::new(DictationId(13)).summary())
     });
 
     assert_eq!(lines[0].get("audio_peak_dbfs"), None);
@@ -187,12 +180,8 @@ fn audio_that_is_pure_silence_has_no_level_in_the_line() {
 #[test]
 fn the_line_says_whether_the_text_was_typed() {
     let dictation = |typing| FinishedDictation {
-        summary: Timeline::new(DictationId(14)).summary(),
-        stopped_because: StopReason::KeyReleased,
-        audio: None,
-        input: None,
-        transcription: Transcription::NotAttempted,
         typing,
+        ..uneventful(Timeline::new(DictationId(14)).summary())
     };
 
     let typed = lines_logged(&dictation(Typing::Typed));
@@ -214,8 +203,6 @@ fn the_line_says_which_kind_of_input_was_used_and_its_format() {
         (InputKind::Other, "other"),
     ] {
         let lines = lines_logged(&FinishedDictation {
-            summary: Timeline::new(DictationId(15)).summary(),
-            stopped_because: StopReason::KeyReleased,
             audio: Some(AudioStats {
                 format: AudioFormat {
                     sample_rate: 24_000,
@@ -227,8 +214,7 @@ fn the_line_says_which_kind_of_input_was_used_and_its_format() {
                 rms: 0.1,
             }),
             input: Some(input),
-            transcription: Transcription::NotAttempted,
-            typing: Typing::NotAttempted,
+            ..uneventful(Timeline::new(DictationId(15)).summary())
         });
 
         assert_eq!(lines[0]["input"], expected);
