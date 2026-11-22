@@ -43,10 +43,17 @@ pub enum InstallError {
     AlreadyInstalled(#[from] SetGlobalDefaultError),
 }
 
-pub fn install(log_dir: &Path) -> Result<WorkerGuard, InstallError> {
-    let (subscriber, guard) = file_subscriber(log_dir)?;
+/// Dropping this writes out any pending lines and stops the log writer.
+pub struct Telemetry {
+    _log_file: WorkerGuard,
+}
+
+pub fn install(log_dir: &Path) -> Result<Telemetry, InstallError> {
+    let (subscriber, log_file) = file_subscriber(log_dir)?;
     tracing::subscriber::set_global_default(subscriber)?;
-    Ok(guard)
+    Ok(Telemetry {
+        _log_file: log_file,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

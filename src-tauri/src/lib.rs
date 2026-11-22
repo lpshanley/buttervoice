@@ -18,7 +18,7 @@ use buttervoice_core::key_dictation::{
 use buttervoice_core::recording::Mode;
 use buttervoice_core::transcription::TranscriptionFailure;
 use buttervoice_replay::recordings;
-use buttervoice_telemetry::{Build, BuildKind};
+use buttervoice_telemetry::{Build, BuildKind, Telemetry};
 use hud::Hud;
 use key_tap::{TapEnded, TapEvent};
 use tauri::Manager;
@@ -203,14 +203,18 @@ fn lock(dictations: &Mutex<KeyDictations>) -> MutexGuard<'_, KeyDictations> {
     dictations.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// Emptied when the app quits. Tauri ends the process without running
+/// destructors, so nothing else would write out the last log lines.
+struct RunningTelemetry(Mutex<Option<Telemetry>>);
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_macos_permissions::init())
         .setup(|app| {
-            let log_file_guard = buttervoice_telemetry::install(&app.path().app_log_dir()?)?;
-            app.manage(log_file_guard);
+            let telemetry = buttervoice_telemetry::install(&app.path().app_log_dir()?)?;
+            app.manage(RunningTelemetry(Mutex::new(Some(telemetry))));
             buttervoice_telemetry::record_app_started(&Build {
                 version: env!("CARGO_PKG_VERSION"),
                 kind: if cfg!(debug_assertions) {
@@ -243,6 +247,18 @@ pub fn run() {
             save_api_key,
             forget_api_key
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                tracing::info!("app quit");
+                if let Some(running) = app.try_state::<RunningTelemetry>() {
+                    running
+                        .0
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .take();
+                }
+            }
+        });
 }
