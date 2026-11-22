@@ -1,7 +1,8 @@
-use crate::capture::{CaptureReport, Captured, CapturedAudio};
+use crate::capture::{AudioStats, Captured, CapturedAudio};
 use crate::hotkey::{HotkeyDecoder, HotkeyKey, KeyEdge};
 use crate::recording::{Decision, Mode, RecordingControl, StopReason};
 use crate::timeline::{Mark, Summary, Timeline, Timestamp};
+use crate::transcription::{Transcript, Transcription, TranscriptionFailure};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptureCommand {
@@ -9,19 +10,33 @@ pub enum CaptureCommand {
     Stop,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum AfterCapture {
+    Transcribe(CapturedAudio),
+    Finished(FinishedDictation),
+}
+
 /// `audio` is `None` when the microphone could not be started.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FinishedDictation {
     pub summary: Summary,
     pub stopped_because: StopReason,
-    pub audio: Option<CapturedAudio>,
+    pub audio: Option<AudioStats>,
+    pub transcription: Transcription,
+}
+
+#[derive(Debug)]
+struct Stopped {
+    timeline: Timeline,
+    stopped_because: StopReason,
 }
 
 #[derive(Debug)]
 enum Phase {
     Idle,
     Capturing(Timeline),
-    StoppingCapture(Timeline, StopReason),
+    StoppingCapture(Stopped),
+    Transcribing(Stopped, AudioStats),
 }
 
 #[derive(Debug)]
@@ -57,30 +72,73 @@ impl KeyDictations {
         self.apply(decision, at)
     }
 
-    pub fn capture_stopped(&mut self, captured: Option<Captured>) -> Option<FinishedDictation> {
-        let Phase::StoppingCapture(mut timeline, stopped_because) =
+    /// `captured` is `None` when the microphone could not be started.
+    pub fn capture_stopped(
+        &mut self,
+        captured: Option<Captured>,
+        at: Timestamp,
+    ) -> Option<AfterCapture> {
+        let Phase::StoppingCapture(mut stopped) = std::mem::replace(&mut self.phase, Phase::Idle)
+        else {
+            return None;
+        };
+        stopped.timeline.mark(Mark::CaptureStopped, at);
+        let Some(captured) = captured else {
+            return Some(AfterCapture::Finished(self.finish(
+                stopped,
+                None,
+                Transcription::NotAttempted,
+            )));
+        };
+        if let Some(at) = captured.report.first_sample_at {
+            stopped.timeline.mark(Mark::FirstSample, at);
+        }
+        if let Some(at) = captured.report.first_sound_at {
+            stopped.timeline.mark(Mark::FirstSound, at);
+        }
+        let stats = captured.audio.stats();
+        if captured.report.first_sound_at.is_none() {
+            return Some(AfterCapture::Finished(self.finish(
+                stopped,
+                Some(stats),
+                Transcription::NotAttempted,
+            )));
+        }
+        self.phase = Phase::Transcribing(stopped, stats);
+        Some(AfterCapture::Transcribe(captured.audio))
+    }
+
+    pub fn transcription_finished(
+        &mut self,
+        outcome: Result<Transcript, TranscriptionFailure>,
+        at: Timestamp,
+    ) -> Option<FinishedDictation> {
+        let Phase::Transcribing(mut stopped, stats) =
             std::mem::replace(&mut self.phase, Phase::Idle)
         else {
             return None;
         };
-        let (audio, report) = match captured {
-            Some(captured) => (Some(captured.audio), captured.report),
-            None => (None, CaptureReport::default()),
+        stopped.timeline.mark(Mark::TranscriptReady, at);
+        let transcription = match outcome {
+            Ok(transcript) => Transcription::Succeeded(transcript),
+            Err(failure) => Transcription::Failed(failure),
         };
-        if let Some(at) = report.first_sample_at {
-            timeline.mark(Mark::FirstSample, at);
-        }
-        if let Some(at) = report.first_sound_at {
-            timeline.mark(Mark::FirstSound, at);
-        }
-        // Nothing is transcribed yet, so the dictation is finished as soon
-        // as its audio has been captured.
+        Some(self.finish(stopped, Some(stats), transcription))
+    }
+
+    fn finish(
+        &mut self,
+        stopped: Stopped,
+        audio: Option<AudioStats>,
+        transcription: Transcription,
+    ) -> FinishedDictation {
         self.control.processing_finished();
-        Some(FinishedDictation {
-            summary: timeline.summary(),
-            stopped_because,
+        FinishedDictation {
+            summary: stopped.timeline.summary(),
+            stopped_because: stopped.stopped_because,
             audio,
-        })
+            transcription,
+        }
     }
 
     fn key_edge(&mut self, edge: KeyEdge, at: Timestamp) -> Option<CaptureCommand> {
@@ -106,7 +164,10 @@ impl KeyDictations {
                     return None;
                 };
                 timeline.mark(Mark::KeyUp, at);
-                self.phase = Phase::StoppingCapture(timeline, stopped_because);
+                self.phase = Phase::StoppingCapture(Stopped {
+                    timeline,
+                    stopped_because,
+                });
                 Some(CaptureCommand::Stop)
             }
             Decision::Ignore => None,

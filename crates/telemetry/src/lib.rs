@@ -48,11 +48,8 @@ pub fn record_dictation(dictation: &FinishedDictation) {
         dictation_id = summary.dictation_id.0,
         stopped_because = stop_reason_name(dictation.stopped_because),
         key_held_ms = summary.key_held.map(millis),
-        captured_audio_ms = dictation
-            .audio
-            .as_ref()
-            .map(|audio| millis(audio.duration())),
-        dropped_samples = dictation.audio.as_ref().map(|audio| audio.dropped_samples),
+        captured_audio_ms = dictation.audio.map(|audio| millis(audio.duration)),
+        dropped_samples = dictation.audio.map(|audio| audio.dropped_samples),
         key_down_to_first_sample_ms = summary.key_down_to_first_sample.map(millis),
         key_down_to_first_sound_ms = summary.key_down_to_first_sound.map(millis),
         key_up_to_text_landed_ms = summary.key_up_to_text_landed.map(millis),

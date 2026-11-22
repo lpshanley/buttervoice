@@ -61,6 +61,12 @@ pub struct CapturedAudio {
     pub dropped_samples: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AudioStats {
+    pub duration: Duration,
+    pub dropped_samples: u64,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Captured {
     pub audio: CapturedAudio,
@@ -94,6 +100,13 @@ impl CapturedAudio {
             wav.extend_from_slice(&pcm.to_le_bytes());
         }
         wav
+    }
+
+    pub fn stats(&self) -> AudioStats {
+        AudioStats {
+            duration: self.duration(),
+            dropped_samples: self.dropped_samples,
+        }
     }
 
     pub fn duration(&self) -> Duration {

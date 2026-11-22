@@ -4,8 +4,9 @@ mod microphone;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use buttervoice_core::hotkey::HotkeyKey;
-use buttervoice_core::key_dictation::{CaptureCommand, KeyDictations};
+use buttervoice_core::key_dictation::{AfterCapture, CaptureCommand, KeyDictations};
 use buttervoice_core::recording::Mode;
+use buttervoice_core::transcription::TranscriptionFailure;
 use key_tap::TapEvent;
 use tauri::Manager;
 
@@ -23,7 +24,16 @@ fn listen_for_the_dictation_key() -> std::io::Result<()> {
     let microphone = microphone::spawn({
         let dictations = dictations.clone();
         move |captured| {
-            let finished = lock(&dictations).capture_stopped(captured);
+            let after = lock(&dictations).capture_stopped(captured, key_tap::now());
+            let finished = match after {
+                // No transcription service is wired in yet.
+                Some(AfterCapture::Transcribe(_audio)) => lock(&dictations).transcription_finished(
+                    Err(TranscriptionFailure::NotConfigured),
+                    key_tap::now(),
+                ),
+                Some(AfterCapture::Finished(finished)) => Some(finished),
+                None => None,
+            };
             if let Some(finished) = finished {
                 buttervoice_telemetry::record_dictation(&finished);
             }

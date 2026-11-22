@@ -1,10 +1,13 @@
 mod common;
 
+use std::time::Duration;
+
 use buttervoice_core::DictationId;
-use buttervoice_core::capture::{AudioFormat, CapturedAudio};
+use buttervoice_core::capture::AudioStats;
 use buttervoice_core::key_dictation::FinishedDictation;
 use buttervoice_core::recording::StopReason;
 use buttervoice_core::timeline::{Mark, Summary, Timeline, Timestamp};
+use buttervoice_core::transcription::Transcription;
 use buttervoice_telemetry::{file_subscriber, record_dictation};
 use serde_json::Value;
 
@@ -21,6 +24,7 @@ fn lines_logged_for_stop(summary: &Summary, stopped_because: StopReason) -> Vec<
         summary: summary.clone(),
         stopped_because,
         audio: None,
+        transcription: Transcription::NotAttempted,
     })
 }
 
@@ -83,14 +87,11 @@ fn the_line_says_how_much_audio_was_captured_and_how_much_was_dropped() {
     let lines = lines_logged(&FinishedDictation {
         summary: Timeline::new(DictationId(10)).summary(),
         stopped_because: StopReason::KeyReleased,
-        audio: Some(CapturedAudio {
-            format: AudioFormat {
-                sample_rate: 48_000,
-                channels: 1,
-            },
-            samples: vec![0.0; 24_000],
+        audio: Some(AudioStats {
+            duration: Duration::from_millis(500),
             dropped_samples: 7,
         }),
+        transcription: Transcription::NotAttempted,
     });
 
     assert_eq!(lines[0]["captured_audio_ms"], 500.0);
