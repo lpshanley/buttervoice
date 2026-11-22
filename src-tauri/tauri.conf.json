@@ -13,7 +13,23 @@
     ]
   },
   "app": {
-    "windows": [],
+    "windows": [
+      {
+        "label": "hud",
+        "title": "ButterVoice",
+        "width": 180,
+        "height": 56,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "visibleOnAllWorkspaces": true,
+        "skipTaskbar": true,
+        "focus": false,
+        "focusable": false
+      }
+    ],
     "security": {
       "csp": null
     }

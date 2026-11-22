@@ -1,3 +1,4 @@
+mod hud;
 mod key_tap;
 mod microphone;
 mod typing;
@@ -14,12 +15,13 @@ use buttervoice_core::recording::Mode;
 use buttervoice_core::transcription::TranscriptionFailure;
 use buttervoice_grok::GrokTranscriber;
 use buttervoice_replay::recordings;
+use hud::Hud;
 use key_tap::TapEvent;
 use tauri::Manager;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 
-fn listen_for_the_dictation_key() -> std::io::Result<()> {
+fn listen_for_the_dictation_key(hud: Arc<Hud>) -> std::io::Result<()> {
     let dictations = Arc::new(Mutex::new(KeyDictations::new(
         HotkeyKey::RightOption,
         Mode::PushToTalk,
@@ -28,6 +30,7 @@ fn listen_for_the_dictation_key() -> std::io::Result<()> {
     let recordings_dir = std::env::var_os(RECORDINGS_VARIABLE).map(PathBuf::from);
     let microphone = microphone::spawn({
         let dictations = dictations.clone();
+        let hud = hud.clone();
         move |captured| {
             let after = lock(&dictations).capture_stopped(captured, key_tap::now());
             let finished = match after {
@@ -56,6 +59,7 @@ fn listen_for_the_dictation_key() -> std::io::Result<()> {
                 Some(AfterCapture::Finished(finished)) => Some(finished),
                 None => None,
             };
+            hud.show(lock(&dictations).status());
             if let Some(finished) = finished {
                 buttervoice_telemetry::record_dictation(&finished);
             }
@@ -70,18 +74,24 @@ fn listen_for_the_dictation_key() -> std::io::Result<()> {
                 }
             };
             let ended = key_tap::run(|event| {
-                let command = match event {
-                    TapEvent::FlagsChanged { flags, at } => {
-                        lock(&dictations).flags_changed(flags, at)
-                    }
-                    TapEvent::Interrupted { flags, at } => {
-                        tracing::warn!("key listener interrupted");
-                        lock(&dictations).resync(flags, at)
-                    }
+                let (command, status) = {
+                    let mut dictations = lock(&dictations);
+                    let command = match event {
+                        TapEvent::FlagsChanged { flags, at } => dictations.flags_changed(flags, at),
+                        TapEvent::Interrupted { flags, at } => {
+                            tracing::warn!("key listener interrupted");
+                            dictations.resync(flags, at)
+                        }
+                    };
+                    (command, dictations.status())
                 };
+                // The microphone first: the HUD can wait a moment, the first
+                // word cannot.
                 send(command);
+                hud.show(status);
             });
             send(lock(&dictations).key_listener_lost(key_tap::now()));
+            hud.show(lock(&dictations).status());
             tracing::error!(reason = %ended, "key listener stopped");
         })?;
     Ok(())
@@ -157,7 +167,8 @@ pub fn run() {
             // A menu-bar app: no Dock icon and no window of its own.
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             add_menu_bar_item(app)?;
-            listen_for_the_dictation_key()?;
+            let hud = Arc::new(Hud::set_up(app.handle())?);
+            listen_for_the_dictation_key(hud)?;
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -1,116 +1,80 @@
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
-
-.logo.solid:hover {
-  filter: drop-shadow(0 0 2em #2f5d90);
-}
 :root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
+  --hud-surface: rgba(28, 26, 22, 0.92);
+  --hud-text: #f6efdf;
+  --hud-listening: #ffcf4a;
+  --hud-working: #9aa3ad;
 
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  font-size: 13px;
+  color: var(--hud-text);
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
 }
 
-.container {
+html,
+body,
+#root {
+  height: 100%;
   margin: 0;
-  padding-top: 10vh;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+}
+
+#root {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-}
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-  display: flex;
+  align-items: center;
   justify-content: center;
 }
 
-a {
+.hud {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px 8px 12px;
+  border-radius: 999px;
+  background: var(--hud-surface);
   font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
+  letter-spacing: 0.01em;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 120ms ease-out,
+    transform 120ms ease-out;
 }
 
-a:hover {
-  color: #535bf2;
+/* Hidden with opacity, not display, so the window never has to be shown or
+   hidden while another app has the keyboard. */
+.hud.idle {
+  opacity: 0;
+  transform: translateY(4px);
 }
 
-h1 {
-  text-align: center;
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--hud-working);
 }
 
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
+.hud.listening .dot {
+  background: var(--hud-listening);
+  animation: pulse 1.1s ease-in-out infinite;
 }
 
-button {
-  cursor: pointer;
+@keyframes pulse {
+  50% {
+    transform: scale(1.45);
+    opacity: 0.55;
+  }
 }
 
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
-}
-
-#greet-input {
-  margin-right: 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
+@media (prefers-reduced-motion: reduce) {
+  .hud {
+    transition: none;
   }
 
-  a:hover {
-    color: #24c8db;
-  }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
+  .hud.listening .dot {
+    animation: none;
   }
 }
