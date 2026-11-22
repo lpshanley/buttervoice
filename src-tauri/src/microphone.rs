@@ -7,8 +7,8 @@ use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::time::Duration;
 
 use buttervoice_core::capture::{
-    AudioFormat, CaptureReader, Captured, MicrophoneChoice, capture_channel, choose_input,
-    input_kind,
+    AudioFormat, CaptureReader, Captured, InputKind, MicrophoneChoice, capture_channel,
+    choose_input, input_kind,
 };
 use buttervoice_core::key_dictation::CaptureCommand;
 use buttervoice_core::timeline::Timestamp;
@@ -34,7 +34,10 @@ struct Capturing {
 
 /// `on_stopped` runs on the microphone thread after each stop. It gets
 /// `None` when the microphone could not be started.
+/// `choice` is asked afresh at every start, so a change of microphone takes
+/// effect at the next dictation.
 pub fn spawn(
+    choice: impl Fn() -> MicrophoneChoice + Send + 'static,
     on_stopped: impl Fn(Option<Captured>) + Send + 'static,
 ) -> std::io::Result<Sender<CaptureCommand>> {
     let (commands, received) = mpsc::channel();
@@ -53,7 +56,7 @@ pub fn spawn(
                     }
                 };
                 match command {
-                    Ok(CaptureCommand::Start) => match start() {
+                    Ok(CaptureCommand::Start) => match start(&choice()) {
                         Ok(started) => capturing = Some(started),
                         Err(error) => tracing::error!(%error, "microphone did not start"),
                     },
@@ -66,7 +69,7 @@ pub fn spawn(
     Ok(commands)
 }
 
-fn start() -> Result<Capturing, StartError> {
+fn start(choice: &MicrophoneChoice) -> Result<Capturing, StartError> {
     let host = cpal::default_host();
     let inputs: Vec<(String, cpal::Device)> = host
         .input_devices()?
@@ -77,14 +80,12 @@ fn start() -> Result<Capturing, StartError> {
         .and_then(|device| device.id().ok())
         .map(|id| id.id().to_string());
     let available: Vec<&str> = inputs.iter().map(|(id, _)| id.as_str()).collect();
-    let chosen = choose_input(
-        &MicrophoneChoice::BuiltIn,
-        &available,
-        system_default.as_deref(),
-    )
-    .ok_or(StartError::NoInputDevice)?
-    .id
-    .to_string();
+    let chosen = choose_input(choice, &available, system_default.as_deref())
+        .ok_or(StartError::NoInputDevice)?;
+    if chosen.fell_back {
+        tracing::warn!("the chosen microphone is not connected; using the system default");
+    }
+    let chosen = chosen.id.to_string();
     let (_, device) = inputs
         .into_iter()
         .find(|(id, _)| *id == chosen)
@@ -127,4 +128,32 @@ fn stop(capturing: Capturing) -> Captured {
         tracing::warn!(stream_errors, "microphone reported errors while capturing");
     }
     capturing.audio.finish()
+}
+
+/// An input device a person can choose, named as macOS names it.
+#[derive(serde::Serialize)]
+pub struct Microphone {
+    pub id: String,
+    pub name: String,
+    pub built_in: bool,
+}
+
+pub fn connected() -> Vec<Microphone> {
+    let Ok(devices) = cpal::default_host().input_devices() else {
+        return Vec::new();
+    };
+    devices
+        .filter_map(|device| {
+            let id = device.id().ok()?.id().to_string();
+            let name = device
+                .description()
+                .map(|description| description.name().to_string())
+                .unwrap_or_else(|_| id.clone());
+            Some(Microphone {
+                built_in: input_kind(&id) == InputKind::BuiltIn,
+                id,
+                name,
+            })
+        })
+        .collect()
 }

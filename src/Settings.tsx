@@ -37,6 +37,12 @@ const LANGUAGES: { tag: Locale; name: string }[] = [
   { tag: "pt-BR", name: "Português (Brasil)" },
 ];
 
+type Microphone = { id: string; name: string; built_in: boolean };
+
+type MicrophoneSetup = { choice: string; connected: Microphone[] };
+
+const DEVICE = "device:";
+
 const STILL_STARTING_RECHECK_MS = 500;
 
 type Permission = {
@@ -112,6 +118,32 @@ function Settings() {
     await refreshLanguage();
   }
 
+  const [microphones, setMicrophones] = createSignal<MicrophoneSetup>({
+    choice: "built_in",
+    connected: [],
+  });
+
+  async function refreshMicrophones() {
+    setMicrophones(await invoke<MicrophoneSetup>("microphone_setup"));
+  }
+
+  async function chooseMicrophone(choice: string) {
+    await attempt("choose_microphone", { choice });
+    await refreshMicrophones();
+  }
+
+  // The built-in microphone is offered as its own choice, so it is not
+  // listed a second time among the devices.
+  const otherDevices = () => microphones().connected.filter((device) => !device.built_in);
+
+  const chosenDeviceMissing = () => {
+    const choice = microphones().choice;
+    return (
+      choice.startsWith(DEVICE) &&
+      !microphones().connected.some((device) => DEVICE + device.id === choice)
+    );
+  };
+
   async function attempt(command: string, args?: Record<string, unknown>) {
     try {
       await invoke(command, args);
@@ -126,11 +158,16 @@ function Settings() {
   onSettled(() => {
     void refreshLanguage();
     void refresh();
+    void refreshMicrophones();
     void recheck();
     // macOS does not say when a permission changes. Coming back to this
     // window from System Settings is the moment to look again.
     const watching = getCurrentWindow().onFocusChanged((event) => {
-      if (event.payload) void recheck();
+      if (event.payload) {
+        void recheck();
+        // A headset may have been connected while the window was away.
+        void refreshMicrophones();
+      }
     });
     return () => {
       void watching.then((stop) => stop());
@@ -218,6 +255,57 @@ function Settings() {
           {problem()}
         </p>
       </Show>
+      <h2>{t("microphone.heading")}</h2>
+      <div class="providers" role="radiogroup" aria-label={t("microphone.heading")}>
+        <label>
+          <input
+            type="radio"
+            name="microphone"
+            checked={microphones().choice === "built_in"}
+            onChange={() => void chooseMicrophone("built_in")}
+          />
+          <span>
+            <strong>{t("microphone.built_in")}</strong>
+            <span class="why">{t("microphone.built_in_what")}</span>
+          </span>
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="microphone"
+            checked={microphones().choice === "system_default"}
+            onChange={() => void chooseMicrophone("system_default")}
+          />
+          <span>
+            <strong>{t("microphone.system_default")}</strong>
+            <span class="why">{t("microphone.system_default_what")}</span>
+          </span>
+        </label>
+        <For each={otherDevices()}>
+          {(device) => (
+            <label>
+              <input
+                type="radio"
+                name="microphone"
+                checked={microphones().choice === DEVICE + device.id}
+                onChange={() => void chooseMicrophone(DEVICE + device.id)}
+              />
+              <span>
+                <strong>{device.name}</strong>
+              </span>
+            </label>
+          )}
+        </For>
+        <Show when={chosenDeviceMissing()}>
+          <label>
+            <input type="radio" name="microphone" checked disabled />
+            <span>
+              <strong>{t("microphone.chosen_device")}</strong>
+              <span class="why">{t("microphone.not_connected")}</span>
+            </span>
+          </label>
+        </Show>
+      </div>
       <h2>{t("permissions.heading")}</h2>
       <ul class="permissions">
         <For each={PERMISSIONS}>

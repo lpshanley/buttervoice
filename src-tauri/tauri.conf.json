@@ -32,8 +32,8 @@
         "label": "settings",
         "title": "ButterVoice Settings",
         "width": 460,
-        "height": 700,
-        "resizable": false,
+        "height": 760,
+        "resizable": true,
         "visible": false,
         "center": true
       },

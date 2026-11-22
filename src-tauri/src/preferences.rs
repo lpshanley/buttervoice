@@ -3,17 +3,19 @@
 use std::path::{Path, PathBuf};
 use std::sync::{PoisonError, RwLock};
 
+use buttervoice_core::capture::MicrophoneChoice;
 use buttervoice_core::language::Language;
 use buttervoice_core::transcription::Provider;
 use serde_json::{Value, json};
 
 /// The language a person dictates in and the language the app is shown in
 /// are saved separately, so they can differ, even while one control sets both.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Preferences {
     pub provider: Provider,
     pub dictation_language: Option<Language>,
     pub display_language: Option<Language>,
+    pub microphone: MicrophoneChoice,
 }
 
 /// The saved choices, shared by every part of the app that reads them. A
@@ -32,7 +34,10 @@ impl Store {
     }
 
     pub fn get(&self) -> Preferences {
-        *self.current.read().unwrap_or_else(PoisonError::into_inner)
+        self.current
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     pub fn change(&self, change: impl FnOnce(&mut Preferences)) -> std::io::Result<()> {
@@ -47,6 +52,7 @@ impl Store {
 const PROVIDER: &str = "provider";
 const DICTATION_LANGUAGE: &str = "dictation_language";
 const DISPLAY_LANGUAGE: &str = "display_language";
+const MICROPHONE: &str = "microphone";
 
 pub fn load(file: &Path) -> Preferences {
     let saved = std::fs::read_to_string(file)
@@ -57,6 +63,7 @@ pub fn load(file: &Path) -> Preferences {
         provider: Provider::from_setting(text(PROVIDER)),
         dictation_language: Language::from_setting(text(DICTATION_LANGUAGE)),
         display_language: Language::from_setting(text(DISPLAY_LANGUAGE)),
+        microphone: MicrophoneChoice::from_setting(text(MICROPHONE)),
     }
 }
 
@@ -68,6 +75,7 @@ pub fn save(file: &Path, preferences: &Preferences) -> std::io::Result<()> {
         PROVIDER: preferences.provider.name(),
         DICTATION_LANGUAGE: preferences.dictation_language.map(Language::tag),
         DISPLAY_LANGUAGE: preferences.display_language.map(Language::tag),
+        MICROPHONE: preferences.microphone.to_setting(),
     });
     std::fs::write(file, saved.to_string())
 }
@@ -89,6 +97,7 @@ mod tests {
             provider: Provider::Grok,
             dictation_language: Some(Language::BrazilianPortuguese),
             display_language: Some(Language::English),
+            microphone: MicrophoneChoice::Device("made-up-usb-microphone".to_string()),
         };
 
         save(&file, &chosen).unwrap();
@@ -108,6 +117,7 @@ mod tests {
                 provider: Provider::Grok,
                 dictation_language: None,
                 display_language: None,
+                microphone: MicrophoneChoice::BuiltIn,
             }
         );
     }
@@ -146,6 +156,7 @@ mod tests {
                 provider: Provider::Local,
                 dictation_language: None,
                 display_language: None,
+                microphone: MicrophoneChoice::BuiltIn,
             }
         );
     }

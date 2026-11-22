@@ -62,5 +62,12 @@
   "samples.kind.natural_speech": "In your own words",
   "samples.kind.conditions": "A special condition",
   "samples.kind.silence": "Silence",
-  "samples.heard": "A model on this Mac heard:"
+  "samples.heard": "A model on this Mac heard:",
+  "microphone.heading": "Microphone",
+  "microphone.built_in": "This Mac's microphone",
+  "microphone.built_in_what": "Starts hearing you straight away.",
+  "microphone.system_default": "The system default",
+  "microphone.system_default_what": "Whatever macOS is set to use.",
+  "microphone.not_connected": "Not connected. The system default is used until it is.",
+  "microphone.chosen_device": "The microphone you chose"
 }

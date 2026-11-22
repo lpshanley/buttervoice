@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use buttervoice_core::capture::CapturedAudio;
-use buttervoice_core::capture::InputKind;
+use buttervoice_core::capture::{InputKind, MicrophoneChoice};
 use buttervoice_core::hotkey::HotkeyKey;
 use buttervoice_core::key_dictation::{
     AfterCapture, AfterTranscription, CaptureCommand, KeyDictations,
@@ -45,67 +45,74 @@ fn listen_for_the_dictation_key(
     hud: Arc<Hud>,
     transcribers: Arc<Transcribers>,
     recorder: Arc<Recorder>,
+    preferences: Arc<preferences::Store>,
     app: tauri::AppHandle,
 ) -> std::io::Result<()> {
     let recordings_dir = std::env::var_os(RECORDINGS_VARIABLE).map(PathBuf::from);
-    let microphone = microphone::spawn({
-        let dictations = dictations.clone();
-        let hud = hud.clone();
-        move |captured| {
-            let input = captured.as_ref().map(|captured| captured.input);
-            let after = lock(&dictations).capture_stopped(captured, key_tap::now());
-            let finished = match after {
-                // While samples are being recorded, a dictation is a take
-                // for the session and is never typed anywhere.
-                Some(AfterCapture::Transcribe(audio)) if taking_samples(&recorder, &app) => {
-                    let hint = transcribers.heard_on_this_mac(&audio);
-                    let heard = match &hint {
-                        Some((_, _, Ok(transcript))) => Some(transcript.text.clone()),
-                        _ => None,
-                    };
-                    recorder.recorded(Take {
-                        audio,
-                        input: input.unwrap_or(InputKind::Other),
-                        heard,
-                    });
-                    let _ = app.emit_to(SAMPLES, SAMPLES_CHANGED, ());
-                    match hint {
-                        Some((provider, language, outcome)) => lock(&dictations)
-                            .transcription_kept(provider, language, outcome, key_tap::now()),
-                        None => lock(&dictations).kept_untranscribed(),
-                    }
-                }
-                Some(AfterCapture::Transcribe(audio)) => {
-                    if let Some(dir) = &recordings_dir {
-                        save_for_replay(dir, &audio);
-                    }
-                    // Transcribing happens outside the lock, so key events
-                    // are still handled while it runs.
-                    let (provider, language, outcome) = transcribers.transcribe(&audio);
-                    let after = lock(&dictations).transcription_finished(
-                        provider,
-                        language,
-                        outcome,
-                        key_tap::now(),
-                    );
-                    match after {
-                        Some(AfterTranscription::Type(text)) => {
-                            let typed = typing::type_text(&text);
-                            lock(&dictations).typing_finished(typed, key_tap::now())
+    let microphone = microphone::spawn(
+        {
+            let preferences = preferences.clone();
+            move || preferences.get().microphone
+        },
+        {
+            let dictations = dictations.clone();
+            let hud = hud.clone();
+            move |captured| {
+                let input = captured.as_ref().map(|captured| captured.input);
+                let after = lock(&dictations).capture_stopped(captured, key_tap::now());
+                let finished = match after {
+                    // While samples are being recorded, a dictation is a take
+                    // for the session and is never typed anywhere.
+                    Some(AfterCapture::Transcribe(audio)) if taking_samples(&recorder, &app) => {
+                        let hint = transcribers.heard_on_this_mac(&audio);
+                        let heard = match &hint {
+                            Some((_, _, Ok(transcript))) => Some(transcript.text.clone()),
+                            _ => None,
+                        };
+                        recorder.recorded(Take {
+                            audio,
+                            input: input.unwrap_or(InputKind::Other),
+                            heard,
+                        });
+                        let _ = app.emit_to(SAMPLES, SAMPLES_CHANGED, ());
+                        match hint {
+                            Some((provider, language, outcome)) => lock(&dictations)
+                                .transcription_kept(provider, language, outcome, key_tap::now()),
+                            None => lock(&dictations).kept_untranscribed(),
                         }
-                        Some(AfterTranscription::Finished(finished)) => Some(finished),
-                        None => None,
                     }
+                    Some(AfterCapture::Transcribe(audio)) => {
+                        if let Some(dir) = &recordings_dir {
+                            save_for_replay(dir, &audio);
+                        }
+                        // Transcribing happens outside the lock, so key events
+                        // are still handled while it runs.
+                        let (provider, language, outcome) = transcribers.transcribe(&audio);
+                        let after = lock(&dictations).transcription_finished(
+                            provider,
+                            language,
+                            outcome,
+                            key_tap::now(),
+                        );
+                        match after {
+                            Some(AfterTranscription::Type(text)) => {
+                                let typed = typing::type_text(&text);
+                                lock(&dictations).typing_finished(typed, key_tap::now())
+                            }
+                            Some(AfterTranscription::Finished(finished)) => Some(finished),
+                            None => None,
+                        }
+                    }
+                    Some(AfterCapture::Finished(finished)) => Some(finished),
+                    None => None,
+                };
+                hud.show(lock(&dictations).status());
+                if let Some(finished) = finished {
+                    buttervoice_telemetry::record_dictation(&finished);
                 }
-                Some(AfterCapture::Finished(finished)) => Some(finished),
-                None => None,
-            };
-            hud.show(lock(&dictations).status());
-            if let Some(finished) = finished {
-                buttervoice_telemetry::record_dictation(&finished);
             }
-        }
-    })?;
+        },
+    )?;
     std::thread::Builder::new()
         .name("key-tap".into())
         .spawn(move || {
@@ -327,6 +334,33 @@ fn samples_finish(
         })
 }
 
+#[derive(serde::Serialize)]
+struct MicrophoneSetup {
+    choice: String,
+    connected: Vec<microphone::Microphone>,
+}
+
+// `async`: listing devices asks CoreAudio, which can take a moment.
+#[tauri::command(async)]
+fn microphone_setup(preferences: tauri::State<'_, Arc<preferences::Store>>) -> MicrophoneSetup {
+    MicrophoneSetup {
+        choice: preferences.get().microphone.to_setting(),
+        connected: microphone::connected(),
+    }
+}
+
+#[tauri::command]
+fn choose_microphone(
+    choice: String,
+    preferences: tauri::State<'_, Arc<preferences::Store>>,
+    transcribers: tauri::State<'_, Arc<Transcribers>>,
+) -> Result<(), String> {
+    let choice = MicrophoneChoice::from_setting(Some(&choice));
+    preferences
+        .change(|saved| saved.microphone = choice)
+        .map_err(|error| not_saved(error, &transcribers))
+}
+
 #[tauri::command(async)]
 fn forget_api_key(transcribers: tauri::State<'_, Arc<Transcribers>>) -> Result<(), String> {
     transcribers.forget_key()
@@ -467,8 +501,10 @@ pub fn run() {
                 hud,
                 transcribers,
                 recorder,
+                preferences.clone(),
                 app.handle().clone(),
             )?;
+            app.manage(preferences);
             Ok(())
         })
         // Closing the settings window only hides it, so it can be opened again.
@@ -483,6 +519,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             transcription_setup,
             language_setup,
+            microphone_setup,
+            choose_microphone,
             samples_state,
             samples_start,
             samples_keep,
