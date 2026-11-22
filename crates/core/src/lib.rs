@@ -2,6 +2,7 @@
 //! run in tests and in fixture replays.
 
 pub mod api_key;
+pub mod backend;
 pub mod capture;
 pub mod hotkey;
 pub mod key_dictation;
