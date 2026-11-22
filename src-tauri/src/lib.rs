@@ -16,7 +16,7 @@ use buttervoice_core::key_dictation::{
     AfterCapture, AfterTranscription, CaptureCommand, KeyDictations,
 };
 use buttervoice_core::recording::Mode;
-use buttervoice_core::transcription::TranscriptionFailure;
+use buttervoice_core::transcription::{Provider, TranscriptionFailure};
 use buttervoice_replay::recordings;
 use buttervoice_telemetry::{Build, BuildKind, Telemetry};
 use hud::Hud;
@@ -54,7 +54,11 @@ fn listen_for_the_dictation_key(
                         }
                         None => Err(TranscriptionFailure::NotConfigured),
                     };
-                    let after = lock(&dictations).transcription_finished(outcome, key_tap::now());
+                    let after = lock(&dictations).transcription_finished(
+                        Provider::Grok,
+                        outcome,
+                        key_tap::now(),
+                    );
                     match after {
                         Some(AfterTranscription::Type(text)) => {
                             let typed = typing::type_text(&text);

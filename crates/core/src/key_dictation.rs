@@ -3,7 +3,7 @@ use crate::capture::{AudioStats, Captured, CapturedAudio, InputKind};
 use crate::hotkey::{HotkeyDecoder, HotkeyKey, KeyEdge};
 use crate::recording::{Decision, Mode, RecordingControl, StopReason};
 use crate::timeline::{Mark, Summary, Timeline, Timestamp};
-use crate::transcription::{Transcript, Transcription, TranscriptionFailure};
+use crate::transcription::{Provider, Transcript, Transcription, TranscriptionFailure};
 use crate::typing::{Typing, TypingFailure};
 use std::time::Duration;
 
@@ -41,6 +41,7 @@ pub struct FinishedDictation {
     pub stopped_because: StopReason,
     pub audio: Option<AudioStats>,
     pub input: Option<InputKind>,
+    pub provider: Option<Provider>,
     pub transcription: Transcription,
     pub typing: Typing,
 }
@@ -51,6 +52,7 @@ struct Stopped {
     stopped_because: StopReason,
     key_down_at: Timestamp,
     input: Option<InputKind>,
+    provider: Option<Provider>,
 }
 
 #[derive(Debug)]
@@ -165,6 +167,7 @@ impl KeyDictations {
 
     pub fn transcription_finished(
         &mut self,
+        provider: Provider,
         outcome: Result<Transcript, TranscriptionFailure>,
         at: Timestamp,
     ) -> Option<AfterTranscription> {
@@ -174,6 +177,7 @@ impl KeyDictations {
             return None;
         };
         stopped.timeline.mark(Mark::TranscriptReady, at);
+        stopped.provider = Some(provider);
         let transcript = match outcome {
             Ok(transcript) if !transcript.text.is_empty() => transcript,
             Ok(blank) => {
@@ -258,6 +262,7 @@ impl KeyDictations {
             stopped_because: stopped.stopped_because,
             audio,
             input: stopped.input,
+            provider: stopped.provider,
             transcription,
             typing,
         }
@@ -296,6 +301,7 @@ impl KeyDictations {
                     stopped_because,
                     key_down_at,
                     input: None,
+                    provider: None,
                 });
                 Some(CaptureCommand::Stop)
             }

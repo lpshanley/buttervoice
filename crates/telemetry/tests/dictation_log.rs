@@ -7,7 +7,7 @@ use buttervoice_core::capture::{AudioFormat, AudioStats, InputKind};
 use buttervoice_core::key_dictation::FinishedDictation;
 use buttervoice_core::recording::StopReason;
 use buttervoice_core::timeline::{Mark, Summary, Timeline, Timestamp};
-use buttervoice_core::transcription::{Transcript, Transcription, TranscriptionFailure};
+use buttervoice_core::transcription::{Provider, Transcript, Transcription, TranscriptionFailure};
 use buttervoice_core::typing::{Typing, TypingFailure};
 use buttervoice_telemetry::{file_subscriber, record_dictation, record_dictation_started};
 use serde_json::Value;
@@ -40,6 +40,7 @@ fn uneventful(summary: Summary) -> FinishedDictation {
         stopped_because: StopReason::KeyReleased,
         audio: None,
         input: None,
+        provider: None,
         transcription: Transcription::NotAttempted,
         typing: Typing::NotAttempted,
     }
@@ -149,6 +150,7 @@ fn the_line_says_why_a_transcription_failed() {
         (TranscriptionFailure::Unavailable, "unavailable"),
         (TranscriptionFailure::Rejected, "rejected"),
         (TranscriptionFailure::Unreachable, "unreachable"),
+        (TranscriptionFailure::EngineFailed, "engine_failed"),
     ] {
         let lines = lines_logged(&FinishedDictation {
             transcription: Transcription::Failed(failure),
@@ -220,6 +222,18 @@ fn the_line_says_which_kind_of_input_was_used_and_its_format() {
         assert_eq!(lines[0]["input"], expected);
         assert_eq!(lines[0]["input_sample_rate_hz"], 24_000);
         assert_eq!(lines[0]["input_channels"], 2);
+    }
+}
+
+#[test]
+fn the_line_says_which_provider_transcribed_the_dictation() {
+    for (provider, expected) in [(Provider::Local, "local"), (Provider::Grok, "grok")] {
+        let lines = lines_logged(&FinishedDictation {
+            provider: Some(provider),
+            ..uneventful(Timeline::new(DictationId(16)).summary())
+        });
+
+        assert_eq!(lines[0]["provider"], expected);
     }
 }
 

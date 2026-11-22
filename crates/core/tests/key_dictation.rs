@@ -11,7 +11,7 @@ use buttervoice_core::key_dictation::{
 };
 use buttervoice_core::recording::{Mode, StopReason};
 use buttervoice_core::timeline::Timestamp;
-use buttervoice_core::transcription::{Transcript, Transcription, TranscriptionFailure};
+use buttervoice_core::transcription::{Provider, Transcript, Transcription, TranscriptionFailure};
 use buttervoice_core::typing::{Typing, TypingFailure};
 
 const RIGHT_OPTION_DOWN: u64 = 0x80140;
@@ -101,7 +101,11 @@ fn a_transcript_is_handed_over_to_be_typed() {
     dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
 
     assert_eq!(
-        dictations.transcription_finished(heard("hello world"), at_micros(2_392_500)),
+        dictations.transcription_finished(
+            Provider::Grok,
+            heard("hello world"),
+            at_micros(2_392_500)
+        ),
         Some(AfterTranscription::Type("hello world".to_string()))
     );
 }
@@ -110,7 +114,7 @@ fn a_transcript_is_handed_over_to_be_typed() {
 fn a_dictation_finishes_once_its_text_has_been_typed() {
     let mut dictations = held_and_released();
     dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
-    dictations.transcription_finished(heard("hello world"), at_micros(2_392_500));
+    dictations.transcription_finished(Provider::Grok, heard("hello world"), at_micros(2_392_500));
 
     let finished = dictations
         .typing_finished(Ok(()), at_micros(2_400_000))
@@ -137,7 +141,7 @@ fn a_dictation_finishes_once_its_text_has_been_typed() {
 fn a_dictation_whose_text_could_not_be_typed_still_finishes_and_says_why() {
     let mut dictations = held_and_released();
     dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
-    dictations.transcription_finished(heard("hello world"), at_micros(2_392_500));
+    dictations.transcription_finished(Provider::Grok, heard("hello world"), at_micros(2_392_500));
 
     let finished = dictations
         .typing_finished(Err(TypingFailure::NotPermitted), at_micros(2_400_000))
@@ -152,8 +156,11 @@ fn a_blank_transcript_finishes_the_dictation_with_nothing_to_type() {
     let mut dictations = held_and_released();
     dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
 
-    let finished =
-        finished_without_typing(dictations.transcription_finished(heard(""), at_micros(2_392_500)));
+    let finished = finished_without_typing(dictations.transcription_finished(
+        Provider::Grok,
+        heard(""),
+        at_micros(2_392_500),
+    ));
 
     assert_eq!(finished.typing, Typing::NotAttempted);
 }
@@ -162,7 +169,7 @@ fn a_blank_transcript_finishes_the_dictation_with_nothing_to_type() {
 fn a_new_press_is_ignored_until_the_text_has_been_typed() {
     let mut dictations = held_and_released();
     dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
-    dictations.transcription_finished(heard("hello world"), at_micros(2_392_500));
+    dictations.transcription_finished(Provider::Grok, heard("hello world"), at_micros(2_392_500));
 
     assert_eq!(
         dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(2_395_000)),
@@ -175,10 +182,11 @@ fn a_finished_dictation_describes_its_capture() {
     let mut dictations = held_and_released();
     dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
 
-    let finished = finished_without_typing(
-        dictations
-            .transcription_finished(Err(TranscriptionFailure::Unavailable), at_micros(2_000_000)),
-    );
+    let finished = finished_without_typing(dictations.transcription_finished(
+        Provider::Grok,
+        Err(TranscriptionFailure::Unavailable),
+        at_micros(2_000_000),
+    ));
 
     assert_eq!(finished.summary.dictation_id, DictationId(1));
     assert_eq!(finished.stopped_because, StopReason::KeyReleased);
@@ -219,6 +227,7 @@ fn a_failed_transcription_still_finishes_the_dictation_and_says_why() {
     dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
 
     let finished = finished_without_typing(dictations.transcription_finished(
+        Provider::Grok,
         Err(TranscriptionFailure::Unauthorized),
         at_micros(2_100_000),
     ));
@@ -306,7 +315,11 @@ fn dictate(
     dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(key_down_micros));
     dictations.flags_changed(NO_MODIFIERS, at_micros(key_down_micros + 1_000_000));
     dictations.capture_stopped(Some(speech()), at_micros(key_down_micros + 1_020_000));
-    dictations.transcription_finished(heard(text), at_micros(key_down_micros + 1_300_000))
+    dictations.transcription_finished(
+        Provider::Grok,
+        heard(text),
+        at_micros(key_down_micros + 1_300_000),
+    )
 }
 
 /// "Hello there." has been dictated and typed by 2.400000 s.
@@ -387,7 +400,7 @@ fn the_status_goes_from_listening_to_working_to_idle_over_a_dictation() {
     dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
     assert_eq!(dictations.status(), DictationStatus::Working);
 
-    dictations.transcription_finished(heard("hello world"), at_micros(2_392_500));
+    dictations.transcription_finished(Provider::Grok, heard("hello world"), at_micros(2_392_500));
     assert_eq!(dictations.status(), DictationStatus::Working);
 
     dictations.typing_finished(Ok(()), at_micros(2_400_000));
@@ -421,10 +434,34 @@ fn a_finished_dictation_says_which_kind_of_input_it_was_captured_from() {
     let mut dictations = held_and_released();
     dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
 
-    let finished = finished_without_typing(
-        dictations
-            .transcription_finished(Err(TranscriptionFailure::Unreachable), at_micros(2_100_000)),
-    );
+    let finished = finished_without_typing(dictations.transcription_finished(
+        Provider::Grok,
+        Err(TranscriptionFailure::Unreachable),
+        at_micros(2_100_000),
+    ));
 
     assert_eq!(finished.input, Some(InputKind::BuiltIn));
+}
+
+#[test]
+fn a_finished_dictation_says_which_provider_transcribed_it() {
+    let mut dictations = held_and_released();
+    dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
+
+    let finished = finished_without_typing(dictations.transcription_finished(
+        Provider::Local,
+        Err(TranscriptionFailure::EngineFailed),
+        at_micros(2_100_000),
+    ));
+
+    assert_eq!(finished.provider, Some(Provider::Local));
+}
+
+#[test]
+fn a_dictation_that_was_never_sent_for_transcription_has_no_provider() {
+    let mut dictations = held_and_released();
+
+    let finished = finished(dictations.capture_stopped(None, at_micros(1_980_000)));
+
+    assert_eq!(finished.provider, None);
 }

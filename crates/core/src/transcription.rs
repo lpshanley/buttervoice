@@ -13,6 +13,16 @@ pub enum TranscriptionFailure {
     /// The service refused this particular request.
     Rejected,
     Unreachable,
+    /// The speech engine on this machine could not transcribe the audio.
+    EngineFailed,
+}
+
+/// Where a dictation's audio is turned into text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Provider {
+    /// On this machine. Nothing about the dictation leaves it.
+    Local,
+    Grok,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
