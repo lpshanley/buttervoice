@@ -123,3 +123,17 @@ fn audio_with_no_samples_has_a_level_of_zero() {
     assert_eq!(stats.peak, 0.0);
     assert_eq!(stats.rms, 0.0);
 }
+
+#[test]
+fn quiet_audio_can_be_scaled_up_to_a_chosen_peak() {
+    let louder = mono(&[0.125, -0.0625, 0.0]).with_peak_at(0.5);
+
+    assert_eq!(louder.samples, [0.5, -0.25, 0.0]);
+}
+
+#[test]
+fn pure_silence_is_left_alone_when_scaling() {
+    let silence = mono(&[0.0, 0.0]).with_peak_at(0.5);
+
+    assert_eq!(silence.samples, [0.0, 0.0]);
+}

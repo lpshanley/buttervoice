@@ -105,6 +105,19 @@ impl CapturedAudio {
         wav
     }
 
+    /// The same audio, scaled so its loudest sample is at `peak`.
+    pub fn with_peak_at(&self, peak: f32) -> CapturedAudio {
+        let current = self.stats().peak;
+        if current == 0.0 {
+            return self.clone();
+        }
+        let gain = peak / current;
+        CapturedAudio {
+            samples: self.samples.iter().map(|sample| sample * gain).collect(),
+            ..self.clone()
+        }
+    }
+
     pub fn stats(&self) -> AudioStats {
         AudioStats {
             duration: self.duration(),
