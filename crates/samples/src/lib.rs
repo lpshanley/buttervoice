@@ -1,4 +1,5 @@
 pub mod diff;
+pub mod package;
 pub mod script;
 pub mod session;
 
@@ -73,7 +74,7 @@ pub enum LoadError {
     MissingAudio(String),
 }
 
-const DESCRIPTION: &str = "set.json";
+pub(crate) const DESCRIPTION: &str = "set.json";
 
 #[derive(Serialize, Deserialize)]
 struct SetFile {
