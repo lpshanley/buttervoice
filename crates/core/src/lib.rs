@@ -5,6 +5,7 @@ pub mod api_key;
 pub mod capture;
 pub mod hotkey;
 pub mod key_dictation;
+pub mod language;
 pub mod recording;
 pub mod timeline;
 pub mod transcription;
