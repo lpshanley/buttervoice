@@ -98,6 +98,8 @@ fn the_line_says_how_much_audio_was_captured_and_how_much_was_dropped() {
 
     assert_eq!(lines[0]["captured_audio_ms"], 500.0);
     assert_eq!(lines[0]["dropped_samples"], 7);
+    assert_eq!(lines[0]["audio_peak_dbfs"], 0.0);
+    assert_eq!(lines[0]["audio_rms_dbfs"], -20.0);
 }
 
 #[test]
@@ -144,4 +146,22 @@ fn the_line_says_why_a_transcription_failed() {
         assert_eq!(lines[0]["transcription"], "failed");
         assert_eq!(lines[0]["transcription_failure"], expected);
     }
+}
+
+#[test]
+fn audio_that_is_pure_silence_has_no_level_in_the_line() {
+    let lines = lines_logged(&FinishedDictation {
+        summary: Timeline::new(DictationId(13)).summary(),
+        stopped_because: StopReason::KeyReleased,
+        audio: Some(AudioStats {
+            duration: Duration::from_millis(500),
+            dropped_samples: 0,
+            peak: 0.0,
+            rms: 0.0,
+        }),
+        transcription: Transcription::NotAttempted,
+    });
+
+    assert_eq!(lines[0].get("audio_peak_dbfs"), None);
+    assert_eq!(lines[0].get("audio_rms_dbfs"), None);
 }

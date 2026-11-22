@@ -56,6 +56,8 @@ pub fn record_dictation(dictation: &FinishedDictation) {
         key_held_ms = summary.key_held.map(millis),
         captured_audio_ms = dictation.audio.map(|audio| millis(audio.duration)),
         dropped_samples = dictation.audio.map(|audio| audio.dropped_samples),
+        audio_peak_dbfs = dictation.audio.and_then(|audio| dbfs(audio.peak)),
+        audio_rms_dbfs = dictation.audio.and_then(|audio| dbfs(audio.rms)),
         key_down_to_first_sample_ms = summary.key_down_to_first_sample.map(millis),
         key_down_to_first_sound_ms = summary.key_down_to_first_sound.map(millis),
         key_up_to_capture_stopped_ms = summary.key_up_to_capture_stopped.map(millis),
@@ -104,6 +106,12 @@ fn transcript_chars(transcription: &Transcription) -> Option<u64> {
         Transcription::Succeeded(transcript) => Some(transcript.text.chars().count() as u64),
         _ => None,
     }
+}
+
+/// Decibels relative to full scale, to one decimal place. Pure silence has
+/// no level on this scale.
+fn dbfs(level: f32) -> Option<f64> {
+    (level > 0.0).then(|| (20.0 * f64::from(level).log10() * 10.0).round() / 10.0)
 }
 
 fn millis(duration: Duration) -> f64 {
