@@ -1,3 +1,5 @@
+pub mod fetch;
+
 use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 
