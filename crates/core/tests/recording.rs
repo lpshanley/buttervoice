@@ -1,5 +1,5 @@
 use buttervoice_core::DictationId;
-use buttervoice_core::recording::{Decision, Mode, PressId, RecordingControl};
+use buttervoice_core::recording::{Decision, Mode, PressId, RecordingControl, StopReason};
 
 #[test]
 fn pressing_the_key_while_idle_starts_a_dictation() {
@@ -18,7 +18,7 @@ fn releasing_the_key_stops_the_dictation_exactly_once() {
 
     assert_eq!(
         control.key_released(PressId(1)),
-        Decision::Stop(DictationId(1))
+        Decision::Stop(DictationId(1), StopReason::KeyReleased)
     );
     assert_eq!(control.key_released(PressId(1)), Decision::Ignore);
 }
@@ -56,7 +56,7 @@ fn a_repeated_processed_signal_does_not_abandon_the_dictation_being_recorded() {
 
     assert_eq!(
         control.key_released(PressId(2)),
-        Decision::Stop(DictationId(2))
+        Decision::Stop(DictationId(2), StopReason::KeyReleased)
     );
 }
 
@@ -71,7 +71,7 @@ fn a_late_release_of_an_earlier_press_cannot_stop_a_newer_dictation() {
     assert_eq!(control.key_released(PressId(1)), Decision::Ignore);
     assert_eq!(
         control.key_released(PressId(2)),
-        Decision::Stop(DictationId(2))
+        Decision::Stop(DictationId(2), StopReason::KeyReleased)
     );
 }
 
@@ -91,7 +91,7 @@ fn in_toggle_mode_the_next_press_stops_the_dictation() {
 
     assert_eq!(
         control.key_pressed(PressId(2)),
-        Decision::Stop(DictationId(1))
+        Decision::Stop(DictationId(1), StopReason::KeyPressedAgain)
     );
 }
 

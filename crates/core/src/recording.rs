@@ -10,9 +10,15 @@ pub enum Mode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopReason {
+    KeyReleased,
+    KeyPressedAgain,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Decision {
     Start(DictationId),
-    Stop(DictationId),
+    Stop(DictationId, StopReason),
     Ignore,
 }
 
@@ -51,7 +57,7 @@ impl RecordingControl {
                     started_by,
                 },
                 Mode::Toggle,
-            ) if press != started_by => self.stop(dictation),
+            ) if press != started_by => self.stop(dictation, StopReason::KeyPressedAgain),
             _ => Decision::Ignore,
         }
     }
@@ -64,7 +70,7 @@ impl RecordingControl {
                     started_by,
                 },
                 Mode::PushToTalk,
-            ) if press == started_by => self.stop(dictation),
+            ) if press == started_by => self.stop(dictation, StopReason::KeyReleased),
             _ => Decision::Ignore,
         }
     }
@@ -85,8 +91,8 @@ impl RecordingControl {
         Decision::Start(dictation)
     }
 
-    fn stop(&mut self, dictation: DictationId) -> Decision {
+    fn stop(&mut self, dictation: DictationId, reason: StopReason) -> Decision {
         self.state = State::Processing;
-        Decision::Stop(dictation)
+        Decision::Stop(dictation, reason)
     }
 }
