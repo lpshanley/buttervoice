@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use buttervoice_core::timeline::{Mark, Timeline, Timestamp};
+use buttervoice_core::timeline::{DictationId, Mark, Timeline, Timestamp};
 
 fn at_micros(micros: u64) -> Timestamp {
     Timestamp::from_nanos(micros * 1_000)
@@ -8,7 +8,7 @@ fn at_micros(micros: u64) -> Timestamp {
 
 #[test]
 fn reports_time_from_key_down_to_first_captured_sample() {
-    let mut timeline = Timeline::new();
+    let mut timeline = Timeline::new(DictationId(1));
     timeline.mark(Mark::KeyDown, at_micros(1_000_000));
     timeline.mark(Mark::FirstSample, at_micros(1_180_250));
 
@@ -20,7 +20,7 @@ fn reports_time_from_key_down_to_first_captured_sample() {
 
 #[test]
 fn reports_no_wait_when_audio_was_already_being_captured_at_key_down() {
-    let mut timeline = Timeline::new();
+    let mut timeline = Timeline::new(DictationId(1));
     timeline.mark(Mark::FirstSample, at_micros(999_400));
     timeline.mark(Mark::KeyDown, at_micros(1_000_000));
 
@@ -32,7 +32,7 @@ fn reports_no_wait_when_audio_was_already_being_captured_at_key_down() {
 
 #[test]
 fn reports_time_from_key_up_to_text_landing() {
-    let mut timeline = Timeline::new();
+    let mut timeline = Timeline::new(DictationId(1));
     timeline.mark(Mark::KeyUp, at_micros(4_000_000));
     timeline.mark(Mark::TextLanded, at_micros(4_612_500));
 
