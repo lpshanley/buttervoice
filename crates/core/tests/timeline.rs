@@ -54,3 +54,16 @@ fn reports_how_long_the_key_was_held() {
         Some(Duration::from_micros(956_365))
     );
 }
+
+#[test]
+fn reports_time_from_key_down_to_the_first_real_sound() {
+    let mut timeline = Timeline::new(DictationId(1));
+    timeline.mark(Mark::KeyDown, at_micros(1_000_000));
+    timeline.mark(Mark::FirstSample, at_micros(1_070_000));
+    timeline.mark(Mark::FirstSound, at_micros(1_823_864));
+
+    assert_eq!(
+        timeline.summary().key_down_to_first_sound,
+        Some(Duration::from_micros(823_864))
+    );
+}

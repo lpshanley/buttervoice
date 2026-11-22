@@ -17,6 +17,7 @@ impl Timestamp {
 pub enum Mark {
     KeyDown,
     FirstSample,
+    FirstSound,
     KeyUp,
     TextLanded,
 }
@@ -26,6 +27,7 @@ pub struct Summary {
     pub dictation_id: DictationId,
     pub key_held: Option<Duration>,
     pub key_down_to_first_sample: Option<Duration>,
+    pub key_down_to_first_sound: Option<Duration>,
     pub key_up_to_text_landed: Option<Duration>,
 }
 
@@ -34,6 +36,7 @@ pub struct Timeline {
     dictation_id: DictationId,
     key_down: Option<Timestamp>,
     first_sample: Option<Timestamp>,
+    first_sound: Option<Timestamp>,
     key_up: Option<Timestamp>,
     text_landed: Option<Timestamp>,
 }
@@ -44,6 +47,7 @@ impl Timeline {
             dictation_id,
             key_down: None,
             first_sample: None,
+            first_sound: None,
             key_up: None,
             text_landed: None,
         }
@@ -53,6 +57,7 @@ impl Timeline {
         match mark {
             Mark::KeyDown => self.key_down = Some(at),
             Mark::FirstSample => self.first_sample = Some(at),
+            Mark::FirstSound => self.first_sound = Some(at),
             Mark::KeyUp => self.key_up = Some(at),
             Mark::TextLanded => self.text_landed = Some(at),
         }
@@ -63,6 +68,7 @@ impl Timeline {
             dictation_id: self.dictation_id,
             key_held: between(self.key_down, self.key_up),
             key_down_to_first_sample: between(self.key_down, self.first_sample),
+            key_down_to_first_sound: between(self.key_down, self.first_sound),
             key_up_to_text_landed: between(self.key_up, self.text_landed),
         }
     }
