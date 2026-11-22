@@ -1,8 +1,8 @@
 use std::path::Path;
 use std::time::Duration;
 
+use buttervoice_core::key_dictation::FinishedDictation;
 use buttervoice_core::recording::StopReason;
-use buttervoice_core::timeline::Summary;
 use tracing::Subscriber;
 use tracing::subscriber::SetGlobalDefaultError;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -42,11 +42,17 @@ pub fn install(log_dir: &Path) -> Result<WorkerGuard, InstallError> {
     Ok(guard)
 }
 
-pub fn record_dictation(summary: &Summary, stopped_because: StopReason) {
+pub fn record_dictation(dictation: &FinishedDictation) {
+    let summary = &dictation.summary;
     tracing::info!(
         dictation_id = summary.dictation_id.0,
-        stopped_because = stop_reason_name(stopped_because),
+        stopped_because = stop_reason_name(dictation.stopped_because),
         key_held_ms = summary.key_held.map(millis),
+        captured_audio_ms = dictation
+            .audio
+            .as_ref()
+            .map(|audio| millis(audio.duration())),
+        dropped_samples = dictation.audio.as_ref().map(|audio| audio.dropped_samples),
         key_down_to_first_sample_ms = summary.key_down_to_first_sample.map(millis),
         key_down_to_first_sound_ms = summary.key_down_to_first_sound.map(millis),
         key_up_to_text_landed_ms = summary.key_up_to_text_landed.map(millis),

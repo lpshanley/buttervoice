@@ -1,6 +1,8 @@
 mod common;
 
 use buttervoice_core::DictationId;
+use buttervoice_core::capture::{AudioFormat, CapturedAudio};
+use buttervoice_core::key_dictation::FinishedDictation;
 use buttervoice_core::recording::StopReason;
 use buttervoice_core::timeline::{Mark, Summary, Timeline, Timestamp};
 use buttervoice_telemetry::{file_subscriber, record_dictation};
@@ -15,9 +17,17 @@ fn lines_logged_for(summary: &Summary) -> Vec<Value> {
 }
 
 fn lines_logged_for_stop(summary: &Summary, stopped_because: StopReason) -> Vec<Value> {
+    lines_logged(&FinishedDictation {
+        summary: summary.clone(),
+        stopped_because,
+        audio: None,
+    })
+}
+
+fn lines_logged(dictation: &FinishedDictation) -> Vec<Value> {
     let log_dir = tempfile::tempdir().unwrap();
     let (subscriber, guard) = file_subscriber(log_dir.path()).unwrap();
-    tracing::subscriber::with_default(subscriber, || record_dictation(summary, stopped_because));
+    tracing::subscriber::with_default(subscriber, || record_dictation(dictation));
     drop(guard);
     common::read_lines(log_dir.path())
 }
@@ -66,4 +76,23 @@ fn the_line_says_why_the_dictation_stopped() {
 
         assert_eq!(lines[0]["stopped_because"], expected);
     }
+}
+
+#[test]
+fn the_line_says_how_much_audio_was_captured_and_how_much_was_dropped() {
+    let lines = lines_logged(&FinishedDictation {
+        summary: Timeline::new(DictationId(10)).summary(),
+        stopped_because: StopReason::KeyReleased,
+        audio: Some(CapturedAudio {
+            format: AudioFormat {
+                sample_rate: 48_000,
+                channels: 1,
+            },
+            samples: vec![0.0; 24_000],
+            dropped_samples: 7,
+        }),
+    });
+
+    assert_eq!(lines[0]["captured_audio_ms"], 500.0);
+    assert_eq!(lines[0]["dropped_samples"], 7);
 }

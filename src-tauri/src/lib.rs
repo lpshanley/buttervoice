@@ -25,10 +25,7 @@ fn listen_for_the_dictation_key() -> std::io::Result<()> {
         move |captured| {
             let finished = lock(&dictations).capture_stopped(captured);
             if let Some(finished) = finished {
-                buttervoice_telemetry::record_dictation(
-                    &finished.summary,
-                    finished.stopped_because,
-                );
+                buttervoice_telemetry::record_dictation(&finished);
             }
         }
     })?;
