@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use buttervoice_core::key_dictation::FinishedDictation;
 use buttervoice_core::recording::StopReason;
+use buttervoice_core::transcription::{Transcription, TranscriptionFailure};
 use tracing::Subscriber;
 use tracing::subscriber::SetGlobalDefaultError;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -52,6 +53,11 @@ pub fn record_dictation(dictation: &FinishedDictation) {
         dropped_samples = dictation.audio.map(|audio| audio.dropped_samples),
         key_down_to_first_sample_ms = summary.key_down_to_first_sample.map(millis),
         key_down_to_first_sound_ms = summary.key_down_to_first_sound.map(millis),
+        key_up_to_capture_stopped_ms = summary.key_up_to_capture_stopped.map(millis),
+        transcription = transcription_outcome(&dictation.transcription),
+        transcription_failure = transcription_failure(&dictation.transcription),
+        transcription_ms = summary.transcription.map(millis),
+        transcript_chars = transcript_chars(&dictation.transcription),
         key_up_to_text_landed_ms = summary.key_up_to_text_landed.map(millis),
         "dictation"
     );
@@ -63,6 +69,35 @@ fn stop_reason_name(reason: StopReason) -> &'static str {
         StopReason::KeyPressedAgain => "key_pressed_again",
         StopReason::Manual => "manual",
         StopReason::KeyListenerLost => "key_listener_lost",
+    }
+}
+
+fn transcription_outcome(transcription: &Transcription) -> &'static str {
+    match transcription {
+        Transcription::NotAttempted => "not_attempted",
+        Transcription::Succeeded(_) => "succeeded",
+        Transcription::Failed(_) => "failed",
+    }
+}
+
+fn transcription_failure(transcription: &Transcription) -> Option<&'static str> {
+    let Transcription::Failed(failure) = transcription else {
+        return None;
+    };
+    Some(match failure {
+        TranscriptionFailure::NotConfigured => "not_configured",
+        TranscriptionFailure::Unauthorized => "unauthorized",
+        TranscriptionFailure::Unavailable => "unavailable",
+        TranscriptionFailure::Rejected => "rejected",
+        TranscriptionFailure::Unreachable => "unreachable",
+    })
+}
+
+/// The length is logged; the words never are.
+fn transcript_chars(transcription: &Transcription) -> Option<u64> {
+    match transcription {
+        Transcription::Succeeded(transcript) => Some(transcript.text.chars().count() as u64),
+        _ => None,
     }
 }
 

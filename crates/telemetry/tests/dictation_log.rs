@@ -7,7 +7,7 @@ use buttervoice_core::capture::AudioStats;
 use buttervoice_core::key_dictation::FinishedDictation;
 use buttervoice_core::recording::StopReason;
 use buttervoice_core::timeline::{Mark, Summary, Timeline, Timestamp};
-use buttervoice_core::transcription::Transcription;
+use buttervoice_core::transcription::{Transcript, Transcription, TranscriptionFailure};
 use buttervoice_telemetry::{file_subscriber, record_dictation};
 use serde_json::Value;
 
@@ -96,4 +96,50 @@ fn the_line_says_how_much_audio_was_captured_and_how_much_was_dropped() {
 
     assert_eq!(lines[0]["captured_audio_ms"], 500.0);
     assert_eq!(lines[0]["dropped_samples"], 7);
+}
+
+#[test]
+fn the_line_reports_a_transcription_without_the_words_that_were_said() {
+    let mut timeline = Timeline::new(DictationId(11));
+    timeline.mark(Mark::KeyUp, at_micros(4_000_000));
+    timeline.mark(Mark::CaptureStopped, at_micros(4_025_000));
+    timeline.mark(Mark::TranscriptReady, at_micros(4_437_500));
+
+    let lines = lines_logged(&FinishedDictation {
+        summary: timeline.summary(),
+        stopped_because: StopReason::KeyReleased,
+        audio: None,
+        transcription: Transcription::Succeeded(Transcript {
+            text: "hello world".to_string(),
+        }),
+    });
+
+    assert_eq!(lines[0]["transcription"], "succeeded");
+    assert_eq!(lines[0]["transcript_chars"], 11);
+    assert_eq!(lines[0]["key_up_to_capture_stopped_ms"], 25.0);
+    assert_eq!(lines[0]["transcription_ms"], 412.5);
+    assert!(!lines[0].to_string().contains("hello"));
+}
+
+#[test]
+fn the_line_says_why_a_transcription_failed() {
+    let summary = Timeline::new(DictationId(12)).summary();
+
+    for (failure, expected) in [
+        (TranscriptionFailure::NotConfigured, "not_configured"),
+        (TranscriptionFailure::Unauthorized, "unauthorized"),
+        (TranscriptionFailure::Unavailable, "unavailable"),
+        (TranscriptionFailure::Rejected, "rejected"),
+        (TranscriptionFailure::Unreachable, "unreachable"),
+    ] {
+        let lines = lines_logged(&FinishedDictation {
+            summary: summary.clone(),
+            stopped_because: StopReason::KeyReleased,
+            audio: None,
+            transcription: Transcription::Failed(failure),
+        });
+
+        assert_eq!(lines[0]["transcription"], "failed");
+        assert_eq!(lines[0]["transcription_failure"], expected);
+    }
 }
