@@ -1,6 +1,7 @@
 use std::time::Duration;
 
-use buttervoice_core::timeline::{DictationId, Mark, Timeline, Timestamp};
+use buttervoice_core::DictationId;
+use buttervoice_core::timeline::{Mark, Timeline, Timestamp};
 
 fn at_micros(micros: u64) -> Timestamp {
     Timestamp::from_nanos(micros * 1_000)

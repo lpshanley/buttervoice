@@ -1,6 +1,7 @@
 use std::path::Path;
 
-use buttervoice_core::timeline::{DictationId, Mark, Summary, Timeline, Timestamp};
+use buttervoice_core::DictationId;
+use buttervoice_core::timeline::{Mark, Summary, Timeline, Timestamp};
 use buttervoice_telemetry::{file_subscriber, record_dictation};
 use serde_json::Value;
 

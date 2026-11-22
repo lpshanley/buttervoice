@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use crate::DictationId;
+
 /// Monotonic clock reading. Where the OS event or audio callback carries its
 /// own timestamp, use that, not the time our thread got around to handling it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -10,9 +12,6 @@ impl Timestamp {
         Self(nanos)
     }
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DictationId(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mark {

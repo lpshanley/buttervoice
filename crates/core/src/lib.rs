@@ -2,3 +2,6 @@
 //! run in tests and in fixture replays.
 
 pub mod timeline;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DictationId(pub u64);
