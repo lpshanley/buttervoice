@@ -15,6 +15,10 @@ impl Timestamp {
     pub const fn as_nanos(self) -> u64 {
         self.0
     }
+
+    pub fn saturating_duration_since(self, earlier: Timestamp) -> Duration {
+        Duration::from_nanos(self.0.saturating_sub(earlier.0))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,5 +97,5 @@ impl Timeline {
 fn between(from: Option<Timestamp>, to: Option<Timestamp>) -> Option<Duration> {
     // Saturates: a warm microphone stream captures its first sample before
     // the key goes down.
-    Some(Duration::from_nanos(to?.0.saturating_sub(from?.0)))
+    Some(to?.saturating_duration_since(from?))
 }

@@ -287,3 +287,80 @@ fn losing_the_key_listener_stops_capture_and_the_dictation_says_why() {
     let finished = finished(dictations.capture_stopped(None, at_micros(1_270_000)));
     assert_eq!(finished.stopped_because, StopReason::KeyListenerLost);
 }
+
+/// One whole dictation with its key going down at `key_down_micros`, up to
+/// the text being handed over for typing.
+fn dictate(
+    dictations: &mut KeyDictations,
+    key_down_micros: u64,
+    text: &str,
+) -> Option<AfterTranscription> {
+    dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(key_down_micros));
+    dictations.flags_changed(NO_MODIFIERS, at_micros(key_down_micros + 1_000_000));
+    dictations.capture_stopped(Some(speech()), at_micros(key_down_micros + 1_020_000));
+    dictations.transcription_finished(heard(text), at_micros(key_down_micros + 1_300_000))
+}
+
+/// "Hello there." has been dictated and typed by 2.400000 s.
+fn hello_there_typed() -> KeyDictations {
+    let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
+    dictate(&mut dictations, 1_000_000, "Hello there.");
+    dictations.typing_finished(Ok(()), at_micros(2_400_000));
+    dictations
+}
+
+fn to_type(text: &str) -> Option<AfterTranscription> {
+    Some(AfterTranscription::Type(text.to_string()))
+}
+
+#[test]
+fn text_dictated_soon_after_the_last_is_typed_with_a_space_in_front() {
+    let mut dictations = hello_there_typed();
+
+    assert_eq!(
+        dictate(&mut dictations, 5_000_000, "How are you?"),
+        to_type(" How are you?")
+    );
+}
+
+#[test]
+fn the_space_is_still_added_ten_seconds_after_the_last_text() {
+    let mut dictations = hello_there_typed();
+
+    assert_eq!(
+        dictate(&mut dictations, 12_400_000, "How are you?"),
+        to_type(" How are you?")
+    );
+}
+
+#[test]
+fn text_dictated_more_than_ten_seconds_later_gets_no_space() {
+    let mut dictations = hello_there_typed();
+
+    assert_eq!(
+        dictate(&mut dictations, 12_400_001, "How are you?"),
+        to_type("How are you?")
+    );
+}
+
+#[test]
+fn no_space_is_put_before_text_that_starts_with_punctuation() {
+    let mut dictations = hello_there_typed();
+
+    assert_eq!(
+        dictate(&mut dictations, 5_000_000, ", and goodbye."),
+        to_type(", and goodbye.")
+    );
+}
+
+#[test]
+fn text_that_could_not_be_typed_does_not_count_as_the_last_text() {
+    let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
+    dictate(&mut dictations, 1_000_000, "Hello there.");
+    dictations.typing_finished(Err(TypingFailure::NotPermitted), at_micros(2_400_000));
+
+    assert_eq!(
+        dictate(&mut dictations, 5_000_000, "How are you?"),
+        to_type("How are you?")
+    );
+}

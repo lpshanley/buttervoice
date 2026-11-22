@@ -4,6 +4,7 @@ use crate::recording::{Decision, Mode, RecordingControl, StopReason};
 use crate::timeline::{Mark, Summary, Timeline, Timestamp};
 use crate::transcription::{Transcript, Transcription, TranscriptionFailure};
 use crate::typing::{Typing, TypingFailure};
+use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptureCommand {
@@ -37,12 +38,26 @@ pub struct FinishedDictation {
 struct Stopped {
     timeline: Timeline,
     stopped_because: StopReason,
+    key_down_at: Timestamp,
 }
+
+#[derive(Debug)]
+struct LastTyped {
+    ended_with: char,
+    at: Timestamp,
+}
+
+/// How soon the key has to go down after the last text was typed for the new
+/// text to count as carrying on from it.
+const RESUME_WINDOW: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
 enum Phase {
     Idle,
-    Capturing(Timeline),
+    Capturing {
+        timeline: Timeline,
+        key_down_at: Timestamp,
+    },
     StoppingCapture(Stopped),
     Transcribing(Stopped, AudioStats),
     Typing(Stopped, AudioStats, Transcript),
@@ -53,6 +68,7 @@ pub struct KeyDictations {
     decoder: HotkeyDecoder,
     control: RecordingControl,
     phase: Phase,
+    last_typed: Option<LastTyped>,
 }
 
 impl KeyDictations {
@@ -61,6 +77,7 @@ impl KeyDictations {
             decoder: HotkeyDecoder::new(key),
             control: RecordingControl::new(mode),
             phase: Phase::Idle,
+            last_typed: None,
         }
     }
 
@@ -149,7 +166,11 @@ impl KeyDictations {
                 )));
             }
         };
-        let text = transcript.text.clone();
+        let text = if self.carries_on_from_the_last_text(stopped.key_down_at, &transcript.text) {
+            format!(" {}", transcript.text)
+        } else {
+            transcript.text.clone()
+        };
         self.phase = Phase::Typing(stopped, stats, transcript);
         Some(AfterTranscription::Type(text))
     }
@@ -167,6 +188,11 @@ impl KeyDictations {
         let typing = match outcome {
             Ok(()) => {
                 stopped.timeline.mark(Mark::TextTyped, at);
+                self.last_typed = transcript
+                    .text
+                    .chars()
+                    .last()
+                    .map(|ended_with| LastTyped { ended_with, at });
                 Typing::Typed
             }
             Err(failure) => Typing::Failed(failure),
@@ -177,6 +203,19 @@ impl KeyDictations {
             Transcription::Succeeded(transcript),
             typing,
         ))
+    }
+
+    fn carries_on_from_the_last_text(&self, key_down_at: Timestamp, text: &str) -> bool {
+        let Some(last) = &self.last_typed else {
+            return false;
+        };
+        let starts_a_word = text
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_alphanumeric() || "\"'(\u{201C}\u{2018}".contains(first));
+        key_down_at.saturating_duration_since(last.at) <= RESUME_WINDOW
+            && !last.ended_with.is_whitespace()
+            && starts_a_word
     }
 
     fn finish(
@@ -209,12 +248,17 @@ impl KeyDictations {
             Decision::Start(dictation) => {
                 let mut timeline = Timeline::new(dictation);
                 timeline.mark(Mark::KeyDown, at);
-                self.phase = Phase::Capturing(timeline);
+                self.phase = Phase::Capturing {
+                    timeline,
+                    key_down_at: at,
+                };
                 Some(CaptureCommand::Start)
             }
             Decision::Stop(_, stopped_because) => {
-                let Phase::Capturing(mut timeline) =
-                    std::mem::replace(&mut self.phase, Phase::Idle)
+                let Phase::Capturing {
+                    mut timeline,
+                    key_down_at,
+                } = std::mem::replace(&mut self.phase, Phase::Idle)
                 else {
                     return None;
                 };
@@ -222,6 +266,7 @@ impl KeyDictations {
                 self.phase = Phase::StoppingCapture(Stopped {
                     timeline,
                     stopped_because,
+                    key_down_at,
                 });
                 Some(CaptureCommand::Stop)
             }
