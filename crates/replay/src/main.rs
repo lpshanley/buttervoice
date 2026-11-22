@@ -13,32 +13,30 @@ use buttervoice_replay::report::{Report, replay};
 
 struct Variant {
     name: &'static str,
-    peak: Option<f32>,
+    /// Boosted the way the app boosts audio before transcription.
+    boosted: bool,
     vad_threshold: Option<f32>,
 }
-
-/// -3 dBFS.
-const BOOSTED_PEAK: f32 = 0.708;
 
 const VARIANTS: [Variant; 4] = [
     Variant {
         name: "as captured",
-        peak: None,
+        boosted: false,
         vad_threshold: None,
     },
     Variant {
         name: "boosted",
-        peak: Some(BOOSTED_PEAK),
+        boosted: true,
         vad_threshold: None,
     },
     Variant {
         name: "gate 0.1",
-        peak: None,
+        boosted: false,
         vad_threshold: Some(0.1),
     },
     Variant {
         name: "boosted, gate 0.1",
-        peak: Some(BOOSTED_PEAK),
+        boosted: true,
         vad_threshold: Some(0.1),
     },
 ];
@@ -103,9 +101,12 @@ fn run() -> Result<(), String> {
         if let Some(threshold) = variant.vad_threshold {
             transcriber = transcriber.with_vad_threshold(threshold);
         }
-        let report = replay(&recordings, references, |audio| match variant.peak {
-            Some(peak) => transcriber.transcribe(&audio.with_peak_at(peak)),
-            None => transcriber.transcribe(audio),
+        let report = replay(&recordings, references, |audio| {
+            if variant.boosted {
+                transcriber.transcribe(&audio.boosted_for_transcription())
+            } else {
+                transcriber.transcribe(audio)
+            }
         });
         println!(
             "{:<20} {:>9.1}% {:>7} {:>9}",

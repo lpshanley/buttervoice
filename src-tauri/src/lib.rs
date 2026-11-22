@@ -39,7 +39,9 @@ fn listen_for_the_dictation_key() -> std::io::Result<()> {
                     // The network call happens outside the lock, so key
                     // events are still handled while it runs.
                     let outcome = match &transcriber {
-                        Some(transcriber) => transcriber.transcribe(&audio),
+                        Some(transcriber) => {
+                            transcriber.transcribe(&audio.boosted_for_transcription())
+                        }
                         None => Err(TranscriptionFailure::NotConfigured),
                     };
                     lock(&dictations).transcription_finished(outcome, key_tap::now())

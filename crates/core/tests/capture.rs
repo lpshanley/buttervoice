@@ -137,3 +137,13 @@ fn pure_silence_is_left_alone_when_scaling() {
 
     assert_eq!(silence.samples, [0.0, 0.0]);
 }
+
+#[test]
+fn audio_sent_for_transcription_peaks_three_decibels_below_full_scale() {
+    let boosted = mono(&[0.03, -0.06, 0.0]).boosted_for_transcription();
+
+    // 10^(-3/20)
+    let peak = boosted.stats().peak;
+    assert!((peak - 0.707_946).abs() < 1e-4, "peak was {peak}");
+    assert_eq!(boosted.samples[2], 0.0);
+}

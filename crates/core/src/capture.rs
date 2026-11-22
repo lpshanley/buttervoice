@@ -70,6 +70,9 @@ pub struct AudioStats {
     pub rms: f32,
 }
 
+/// -3 dBFS, as a sample value.
+const TRANSCRIPTION_PEAK: f32 = 0.708;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Captured {
     pub audio: CapturedAudio,
@@ -103,6 +106,13 @@ impl CapturedAudio {
             wav.extend_from_slice(&pcm.to_le_bytes());
         }
         wav
+    }
+
+    /// The audio as it should be sent for transcription. A microphone across
+    /// the desk captures speech some 25 dB below full scale, and replaying
+    /// recordings showed fewer word errors once it was raised.
+    pub fn boosted_for_transcription(&self) -> CapturedAudio {
+        self.with_peak_at(TRANSCRIPTION_PEAK)
     }
 
     /// The same audio, scaled so its loudest sample is at `peak`.
