@@ -48,3 +48,16 @@ fn read(mark: &AtomicU64) -> Option<Timestamp> {
         nanos => Some(Timestamp::from_nanos(nanos)),
     }
 }
+
+const BUILT_IN_MICROPHONE: &str = "BuiltInMicrophoneDevice";
+
+/// The input device to capture from, out of the ids macOS lists. The Mac's
+/// own microphone wins over the system default because a Bluetooth headset
+/// delivers most of a second of silence while it switches into call mode.
+pub fn choose_input<'a>(available: &[&'a str], system_default: Option<&'a str>) -> Option<&'a str> {
+    available
+        .iter()
+        .copied()
+        .find(|id| *id == BUILT_IN_MICROPHONE)
+        .or(system_default)
+}
