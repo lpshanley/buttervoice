@@ -363,54 +363,14 @@ fn to_type(text: &str) -> Option<AfterTranscription> {
     Some(AfterTranscription::Type(text.to_string()))
 }
 
+// Dictations come in quick succession, and a space put in front of one
+// turned out to be wrong more often than it was right.
 #[test]
-fn text_dictated_soon_after_the_last_is_typed_with_a_space_in_front() {
+fn text_dictated_straight_after_the_last_is_typed_exactly_as_heard() {
     let mut dictations = hello_there_typed();
 
     assert_eq!(
-        dictate(&mut dictations, 5_000_000, "How are you?"),
-        to_type(" How are you?")
-    );
-}
-
-#[test]
-fn the_space_is_still_added_ten_seconds_after_the_last_text() {
-    let mut dictations = hello_there_typed();
-
-    assert_eq!(
-        dictate(&mut dictations, 12_400_000, "How are you?"),
-        to_type(" How are you?")
-    );
-}
-
-#[test]
-fn text_dictated_more_than_ten_seconds_later_gets_no_space() {
-    let mut dictations = hello_there_typed();
-
-    assert_eq!(
-        dictate(&mut dictations, 12_400_001, "How are you?"),
-        to_type("How are you?")
-    );
-}
-
-#[test]
-fn no_space_is_put_before_text_that_starts_with_punctuation() {
-    let mut dictations = hello_there_typed();
-
-    assert_eq!(
-        dictate(&mut dictations, 5_000_000, ", and goodbye."),
-        to_type(", and goodbye.")
-    );
-}
-
-#[test]
-fn text_that_could_not_be_typed_does_not_count_as_the_last_text() {
-    let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
-    dictate(&mut dictations, 1_000_000, "Hello there.");
-    dictations.typing_finished(Err(TypingFailure::NotPermitted), at_micros(2_400_000));
-
-    assert_eq!(
-        dictate(&mut dictations, 5_000_000, "How are you?"),
+        dictate(&mut dictations, 2_500_000, "How are you?"),
         to_type("How are you?")
     );
 }
@@ -549,32 +509,6 @@ fn a_dictation_kept_as_a_sample_is_transcribed_but_never_typed() {
     assert_eq!(finished.provider, Some(Provider::Local));
     assert_eq!(finished.language, Some(Language::English));
     assert_eq!(dictations.status(), DictationStatus::Idle);
-}
-
-#[test]
-fn a_sample_is_not_text_that_the_next_dictation_carries_on_from() {
-    let mut dictations = held_and_released();
-    dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
-    dictations.transcription_kept(
-        Provider::Local,
-        "parakeet-ultra",
-        Language::English,
-        heard("hello world"),
-        at_micros(2_392_500),
-    );
-
-    dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(3_000_000));
-    dictations.flags_changed(NO_MODIFIERS, at_micros(3_900_000));
-    dictations.capture_stopped(Some(speech()), at_micros(3_920_000));
-    let after = dictations.transcription_finished(
-        Provider::Local,
-        "parakeet-ultra",
-        Language::English,
-        heard("again"),
-        at_micros(4_300_000),
-    );
-
-    assert_eq!(after, Some(AfterTranscription::Type("again".to_string())));
 }
 
 #[test]
