@@ -12,6 +12,15 @@ pub enum CaptureCommand {
     Stop,
 }
 
+/// What the app is doing for the person dictating, for it to show them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DictationStatus {
+    Idle,
+    Listening,
+    /// The key is up and the words are on their way.
+    Working,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum AfterCapture {
     Transcribe(CapturedAudio),
@@ -78,6 +87,16 @@ impl KeyDictations {
             control: RecordingControl::new(mode),
             phase: Phase::Idle,
             last_typed: None,
+        }
+    }
+
+    pub fn status(&self) -> DictationStatus {
+        match self.phase {
+            Phase::Idle => DictationStatus::Idle,
+            Phase::Capturing { .. } => DictationStatus::Listening,
+            Phase::StoppingCapture(_) | Phase::Transcribing(..) | Phase::Typing(..) => {
+                DictationStatus::Working
+            }
         }
     }
 

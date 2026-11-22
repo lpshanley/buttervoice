@@ -4,7 +4,8 @@ use buttervoice_core::DictationId;
 use buttervoice_core::capture::{AudioFormat, AudioStats, CaptureReport, Captured, CapturedAudio};
 use buttervoice_core::hotkey::HotkeyKey;
 use buttervoice_core::key_dictation::{
-    AfterCapture, AfterTranscription, CaptureCommand, FinishedDictation, KeyDictations,
+    AfterCapture, AfterTranscription, CaptureCommand, DictationStatus, FinishedDictation,
+    KeyDictations,
 };
 use buttervoice_core::recording::{Mode, StopReason};
 use buttervoice_core::timeline::Timestamp;
@@ -363,4 +364,25 @@ fn text_that_could_not_be_typed_does_not_count_as_the_last_text() {
         dictate(&mut dictations, 5_000_000, "How are you?"),
         to_type("How are you?")
     );
+}
+
+#[test]
+fn the_status_goes_from_listening_to_working_to_idle_over_a_dictation() {
+    let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
+    assert_eq!(dictations.status(), DictationStatus::Idle);
+
+    dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(1_000_000));
+    assert_eq!(dictations.status(), DictationStatus::Listening);
+
+    dictations.flags_changed(NO_MODIFIERS, at_micros(1_956_365));
+    assert_eq!(dictations.status(), DictationStatus::Working);
+
+    dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
+    assert_eq!(dictations.status(), DictationStatus::Working);
+
+    dictations.transcription_finished(heard("hello world"), at_micros(2_392_500));
+    assert_eq!(dictations.status(), DictationStatus::Working);
+
+    dictations.typing_finished(Ok(()), at_micros(2_400_000));
+    assert_eq!(dictations.status(), DictationStatus::Idle);
 }
