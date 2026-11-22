@@ -19,6 +19,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 buttervoice-core = { path = "../crates/core" }
+buttervoice-grok = { path = "../crates/grok" }
 buttervoice-telemetry = { path = "../crates/telemetry" }
 cpal = "0.18"
 tauri = { version = "2", features = [] }

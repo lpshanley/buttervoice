@@ -373,6 +373,7 @@ name = "buttervoice"
 version = "0.1.0"
 dependencies = [
  "buttervoice-core",
+ "buttervoice-grok",
  "buttervoice-telemetry",
  "cpal",
  "serde",
