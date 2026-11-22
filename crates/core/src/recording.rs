@@ -30,13 +30,14 @@ enum State {
     Recording {
         dictation: DictationId,
         started_by: PressId,
+        mode: Mode,
     },
     Processing,
 }
 
 #[derive(Debug)]
 pub struct RecordingControl {
-    mode: Mode,
+    mode_for_next_dictation: Mode,
     state: State,
     dictations_started: u64,
 }
@@ -44,35 +45,35 @@ pub struct RecordingControl {
 impl RecordingControl {
     pub fn new(mode: Mode) -> Self {
         Self {
-            mode,
+            mode_for_next_dictation: mode,
             state: State::Idle,
             dictations_started: 0,
         }
     }
 
+    pub fn set_mode(&mut self, mode: Mode) {
+        self.mode_for_next_dictation = mode;
+    }
+
     pub fn key_pressed(&mut self, press: PressId) -> Decision {
-        match (self.state, self.mode) {
-            (State::Idle, _) => self.start(press),
-            (
-                State::Recording {
-                    dictation,
-                    started_by,
-                },
-                Mode::Toggle,
-            ) if press != started_by => self.stop(dictation, StopReason::KeyPressedAgain),
+        match self.state {
+            State::Idle => self.start(press),
+            State::Recording {
+                dictation,
+                started_by,
+                mode: Mode::Toggle,
+            } if press != started_by => self.stop(dictation, StopReason::KeyPressedAgain),
             _ => Decision::Ignore,
         }
     }
 
     pub fn key_released(&mut self, press: PressId) -> Decision {
-        match (self.state, self.mode) {
-            (
-                State::Recording {
-                    dictation,
-                    started_by,
-                },
-                Mode::PushToTalk,
-            ) if press == started_by => self.stop(dictation, StopReason::KeyReleased),
+        match self.state {
+            State::Recording {
+                dictation,
+                started_by,
+                mode: Mode::PushToTalk,
+            } if press == started_by => self.stop(dictation, StopReason::KeyReleased),
             _ => Decision::Ignore,
         }
     }
@@ -97,6 +98,7 @@ impl RecordingControl {
         self.state = State::Recording {
             dictation,
             started_by: press,
+            mode: self.mode_for_next_dictation,
         };
         Decision::Start(dictation)
     }

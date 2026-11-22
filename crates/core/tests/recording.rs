@@ -125,3 +125,24 @@ fn losing_the_key_listener_stops_the_dictation_being_recorded() {
         Decision::Stop(DictationId(1), StopReason::KeyListenerLost)
     );
 }
+
+#[test]
+fn a_mode_change_while_idle_applies_to_the_next_dictation() {
+    let mut control = RecordingControl::new(Mode::PushToTalk);
+    control.set_mode(Mode::Toggle);
+    control.key_pressed(PressId(1));
+
+    assert_eq!(control.key_released(PressId(1)), Decision::Ignore);
+}
+
+#[test]
+fn a_mode_change_during_a_dictation_does_not_change_how_that_dictation_stops() {
+    let mut control = RecordingControl::new(Mode::PushToTalk);
+    control.key_pressed(PressId(1));
+    control.set_mode(Mode::Toggle);
+
+    assert_eq!(
+        control.key_released(PressId(1)),
+        Decision::Stop(DictationId(1), StopReason::KeyReleased)
+    );
+}
