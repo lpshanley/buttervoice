@@ -7,6 +7,14 @@
     "settings"
   ],
   "permissions": [
-    "core:default"
+    "core:default",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "macos-permissions:allow-check-microphone-permission",
+    "macos-permissions:allow-request-microphone-permission",
+    "macos-permissions:allow-check-input-monitoring-permission",
+    "macos-permissions:allow-request-input-monitoring-permission",
+    "macos-permissions:allow-check-accessibility-permission",
+    "macos-permissions:allow-request-accessibility-permission"
   ]
 }

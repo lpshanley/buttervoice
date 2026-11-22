@@ -195,6 +195,7 @@ fn lock(dictations: &Mutex<KeyDictations>) -> MutexGuard<'_, KeyDictations> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_macos_permissions::init())
         .setup(|app| {
             let log_file_guard = buttervoice_telemetry::install(&app.path().app_log_dir()?)?;
             app.manage(log_file_guard);

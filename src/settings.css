@@ -100,3 +100,39 @@
   margin: 0;
   color: var(--problem);
 }
+
+.settings h2 {
+  margin: 10px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings .permissions {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.settings .permissions li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  min-height: 30px;
+}
+
+.settings .permissions li + li {
+  border-top: 1px solid var(--line);
+}
+
+.settings .permissions .why {
+  display: block;
+  color: var(--muted);
+}
+
+.settings .permissions .allowed {
+  color: var(--muted);
+}
