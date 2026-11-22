@@ -508,6 +508,7 @@ dependencies = [
  "buttervoice-core",
  "buttervoice-grok",
  "buttervoice-local",
+ "buttervoice-samples",
  "hound",
  "serde_json",
  "tempfile",

@@ -1,9 +1,16 @@
 /// The share of the reference's words that were heard wrongly, missed or
 /// added, ignoring case and punctuation. 0.0 is a perfect match.
 pub fn word_error_rate(reference: &str, heard: &str) -> f64 {
+    let (errors, said) = word_errors(reference, heard);
+    errors as f64 / said as f64
+}
+
+/// How many words were heard wrongly, missed or added, and how many words
+/// the reference has.
+pub fn word_errors(reference: &str, heard: &str) -> (usize, usize) {
     let reference = words(reference);
     let heard = words(heard);
-    word_edits(&reference, &heard) as f64 / reference.len() as f64
+    (word_edits(&reference, &heard), reference.len())
 }
 
 fn words(text: &str) -> Vec<String> {

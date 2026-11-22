@@ -19,6 +19,7 @@ use buttervoice_grok::{DEFAULT_BASE_URL, GrokTranscriber};
 use buttervoice_local::LocalTranscriber;
 use buttervoice_replay::recordings::{self, Recording};
 use buttervoice_replay::report::{Report, replay};
+use buttervoice_replay::summary::{Scored, summarise};
 
 struct GrokVariant {
     name: &'static str,
@@ -103,7 +104,14 @@ fn median(mut durations: Vec<Duration>) -> Duration {
 }
 
 fn run() -> Result<(), String> {
-    let mut args = std::env::args().skip(1);
+    let mut args = std::env::args().skip(1).peekable();
+    if args.peek().map(String::as_str) == Some("--set") {
+        args.next();
+        let folder = args
+            .next()
+            .ok_or("usage: buttervoice-replay --set <set folder> <model.gguf ...>")?;
+        return run_set(Path::new(&folder), &args.collect::<Vec<_>>());
+    }
     let (Some(recordings_dir), Some(sentences_file)) = (args.next(), args.next()) else {
         return Err(
             "usage: buttervoice-replay <recordings folder> <sentences file> [model.gguf ...]"
@@ -201,6 +209,92 @@ fn run() -> Result<(), String> {
                     }
                 })?;
             }
+        }
+    }
+    eprintln!("Details written to {}", report_path.display());
+    Ok(())
+}
+
+/// Scores each model on a labelled set, kind by kind. Only local models:
+/// a set is never sent to a cloud service by this tool.
+fn run_set(folder: &Path, models: &[String]) -> Result<(), String> {
+    buttervoice_local::silence_engine_log();
+    let set = buttervoice_samples::load(folder).map_err(|error| error.to_string())?;
+    if models.is_empty() {
+        return Err("give at least one model file to score the set with".into());
+    }
+    let by = &set.recorded_with;
+    eprintln!(
+        "{} samples by {:?} on {} (macOS {}), app {} {}",
+        set.samples.len(),
+        by.speaker,
+        by.chip,
+        by.macos,
+        by.app_version,
+        by.app_commit
+    );
+    let report_path = folder.join("report.jsonl");
+    let mut report_file = std::fs::File::create(&report_path)
+        .map_err(|error| format!("could not create {}: {error}", report_path.display()))?;
+    println!(
+        "{:<24} {:<16} {:>7} {:>10} {:>9} {:>9} {:>10}",
+        "model", "kind", "samples", "word errs", "invented", "failures", "median ms"
+    );
+    for model in models {
+        let name = Path::new(model)
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+            .unwrap_or_else(|| model.clone());
+        let transcriber = LocalTranscriber::load(Path::new(model))
+            .map_err(|error| format!("{model}: {error}"))?;
+        let mut scored = Vec::new();
+        let mut took: Vec<(buttervoice_samples::Kind, Duration)> = Vec::new();
+        for (index, sample) in set.samples.iter().enumerate() {
+            let started = Instant::now();
+            let heard = transcriber
+                .transcribe(&sample.audio, sample.language)
+                .map(|transcript| transcript.text)
+                .map_err(|error| {
+                    eprintln!("{name}: {error}");
+                    TranscriptionFailure::EngineFailed
+                });
+            let elapsed = started.elapsed();
+            took.push((sample.kind, elapsed));
+            let line = serde_json::json!({
+                "model": name,
+                "sample": index + 1,
+                "kind": sample.kind.name(),
+                "conditions": sample.conditions,
+                "said": sample.said,
+                "prompt": sample.prompt,
+                "heard": heard.as_ref().ok(),
+                "seconds_of_audio": sample.audio.duration().as_secs_f64(),
+                "took_ms": elapsed.as_secs_f64() * 1000.0,
+            });
+            writeln!(report_file, "{line}").map_err(|error| error.to_string())?;
+            scored.push(Scored {
+                kind: sample.kind,
+                said: sample.said.clone(),
+                heard,
+            });
+        }
+        for kind in summarise(&scored) {
+            let times = took
+                .iter()
+                .filter(|(of, _)| *of == kind.kind)
+                .map(|(_, time)| *time)
+                .collect();
+            println!(
+                "{:<24} {:<16} {:>7} {:>10} {:>9} {:>9} {:>10.0}",
+                name.trim_end_matches("-Q8_0"),
+                kind.kind.name(),
+                kind.samples,
+                kind.word_error_rate
+                    .map_or("-".to_string(), |rate| format!("{:.1}%", rate * 100.0)),
+                kind.invented_text,
+                kind.failures,
+                median(times).as_secs_f64() * 1000.0
+            );
         }
     }
     eprintln!("Details written to {}", report_path.display());
