@@ -1,7 +1,8 @@
 mod key_tap;
 
+use buttervoice_core::capture::CaptureReport;
 use buttervoice_core::hotkey::HotkeyKey;
-use buttervoice_core::key_dictation::{FinishedDictation, KeyDictations};
+use buttervoice_core::key_dictation::{CaptureCommand, KeyDictations};
 use buttervoice_core::recording::Mode;
 use key_tap::TapEvent;
 use tauri::Manager;
@@ -18,23 +19,27 @@ fn listen_for_the_dictation_key() -> std::io::Result<()> {
         .spawn(|| {
             let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
             let ended = key_tap::run(|event| {
-                let finished = match event {
+                let command = match event {
                     TapEvent::FlagsChanged { flags, at } => dictations.flags_changed(flags, at),
                     TapEvent::Interrupted { flags, at } => {
                         tracing::warn!("key listener interrupted");
                         dictations.resync(flags, at)
                     }
                 };
-                record(finished);
+                carry_out(command, &mut dictations);
             });
-            record(dictations.key_listener_lost(key_tap::now()));
+            let command = dictations.key_listener_lost(key_tap::now());
+            carry_out(command, &mut dictations);
             tracing::error!(reason = %ended, "key listener stopped");
         })?;
     Ok(())
 }
 
-fn record(finished: Option<FinishedDictation>) {
-    if let Some(finished) = finished {
+fn carry_out(command: Option<CaptureCommand>, dictations: &mut KeyDictations) {
+    // No microphone yet: capture "stops" at once with nothing captured.
+    if command == Some(CaptureCommand::Stop)
+        && let Some(finished) = dictations.capture_stopped(CaptureReport::default())
+    {
         buttervoice_telemetry::record_dictation(&finished.summary, finished.stopped_because);
     }
 }
