@@ -1,0 +1,8 @@
+[package]
+name = "buttervoice-core"
+version = "0.1.0"
+description = "Dictation logic with no dependency on Tauri, audio devices or the OS"
+edition = "2024"
+publish = false
+
+[dependencies]
