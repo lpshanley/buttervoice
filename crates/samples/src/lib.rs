@@ -1,3 +1,5 @@
+pub mod session;
+
 use std::path::Path;
 
 use buttervoice_core::capture::{AudioFormat, CapturedAudio, InputKind};
