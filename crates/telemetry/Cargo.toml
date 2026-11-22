@@ -1,6 +1,6 @@
 [package]
 name = "buttervoice-telemetry"
-version = "0.1.0"
+version.workspace = true
 description = "Where dictation telemetry goes: the local log file and, later, OTLP"
 edition = "2024"
 publish = false

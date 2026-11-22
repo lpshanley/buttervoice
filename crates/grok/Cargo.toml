@@ -1,6 +1,6 @@
 [package]
 name = "buttervoice-grok"
-version = "0.1.0"
+version.workspace = true
 description = "Transcription through xAI's speech-to-text API"
 edition = "2024"
 publish = false

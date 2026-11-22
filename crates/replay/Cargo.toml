@@ -1,6 +1,6 @@
 [package]
 name = "buttervoice-replay"
-version = "0.1.0"
+version.workspace = true
 description = "Replays saved recordings through transcription and scores the results"
 edition = "2024"
 publish = false
