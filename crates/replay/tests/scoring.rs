@@ -49,3 +49,65 @@ fn hearing_nothing_scores_one() {
 fn a_curly_apostrophe_matches_a_straight_one() {
     assert_eq!(word_error_rate("it's late", "it\u{2019}s late"), 0.0);
 }
+
+// A model writing figures for what was said in words has heard it right;
+// only a different number is a mistake.
+
+#[test]
+fn a_time_said_in_words_matches_it_written_with_a_colon() {
+    assert_eq!(
+        word_error_rate("Ping me at nine thirty.", "Ping me at 9:30"),
+        0.0
+    );
+}
+
+#[test]
+fn an_amount_said_in_words_matches_it_written_as_money() {
+    assert_eq!(
+        word_error_rate(
+            "The invoice is for one thousand two hundred fifty dollars.",
+            "The invoice is for $1,250."
+        ),
+        0.0
+    );
+}
+
+#[test]
+fn an_ordinal_said_in_words_matches_it_written_either_way() {
+    assert_eq!(word_error_rate("due March third", "due March 3"), 0.0);
+    assert_eq!(word_error_rate("due March third", "due March 3rd"), 0.0);
+    assert_eq!(
+        word_error_rate("on the twenty-first of October", "on the 21st of October"),
+        0.0
+    );
+}
+
+#[test]
+fn a_decimal_said_in_words_matches_it_written_with_a_point() {
+    assert_eq!(
+        word_error_rate("version two point four", "version 2.4"),
+        0.0
+    );
+}
+
+#[test]
+fn a_plain_number_said_in_words_matches_its_figures() {
+    assert_eq!(
+        word_error_rate("about ten minutes late", "about 10 minutes late"),
+        0.0
+    );
+    assert_eq!(word_error_rate("twenty one people", "21 people"), 0.0);
+}
+
+#[test]
+fn a_different_number_is_still_a_mistake() {
+    assert_eq!(
+        word_error_rate("Ping me at nine thirty", "Ping me at 9:45"),
+        0.2
+    );
+}
+
+#[test]
+fn words_that_are_not_numbers_are_compared_as_before() {
+    assert_eq!(word_error_rate("On it.", "Run it."), 0.5);
+}
