@@ -16,12 +16,8 @@ use buttervoice_grok::GrokTranscriber;
 use buttervoice_replay::recordings;
 use key_tap::TapEvent;
 use tauri::Manager;
-
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::TrayIconBuilder;
 
 fn listen_for_the_dictation_key() -> std::io::Result<()> {
     let dictations = Arc::new(Mutex::new(KeyDictations::new(
@@ -124,6 +120,26 @@ fn grok_transcriber() -> Option<GrokTranscriber> {
     }
 }
 
+fn add_menu_bar_item(app: &tauri::App) -> tauri::Result<()> {
+    let quit = MenuItem::with_id(app, QUIT, "Quit ButterVoice", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&quit])?;
+    let mut item = TrayIconBuilder::new()
+        .tooltip("ButterVoice")
+        .menu(&menu)
+        .on_menu_event(|app, event| {
+            if event.id() == QUIT {
+                app.exit(0);
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        item = item.icon(icon.clone());
+    }
+    item.build(app)?;
+    Ok(())
+}
+
+const QUIT: &str = "quit";
+
 /// The state behind the lock is only ever changed by whole method calls, so
 /// it is still usable after another thread panicked while holding it.
 fn lock(dictations: &Mutex<KeyDictations>) -> MutexGuard<'_, KeyDictations> {
@@ -138,10 +154,12 @@ pub fn run() {
             let log_file_guard = buttervoice_telemetry::install(&app.path().app_log_dir()?)?;
             app.manage(log_file_guard);
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "app started");
+            // A menu-bar app: no Dock icon and no window of its own.
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            add_menu_bar_item(app)?;
             listen_for_the_dictation_key()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

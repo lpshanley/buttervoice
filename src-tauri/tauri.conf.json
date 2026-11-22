@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "buttervoice",
+  "productName": "ButterVoice",
   "version": "0.1.0",
   "identifier": "com.lpshanley.buttervoice",
   "build": {
@@ -8,16 +8,12 @@
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist",
-    "additionalWatchFolders": ["../crates"]
+    "additionalWatchFolders": [
+      "../crates"
+    ]
   },
   "app": {
-    "windows": [
-      {
-        "title": "buttervoice",
-        "width": 800,
-        "height": 600
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }
