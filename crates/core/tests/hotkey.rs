@@ -72,3 +72,43 @@ fn releasing_right_option_while_left_option_is_still_held_is_a_release() {
     );
     assert_eq!(decoder.flags_changed(NO_MODIFIERS), None);
 }
+
+#[test]
+fn a_release_that_was_missed_is_reported_once_on_resync() {
+    let mut decoder = HotkeyDecoder::new(HotkeyKey::RightOption);
+    decoder.flags_changed(RIGHT_OPTION_DOWN);
+
+    assert_eq!(
+        decoder.resync(NO_MODIFIERS),
+        Some(KeyEdge::Released(PressId(1)))
+    );
+    assert_eq!(decoder.flags_changed(NO_MODIFIERS), None);
+}
+
+#[test]
+fn a_key_found_already_held_must_be_released_before_it_can_start_a_press() {
+    let mut decoder = HotkeyDecoder::new(HotkeyKey::RightOption);
+
+    assert_eq!(decoder.resync(RIGHT_OPTION_DOWN), None);
+    assert_eq!(
+        decoder.flags_changed(RIGHT_OPTION_AND_RIGHT_SHIFT_DOWN),
+        None
+    );
+    assert_eq!(decoder.flags_changed(NO_MODIFIERS), None);
+    assert_eq!(
+        decoder.flags_changed(RIGHT_OPTION_DOWN),
+        Some(KeyEdge::Pressed(PressId(1)))
+    );
+}
+
+#[test]
+fn a_key_still_held_at_resync_stays_the_same_press() {
+    let mut decoder = HotkeyDecoder::new(HotkeyKey::RightOption);
+    decoder.flags_changed(RIGHT_OPTION_DOWN);
+
+    assert_eq!(decoder.resync(RIGHT_OPTION_DOWN), None);
+    assert_eq!(
+        decoder.flags_changed(NO_MODIFIERS),
+        Some(KeyEdge::Released(PressId(1)))
+    );
+}
