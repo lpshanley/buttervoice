@@ -1,6 +1,7 @@
 mod common;
 
 use buttervoice_core::capture::{AudioFormat, CapturedAudio};
+use buttervoice_core::language::Language;
 use buttervoice_core::transcription::{Transcript, TranscriptionFailure};
 use buttervoice_grok::GrokTranscriber;
 use common::TestServer;
@@ -27,7 +28,7 @@ fn returns_the_text_the_service_heard() {
         r#"{"text":" Hello world. ","language":"en","duration":1.25}"#,
     );
 
-    let transcript = transcriber(&server.base_url).transcribe(&a_little_audio());
+    let transcript = transcriber(&server.base_url).transcribe(&a_little_audio(), Language::English);
 
     assert_eq!(
         transcript,
@@ -41,7 +42,7 @@ fn returns_the_text_the_service_heard() {
 fn uploads_the_audio_as_a_wav_file_with_the_api_key() {
     let server = TestServer::responding(200, r#"{"text":"","language":"en","duration":0.0}"#);
 
-    let _ = transcriber(&server.base_url).transcribe(&a_little_audio());
+    let _ = transcriber(&server.base_url).transcribe(&a_little_audio(), Language::English);
 
     let request = server.received();
     assert_eq!(request.request_line, "POST /stt HTTP/1.1");
@@ -55,7 +56,7 @@ fn uploads_the_audio_as_a_wav_file_with_the_api_key() {
 fn sends_the_file_last_because_the_service_may_ignore_fields_after_it() {
     let server = TestServer::responding(200, r#"{"text":"","language":"en","duration":0.0}"#);
 
-    let _ = transcriber(&server.base_url).transcribe(&a_little_audio());
+    let _ = transcriber(&server.base_url).transcribe(&a_little_audio(), Language::English);
 
     let body = server.received().body_text();
     let position = |field: &str| {
@@ -79,7 +80,8 @@ fn says_why_the_service_refused() {
     ] {
         let server = TestServer::responding(status, r#"{"error":"no"}"#);
 
-        let outcome = transcriber(&server.base_url).transcribe(&a_little_audio());
+        let outcome =
+            transcriber(&server.base_url).transcribe(&a_little_audio(), Language::English);
 
         assert_eq!(outcome, Err(expected), "for status {status}");
     }
@@ -89,14 +91,15 @@ fn says_why_the_service_refused() {
 fn a_reply_that_is_not_a_transcript_counts_as_the_service_being_unavailable() {
     let server = TestServer::responding(200, "<html>bad gateway</html>");
 
-    let outcome = transcriber(&server.base_url).transcribe(&a_little_audio());
+    let outcome = transcriber(&server.base_url).transcribe(&a_little_audio(), Language::English);
 
     assert_eq!(outcome, Err(TranscriptionFailure::Unavailable));
 }
 
 #[test]
 fn a_service_that_cannot_be_reached_is_reported_as_unreachable() {
-    let outcome = transcriber(&common::unused_base_url()).transcribe(&a_little_audio());
+    let outcome =
+        transcriber(&common::unused_base_url()).transcribe(&a_little_audio(), Language::English);
 
     assert_eq!(outcome, Err(TranscriptionFailure::Unreachable));
 }
@@ -106,16 +109,34 @@ fn asks_for_a_voice_gate_threshold_only_when_one_is_set() {
     let reply = r#"{"text":"","language":"en","duration":0.0}"#;
 
     let server = TestServer::responding(200, reply);
-    let _ = transcriber(&server.base_url).transcribe(&a_little_audio());
+    let _ = transcriber(&server.base_url).transcribe(&a_little_audio(), Language::English);
     assert!(!server.received().body_text().contains("vad_threshold"));
 
     let server = TestServer::responding(200, reply);
     let _ = transcriber(&server.base_url)
         .with_vad_threshold(0.1)
-        .transcribe(&a_little_audio());
+        .transcribe(&a_little_audio(), Language::English);
     let body = server.received().body_text();
     let threshold = body
         .find("name=\"vad_threshold\"\r\n\r\n0.1\r\n")
         .expect("the upload should carry vad_threshold = 0.1");
     assert!(threshold < body.find("name=\"file\"").unwrap());
+}
+
+#[test]
+fn tells_the_service_which_language_to_expect() {
+    for (language, code) in [
+        (Language::English, "en"),
+        (Language::BrazilianPortuguese, "pt"),
+    ] {
+        let server = TestServer::responding(200, r#"{"text":"","language":"en","duration":0.0}"#);
+
+        let _ = transcriber(&server.base_url).transcribe(&a_little_audio(), language);
+
+        let body = server.received().body_text();
+        assert!(
+            body.contains(&format!("name=\"language\"\r\n\r\n{code}\r\n")),
+            "expected the language field to be {code}"
+        );
+    }
 }

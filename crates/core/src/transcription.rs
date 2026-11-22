@@ -15,6 +15,8 @@ pub enum TranscriptionFailure {
     Unreachable,
     /// The speech engine on this machine could not transcribe the audio.
     EngineFailed,
+    /// The transcriber in use does not handle the person's language.
+    LanguageNotSupported,
 }
 
 /// Where a dictation's audio is turned into text.

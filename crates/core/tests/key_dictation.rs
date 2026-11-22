@@ -9,6 +9,7 @@ use buttervoice_core::key_dictation::{
     AfterCapture, AfterTranscription, CaptureCommand, DictationStatus, FinishedDictation,
     KeyDictations,
 };
+use buttervoice_core::language::Language;
 use buttervoice_core::recording::{Mode, StopReason};
 use buttervoice_core::timeline::Timestamp;
 use buttervoice_core::transcription::{Provider, Transcript, Transcription, TranscriptionFailure};
@@ -103,6 +104,7 @@ fn a_transcript_is_handed_over_to_be_typed() {
     assert_eq!(
         dictations.transcription_finished(
             Provider::Grok,
+            Language::English,
             heard("hello world"),
             at_micros(2_392_500)
         ),
@@ -114,7 +116,12 @@ fn a_transcript_is_handed_over_to_be_typed() {
 fn a_dictation_finishes_once_its_text_has_been_typed() {
     let mut dictations = held_and_released();
     dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
-    dictations.transcription_finished(Provider::Grok, heard("hello world"), at_micros(2_392_500));
+    dictations.transcription_finished(
+        Provider::Grok,
+        Language::English,
+        heard("hello world"),
+        at_micros(2_392_500),
+    );
 
     let finished = dictations
         .typing_finished(Ok(()), at_micros(2_400_000))
@@ -141,7 +148,12 @@ fn a_dictation_finishes_once_its_text_has_been_typed() {
 fn a_dictation_whose_text_could_not_be_typed_still_finishes_and_says_why() {
     let mut dictations = held_and_released();
     dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
-    dictations.transcription_finished(Provider::Grok, heard("hello world"), at_micros(2_392_500));
+    dictations.transcription_finished(
+        Provider::Grok,
+        Language::English,
+        heard("hello world"),
+        at_micros(2_392_500),
+    );
 
     let finished = dictations
         .typing_finished(Err(TypingFailure::NotPermitted), at_micros(2_400_000))
@@ -158,6 +170,7 @@ fn a_blank_transcript_finishes_the_dictation_with_nothing_to_type() {
 
     let finished = finished_without_typing(dictations.transcription_finished(
         Provider::Grok,
+        Language::English,
         heard(""),
         at_micros(2_392_500),
     ));
@@ -169,7 +182,12 @@ fn a_blank_transcript_finishes_the_dictation_with_nothing_to_type() {
 fn a_new_press_is_ignored_until_the_text_has_been_typed() {
     let mut dictations = held_and_released();
     dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
-    dictations.transcription_finished(Provider::Grok, heard("hello world"), at_micros(2_392_500));
+    dictations.transcription_finished(
+        Provider::Grok,
+        Language::English,
+        heard("hello world"),
+        at_micros(2_392_500),
+    );
 
     assert_eq!(
         dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(2_395_000)),
@@ -184,6 +202,7 @@ fn a_finished_dictation_describes_its_capture() {
 
     let finished = finished_without_typing(dictations.transcription_finished(
         Provider::Grok,
+        Language::English,
         Err(TranscriptionFailure::Unavailable),
         at_micros(2_000_000),
     ));
@@ -228,6 +247,7 @@ fn a_failed_transcription_still_finishes_the_dictation_and_says_why() {
 
     let finished = finished_without_typing(dictations.transcription_finished(
         Provider::Grok,
+        Language::English,
         Err(TranscriptionFailure::Unauthorized),
         at_micros(2_100_000),
     ));
@@ -317,6 +337,7 @@ fn dictate(
     dictations.capture_stopped(Some(speech()), at_micros(key_down_micros + 1_020_000));
     dictations.transcription_finished(
         Provider::Grok,
+        Language::English,
         heard(text),
         at_micros(key_down_micros + 1_300_000),
     )
@@ -400,7 +421,12 @@ fn the_status_goes_from_listening_to_working_to_idle_over_a_dictation() {
     dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
     assert_eq!(dictations.status(), DictationStatus::Working);
 
-    dictations.transcription_finished(Provider::Grok, heard("hello world"), at_micros(2_392_500));
+    dictations.transcription_finished(
+        Provider::Grok,
+        Language::English,
+        heard("hello world"),
+        at_micros(2_392_500),
+    );
     assert_eq!(dictations.status(), DictationStatus::Working);
 
     dictations.typing_finished(Ok(()), at_micros(2_400_000));
@@ -436,6 +462,7 @@ fn a_finished_dictation_says_which_kind_of_input_it_was_captured_from() {
 
     let finished = finished_without_typing(dictations.transcription_finished(
         Provider::Grok,
+        Language::English,
         Err(TranscriptionFailure::Unreachable),
         at_micros(2_100_000),
     ));
@@ -450,6 +477,7 @@ fn a_finished_dictation_says_which_provider_transcribed_it() {
 
     let finished = finished_without_typing(dictations.transcription_finished(
         Provider::Local,
+        Language::English,
         Err(TranscriptionFailure::EngineFailed),
         at_micros(2_100_000),
     ));
@@ -464,4 +492,19 @@ fn a_dictation_that_was_never_sent_for_transcription_has_no_provider() {
     let finished = finished(dictations.capture_stopped(None, at_micros(1_980_000)));
 
     assert_eq!(finished.provider, None);
+}
+
+#[test]
+fn a_finished_dictation_says_which_language_it_was_transcribed_as() {
+    let mut dictations = held_and_released();
+    dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
+
+    let finished = finished_without_typing(dictations.transcription_finished(
+        Provider::Grok,
+        Language::BrazilianPortuguese,
+        Err(TranscriptionFailure::Unreachable),
+        at_micros(2_100_000),
+    ));
+
+    assert_eq!(finished.language, Some(Language::BrazilianPortuguese));
 }

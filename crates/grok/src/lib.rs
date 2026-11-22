@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use buttervoice_core::capture::CapturedAudio;
+use buttervoice_core::language::Language;
 use buttervoice_core::transcription::{Transcript, TranscriptionFailure};
 use reqwest::blocking::{Client, multipart};
 use serde::Deserialize;
@@ -9,7 +10,6 @@ pub const DEFAULT_BASE_URL: &str = "https://api.x.ai/v1";
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-const LANGUAGE: &str = "en";
 
 #[derive(Debug, thiserror::Error)]
 #[error("the HTTP client could not be set up")]
@@ -22,6 +22,15 @@ pub struct GrokTranscriber {
     endpoint: String,
     api_key: String,
     vad_threshold: Option<f32>,
+}
+
+/// The service's own code for a language. Its documentation gives plain
+/// `pt` for Brazilian Portuguese and `pt-PT` for European.
+fn service_code(language: Language) -> &'static str {
+    match language {
+        Language::English => "en",
+        Language::BrazilianPortuguese => "pt",
+    }
 }
 
 #[derive(Deserialize)]
@@ -54,14 +63,18 @@ impl GrokTranscriber {
         }
     }
 
-    pub fn transcribe(&self, audio: &CapturedAudio) -> Result<Transcript, TranscriptionFailure> {
+    pub fn transcribe(
+        &self,
+        audio: &CapturedAudio,
+        language: Language,
+    ) -> Result<Transcript, TranscriptionFailure> {
         let file = multipart::Part::bytes(audio.to_wav())
             .file_name("dictation.wav")
             .mime_str("audio/wav")
             .map_err(|_| TranscriptionFailure::Rejected)?;
         // `file` goes last: the service may ignore fields that come after it.
         let mut form = multipart::Form::new()
-            .text("language", LANGUAGE)
+            .text("language", service_code(language))
             .text("format", "true");
         if let Some(threshold) = self.vad_threshold {
             form = form.text("vad_threshold", threshold.to_string());

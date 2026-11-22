@@ -6,11 +6,13 @@ use std::sync::{Arc, PoisonError, RwLock};
 
 use buttervoice_core::api_key::{self, KeySource};
 use buttervoice_core::capture::CapturedAudio;
+use buttervoice_core::language::Language;
 use buttervoice_core::transcription::{Provider, Transcript, TranscriptionFailure};
 use buttervoice_grok::GrokTranscriber;
 use buttervoice_local::{LoadError, LocalTranscriber};
 
-use crate::{preferences, saved_key};
+use crate::preferences::{self, Preferences};
+use crate::saved_key;
 
 const API_KEY_VARIABLE: &str = "XAI_API_KEY";
 
@@ -34,7 +36,9 @@ pub struct Transcribers {
     keychain_service: String,
     preferences_file: PathBuf,
     model_file: PathBuf,
-    provider: RwLock<Provider>,
+    preferences: RwLock<Preferences>,
+    /// Stands in for a language the person has not chosen yet.
+    system_language: Language,
     ready: RwLock<Ready>,
 }
 
@@ -46,10 +50,12 @@ impl Transcribers {
         keychain_service: String,
         preferences_file: PathBuf,
         model_file: PathBuf,
+        system_language: Language,
     ) -> Arc<Self> {
         let transcribers = Arc::new(Self {
             keychain_service,
-            provider: RwLock::new(preferences::load_provider(&preferences_file)),
+            preferences: RwLock::new(preferences::load(&preferences_file)),
+            system_language,
             preferences_file,
             model_file,
             ready: RwLock::new(Ready::Starting),
@@ -64,10 +70,15 @@ impl Transcribers {
     pub fn transcribe(
         &self,
         audio: &CapturedAudio,
-    ) -> (Provider, Result<Transcript, TranscriptionFailure>) {
-        match self.ready() {
+    ) -> (Provider, Language, Result<Transcript, TranscriptionFailure>) {
+        let language = self.dictation_language();
+        let (provider, outcome) = match self.ready() {
+            Ready::Local(local) if !local.speaks(language) => (
+                Provider::Local,
+                Err(TranscriptionFailure::LanguageNotSupported),
+            ),
             Ready::Local(local) => {
-                let outcome = local.transcribe(audio).map_err(|error| {
+                let outcome = local.transcribe(audio, language).map_err(|error| {
                     tracing::error!(%error, "the local engine could not transcribe");
                     TranscriptionFailure::EngineFailed
                 });
@@ -77,18 +88,22 @@ impl Transcribers {
             // does not care.
             Ready::Grok(grok, _) => (
                 Provider::Grok,
-                grok.transcribe(&audio.boosted_for_transcription()),
+                grok.transcribe(&audio.boosted_for_transcription(), language),
             ),
             Ready::Starting | Ready::LocalModelMissing | Ready::LocalModelUnusable => {
                 (Provider::Local, Err(TranscriptionFailure::NotConfigured))
             }
             Ready::GrokWithoutKey => (Provider::Grok, Err(TranscriptionFailure::NotConfigured)),
-        }
+        };
+        (provider, language, outcome)
     }
 
     pub fn setup(&self) -> Setup {
         let state = match self.ready() {
             Ready::Starting => "starting",
+            Ready::Local(local) if !local.speaks(self.dictation_language()) => {
+                "language_not_supported"
+            }
             Ready::Local(_) => "ready",
             Ready::LocalModelMissing => "model_missing",
             Ready::LocalModelUnusable => "model_unusable",
@@ -103,12 +118,44 @@ impl Transcribers {
     }
 
     pub fn choose_provider(&self, provider: Provider) -> std::io::Result<()> {
-        preferences::save_provider(&self.preferences_file, provider)?;
-        *self
-            .provider
-            .write()
-            .unwrap_or_else(PoisonError::into_inner) = provider;
+        self.change(|preferences| preferences.provider = provider)?;
         self.set_up();
+        Ok(())
+    }
+
+    /// One choice sets both the language a person dictates in and the one
+    /// the app is shown in. They are saved apart so they can differ later.
+    pub fn choose_language(&self, language: Language) -> std::io::Result<()> {
+        self.change(|preferences| {
+            preferences.dictation_language = Some(language);
+            preferences.display_language = Some(language);
+        })
+    }
+
+    pub fn language_chosen(&self) -> bool {
+        self.preferences().dictation_language.is_some()
+    }
+
+    pub fn dictation_language(&self) -> Language {
+        self.preferences()
+            .dictation_language
+            .unwrap_or(self.system_language)
+    }
+
+    pub fn display_language(&self) -> Language {
+        self.preferences()
+            .display_language
+            .unwrap_or(self.system_language)
+    }
+
+    fn change(&self, change: impl FnOnce(&mut Preferences)) -> std::io::Result<()> {
+        let mut changed = self.preferences();
+        change(&mut changed);
+        preferences::save(&self.preferences_file, &changed)?;
+        *self
+            .preferences
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = changed;
         Ok(())
     }
 
@@ -166,7 +213,14 @@ impl Transcribers {
     }
 
     fn provider(&self) -> Provider {
-        *self.provider.read().unwrap_or_else(PoisonError::into_inner)
+        self.preferences().provider
+    }
+
+    fn preferences(&self) -> Preferences {
+        *self
+            .preferences
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     fn ready(&self) -> Ready {

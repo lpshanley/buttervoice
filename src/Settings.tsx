@@ -9,7 +9,7 @@ import {
   requestInputMonitoringPermission,
   requestMicrophonePermission,
 } from "tauri-plugin-macos-permissions-api";
-import { t } from "./i18n";
+import { type Locale, t } from "./i18n";
 import "./settings.css";
 
 type Provider = "local" | "grok";
@@ -19,6 +19,7 @@ type State =
   | "ready"
   | "model_missing"
   | "model_unusable"
+  | "language_not_supported"
   | "key_from_environment"
   | "key_saved"
   | "no_key";
@@ -26,6 +27,15 @@ type State =
 type Setup = { provider: Provider; state: State };
 
 const PROVIDERS: Provider[] = ["local", "grok"];
+
+type LanguageSetup = { language: Locale; chosen: boolean };
+
+// Each language is named in itself, so a person can find theirs whatever
+// language the app happens to be showing.
+const LANGUAGES: { tag: Locale; name: string }[] = [
+  { tag: "en", name: "English" },
+  { tag: "pt-BR", name: "Português (Brasil)" },
+];
 
 const STILL_STARTING_RECHECK_MS = 500;
 
@@ -81,6 +91,27 @@ function Settings() {
     if (now.state === "starting") setTimeout(() => void refresh(), STILL_STARTING_RECHECK_MS);
   }
 
+  const [language, setLanguage] = createSignal<LanguageSetup>({ language: "en", chosen: true });
+  let languageCheckedBefore = false;
+
+  async function refreshLanguage() {
+    const now = await invoke<LanguageSetup>("language_setup");
+    const first = !languageCheckedBefore;
+    languageCheckedBefore = true;
+    setLanguage(now);
+    // Language is the first thing to set up: bring the window up to ask.
+    if (first && !now.chosen) {
+      const window = getCurrentWindow();
+      await window.show();
+      await window.setFocus();
+    }
+  }
+
+  async function chooseLanguage(tag: Locale) {
+    await attempt("choose_language", { language: tag });
+    await refreshLanguage();
+  }
+
   async function attempt(command: string, args?: Record<string, unknown>) {
     try {
       await invoke(command, args);
@@ -93,6 +124,7 @@ function Settings() {
   }
 
   onSettled(() => {
+    void refreshLanguage();
     void refresh();
     void recheck();
     // macOS does not say when a permission changes. Coming back to this
@@ -108,6 +140,30 @@ function Settings() {
   return (
     <main class="settings">
       <h1>ButterVoice</h1>
+      <h2>{t("language.heading")}</h2>
+      <Show when={!language().chosen}>
+        <p class="status" role="status">
+          {t("language.choose_first")}
+        </p>
+      </Show>
+      <div class="providers" role="radiogroup" aria-label={t("language.heading")}>
+        <For each={LANGUAGES}>
+          {(option) => (
+            <label>
+              <input
+                type="radio"
+                name="language"
+                checked={language().chosen && language().language === option.tag}
+                onChange={() => void chooseLanguage(option.tag)}
+              />
+              <span>
+                <strong>{option.name}</strong>
+              </span>
+            </label>
+          )}
+        </For>
+      </div>
+      <p class="status">{t("language.what")}</p>
       <h2>{t("transcription.heading")}</h2>
       <div class="providers" role="radiogroup" aria-label={t("transcription.choice_label")}>
         <For each={PROVIDERS}>

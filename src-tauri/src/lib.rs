@@ -24,9 +24,9 @@ use buttervoice_telemetry::{Build, BuildKind, Telemetry};
 use hud::Hud;
 use key_tap::{TapEnded, TapEvent};
 use messages::Message;
-use tauri::Manager;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
+use tauri::{Emitter, Manager};
 use transcribers::Transcribers;
 
 rust_i18n::i18n!("../locales", fallback = "en");
@@ -53,9 +53,13 @@ fn listen_for_the_dictation_key(
                     }
                     // Transcribing happens outside the lock, so key events
                     // are still handled while it runs.
-                    let (provider, outcome) = transcribers.transcribe(&audio);
-                    let after =
-                        lock(&dictations).transcription_finished(provider, outcome, key_tap::now());
+                    let (provider, language, outcome) = transcribers.transcribe(&audio);
+                    let after = lock(&dictations).transcription_finished(
+                        provider,
+                        language,
+                        outcome,
+                        key_tap::now(),
+                    );
                     match after {
                         Some(AfterTranscription::Type(text)) => {
                             let typed = typing::type_text(&text);
@@ -160,14 +164,55 @@ fn transcription_setup(transcribers: tauri::State<'_, Arc<Transcribers>>) -> Tra
 fn choose_provider(
     provider: String,
     transcribers: tauri::State<'_, Arc<Transcribers>>,
-    language: tauri::State<'_, DisplayLanguage>,
 ) -> Result<(), String> {
     transcribers
         .choose_provider(Provider::from_setting(Some(&provider)))
-        .map_err(|error| {
-            tracing::error!(%error, "the provider choice could not be saved");
-            Message::ChoiceNotSaved.text(language.0)
-        })
+        .map_err(|error| not_saved(error, &transcribers))
+}
+
+fn not_saved(error: std::io::Error, transcribers: &Transcribers) -> String {
+    tracing::error!(%error, "a choice could not be saved");
+    Message::ChoiceNotSaved.text(transcribers.display_language())
+}
+
+#[derive(serde::Serialize)]
+struct LanguageSetup {
+    language: &'static str,
+    /// False until the person has picked one; the app then shows the
+    /// language closest to the Mac's.
+    chosen: bool,
+}
+
+#[tauri::command]
+fn language_setup(transcribers: tauri::State<'_, Arc<Transcribers>>) -> LanguageSetup {
+    LanguageSetup {
+        language: transcribers.display_language().tag(),
+        chosen: transcribers.language_chosen(),
+    }
+}
+
+/// The windows are told through an event, so both change without a restart.
+const DISPLAY_LANGUAGE_CHANGED: &str = "display-language";
+
+#[tauri::command]
+fn choose_language(
+    language: String,
+    app: tauri::AppHandle,
+    transcribers: tauri::State<'_, Arc<Transcribers>>,
+) -> Result<(), String> {
+    let Some(language) = Language::from_setting(Some(&language)) else {
+        return Err(Message::ChoiceNotSaved.text(transcribers.display_language()));
+    };
+    transcribers
+        .choose_language(language)
+        .map_err(|error| not_saved(error, &transcribers))?;
+    if let Some(item) = app.tray_by_id(MENU_BAR_ITEM) {
+        let menu = menu_in(&app, language).map_err(|error| error.to_string())?;
+        item.set_menu(Some(menu))
+            .map_err(|error| error.to_string())?;
+    }
+    app.emit(DISPLAY_LANGUAGE_CHANGED, language.tag())
+        .map_err(|error| error.to_string())
 }
 
 // `async` keeps the Keychain call, which can wait on a system prompt, off
@@ -176,20 +221,12 @@ fn choose_provider(
 fn save_api_key(
     key: String,
     transcribers: tauri::State<'_, Arc<Transcribers>>,
-    language: tauri::State<'_, DisplayLanguage>,
 ) -> Result<(), String> {
     if key.trim().is_empty() {
-        return Err(Message::EnterAKeyFirst.text(language.0));
+        return Err(Message::EnterAKeyFirst.text(transcribers.display_language()));
     }
     transcribers.save_key(&key)
 }
-
-#[tauri::command]
-fn display_language(language: tauri::State<'_, DisplayLanguage>) -> &'static str {
-    language.0.tag()
-}
-
-struct DisplayLanguage(Language);
 
 #[tauri::command(async)]
 fn forget_api_key(transcribers: tauri::State<'_, Arc<Transcribers>>) -> Result<(), String> {
@@ -207,15 +244,24 @@ fn keychain_service(identifier: &str) -> String {
     }
 }
 
-fn add_menu_bar_item(app: &tauri::App, language: Language) -> tauri::Result<()> {
+fn menu_in<R: tauri::Runtime, M: Manager<R>>(
+    app: &M,
+    language: Language,
+) -> tauri::Result<Menu<R>> {
     let item = |id, message: Message| {
         MenuItem::with_id(app, id, message.text(language), true, None::<&str>)
     };
     let mark_bad = item(MARK_BAD, Message::MarkLastDictationAsBad)?;
     let settings = item(SETTINGS, Message::OpenSettings)?;
     let quit = item(QUIT, Message::Quit)?;
-    let menu = Menu::with_items(app, &[&mark_bad, &settings, &quit])?;
-    let mut item = TrayIconBuilder::new()
+    Menu::with_items(app, &[&mark_bad, &settings, &quit])
+}
+
+const MENU_BAR_ITEM: &str = "menu-bar";
+
+fn add_menu_bar_item(app: &tauri::App, language: Language) -> tauri::Result<()> {
+    let menu = menu_in(app, language)?;
+    let mut item = TrayIconBuilder::with_id(MENU_BAR_ITEM)
         .tooltip("ButterVoice")
         .menu(&menu)
         .on_menu_event(|app, event| {
@@ -279,19 +325,18 @@ pub fn run() {
             });
             // A menu-bar app: no Dock icon and no window of its own.
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-            // Until a person can choose, the app is shown in the language
-            // closest to the one their Mac is set to.
-            let language = Language::closest_to(&sys_locale::get_locale().unwrap_or_default());
-            app.manage(DisplayLanguage(language));
-            add_menu_bar_item(app, language)?;
-            let hud = Arc::new(Hud::set_up(app.handle())?);
             buttervoice_local::silence_engine_log();
             let transcribers = Transcribers::start(
                 keychain_service(&app.config().identifier),
                 app.path().app_config_dir()?.join(PREFERENCES_FILE),
                 app.path().app_data_dir()?.join("models").join(LOCAL_MODEL),
+                // Until a person chooses, the language closest to the one
+                // their Mac is set to stands in.
+                Language::closest_to(&sys_locale::get_locale().unwrap_or_default()),
             );
             app.manage(transcribers.clone());
+            add_menu_bar_item(app, transcribers.display_language())?;
+            let hud = Arc::new(Hud::set_up(app.handle())?);
             let dictations: Dictations = Arc::new(Mutex::new(KeyDictations::new(
                 HotkeyKey::RightOption,
                 Mode::PushToTalk,
@@ -311,7 +356,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             transcription_setup,
-            display_language,
+            language_setup,
+            choose_language,
             choose_provider,
             save_api_key,
             forget_api_key

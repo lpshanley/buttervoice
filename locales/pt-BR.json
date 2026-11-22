@@ -31,5 +31,9 @@
   "tray.settings": "Ajustes…",
   "tray.quit": "Encerrar o ButterVoice",
   "error.enter_a_key": "Digite uma chave primeiro.",
-  "error.choice_not_saved": "Não foi possível salvar a escolha."
+  "error.choice_not_saved": "Não foi possível salvar a escolha.",
+  "language.heading": "Idioma",
+  "language.what": "O idioma em que você dita. O app também é exibido nele.",
+  "language.choose_first": "Escolha seu idioma para começar.",
+  "status.language_not_supported": "Esta opção ainda não funciona com o seu idioma."
 }

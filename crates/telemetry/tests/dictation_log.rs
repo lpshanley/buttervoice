@@ -5,6 +5,7 @@ use std::time::Duration;
 use buttervoice_core::DictationId;
 use buttervoice_core::capture::{AudioFormat, AudioStats, InputKind};
 use buttervoice_core::key_dictation::FinishedDictation;
+use buttervoice_core::language::Language;
 use buttervoice_core::recording::StopReason;
 use buttervoice_core::timeline::{Mark, Summary, Timeline, Timestamp};
 use buttervoice_core::transcription::{Provider, Transcript, Transcription, TranscriptionFailure};
@@ -41,6 +42,7 @@ fn uneventful(summary: Summary) -> FinishedDictation {
         audio: None,
         input: None,
         provider: None,
+        language: None,
         transcription: Transcription::NotAttempted,
         typing: Typing::NotAttempted,
     }
@@ -151,6 +153,10 @@ fn the_line_says_why_a_transcription_failed() {
         (TranscriptionFailure::Rejected, "rejected"),
         (TranscriptionFailure::Unreachable, "unreachable"),
         (TranscriptionFailure::EngineFailed, "engine_failed"),
+        (
+            TranscriptionFailure::LanguageNotSupported,
+            "language_not_supported",
+        ),
     ] {
         let lines = lines_logged(&FinishedDictation {
             transcription: Transcription::Failed(failure),
@@ -234,6 +240,21 @@ fn the_line_says_which_provider_transcribed_the_dictation() {
         });
 
         assert_eq!(lines[0]["provider"], expected);
+    }
+}
+
+#[test]
+fn the_line_says_which_language_was_dictated() {
+    for (language, expected) in [
+        (Language::English, "en"),
+        (Language::BrazilianPortuguese, "pt-BR"),
+    ] {
+        let lines = lines_logged(&FinishedDictation {
+            language: Some(language),
+            ..uneventful(Timeline::new(DictationId(17)).summary())
+        });
+
+        assert_eq!(lines[0]["language"], expected);
     }
 }
 

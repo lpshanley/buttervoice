@@ -1,6 +1,7 @@
 use crate::DictationId;
 use crate::capture::{AudioStats, Captured, CapturedAudio, InputKind};
 use crate::hotkey::{HotkeyDecoder, HotkeyKey, KeyEdge};
+use crate::language::Language;
 use crate::recording::{Decision, Mode, RecordingControl, StopReason};
 use crate::timeline::{Mark, Summary, Timeline, Timestamp};
 use crate::transcription::{Provider, Transcript, Transcription, TranscriptionFailure};
@@ -42,6 +43,7 @@ pub struct FinishedDictation {
     pub audio: Option<AudioStats>,
     pub input: Option<InputKind>,
     pub provider: Option<Provider>,
+    pub language: Option<Language>,
     pub transcription: Transcription,
     pub typing: Typing,
 }
@@ -53,6 +55,7 @@ struct Stopped {
     key_down_at: Timestamp,
     input: Option<InputKind>,
     provider: Option<Provider>,
+    language: Option<Language>,
 }
 
 #[derive(Debug)]
@@ -168,6 +171,7 @@ impl KeyDictations {
     pub fn transcription_finished(
         &mut self,
         provider: Provider,
+        language: Language,
         outcome: Result<Transcript, TranscriptionFailure>,
         at: Timestamp,
     ) -> Option<AfterTranscription> {
@@ -178,6 +182,7 @@ impl KeyDictations {
         };
         stopped.timeline.mark(Mark::TranscriptReady, at);
         stopped.provider = Some(provider);
+        stopped.language = Some(language);
         let transcript = match outcome {
             Ok(transcript) if !transcript.text.is_empty() => transcript,
             Ok(blank) => {
@@ -263,6 +268,7 @@ impl KeyDictations {
             audio,
             input: stopped.input,
             provider: stopped.provider,
+            language: stopped.language,
             transcription,
             typing,
         }
@@ -302,6 +308,7 @@ impl KeyDictations {
                     key_down_at,
                     input: None,
                     provider: None,
+                    language: None,
                 });
                 Some(CaptureCommand::Stop)
             }

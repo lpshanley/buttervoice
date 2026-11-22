@@ -13,6 +13,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use buttervoice_core::capture::CapturedAudio;
+use buttervoice_core::language::Language;
 use buttervoice_core::transcription::{Transcript, TranscriptionFailure};
 use buttervoice_grok::{DEFAULT_BASE_URL, GrokTranscriber};
 use buttervoice_local::LocalTranscriber;
@@ -170,10 +171,12 @@ fn run() -> Result<(), String> {
             started.elapsed().as_secs_f64() * 1000.0
         );
         let transcribe = |audio: &CapturedAudio| {
-            transcriber.transcribe(audio).map_err(|error| {
-                eprintln!("{name}: {error}");
-                TranscriptionFailure::Rejected
-            })
+            transcriber
+                .transcribe(audio, Language::English)
+                .map_err(|error| {
+                    eprintln!("{name}: {error}");
+                    TranscriptionFailure::Rejected
+                })
         };
         run.variant(&format!("{name}, as captured"), transcribe)?;
         run.variant(&format!("{name}, boosted"), |audio| {
@@ -191,9 +194,10 @@ fn run() -> Result<(), String> {
                 }
                 run.variant(variant.name, |audio| {
                     if variant.boosted {
-                        transcriber.transcribe(&audio.boosted_for_transcription())
+                        transcriber
+                            .transcribe(&audio.boosted_for_transcription(), Language::English)
                     } else {
-                        transcriber.transcribe(audio)
+                        transcriber.transcribe(audio, Language::English)
                     }
                 })?;
             }
