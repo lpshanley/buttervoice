@@ -88,5 +88,16 @@
   "download.what": "Ele vem do Hugging Face e é verificado antes do uso. Nada sobre você ou seus ditados é enviado.",
   "download.progress": "Baixando… {{ done }} de {{ size }}",
   "download.cancel": "Cancelar",
-  "status.downloading": "Baixando o modelo de fala…"
+  "status.downloading": "Baixando o modelo de fala…",
+  "update.check_failed": "Não foi possível procurar atualizações. Verifique sua conexão e tente de novo.",
+  "update.not_installed": "Não foi possível instalar a atualização. Tente de novo mais tarde.",
+  "update.heading": "Atualizações",
+  "update.current": "Você está usando a versão {{ version }}.",
+  "update.check": "Procurar atualizações",
+  "update.checking": "Procurando…",
+  "update.what": "A verificação acessa o GitHub, onde as versões são publicadas. Isso só acontece quando você pede.",
+  "update.newest": "Esta é a versão mais recente.",
+  "update.available": "A versão {{ version }} está disponível.",
+  "update.install": "Instalar e reabrir",
+  "update.installing": "Instalando… O ButterVoice vai reabrir sozinho."
 }

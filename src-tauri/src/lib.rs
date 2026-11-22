@@ -7,6 +7,7 @@ mod samples;
 mod saved_key;
 mod transcribers;
 mod typing;
+mod updates;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -34,6 +35,7 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager};
 use transcribers::Transcribers;
+use updates::Updates;
 
 rust_i18n::i18n!("../locales", fallback = "en");
 
@@ -378,6 +380,30 @@ fn download_model(
 }
 
 #[tauri::command]
+async fn check_for_update(
+    app: tauri::AppHandle,
+    updates: tauri::State<'_, Updates>,
+    transcribers: tauri::State<'_, Arc<Transcribers>>,
+) -> Result<updates::Found, String> {
+    updates.check(&app).await.map_err(|error| {
+        tracing::warn!(%error, "the update check failed");
+        Message::UpdateCheckFailed.text(transcribers.display_language())
+    })
+}
+
+#[tauri::command]
+async fn install_update(
+    app: tauri::AppHandle,
+    updates: tauri::State<'_, Updates>,
+    transcribers: tauri::State<'_, Arc<Transcribers>>,
+) -> Result<(), String> {
+    updates.install(&app).await.map_err(|error| {
+        tracing::error!(%error, "the update could not be installed");
+        Message::UpdateNotInstalled.text(transcribers.display_language())
+    })
+}
+
+#[tauri::command]
 fn cancel_model_download(transcribers: tauri::State<'_, Arc<Transcribers>>) {
     transcribers.cancel_download();
 }
@@ -505,6 +531,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_macos_permissions::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(Updates::default())
         .setup(|app| {
             let telemetry = buttervoice_telemetry::install(&app.path().app_log_dir()?)?;
             app.manage(RunningTelemetry(Mutex::new(Some(telemetry))));
@@ -566,6 +594,8 @@ pub fn run() {
             language_setup,
             microphone_setup,
             download_model,
+            check_for_update,
+            install_update,
             cancel_model_download,
             choose_microphone,
             samples_state,

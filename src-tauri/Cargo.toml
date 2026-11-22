@@ -35,3 +35,4 @@ buttervoice-local = { path = "../crates/local" }
 rust-i18n = "4"
 sys-locale = "0.3"
 buttervoice-samples = { path = "../crates/samples" }
+tauri-plugin-updater = "2.14.1"

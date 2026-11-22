@@ -1,6 +1,7 @@
 import { createSignal, For, onSettled, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   checkAccessibilityPermission,
@@ -100,6 +101,33 @@ function Settings() {
   });
   const [downloaded, setDownloaded] = createSignal(0);
 
+  type Found = { current: string; newer: string | null };
+  const [update, setUpdate] = createSignal<"idle" | "checking" | "installing">("idle");
+  const [found, setFound] = createSignal<Found | null>(null);
+  const [version, setVersion] = createSignal("");
+
+  async function checkForUpdate() {
+    setUpdate("checking");
+    try {
+      setFound(await invoke<Found>("check_for_update"));
+      setProblem("");
+    } catch (error) {
+      setProblem(String(error));
+    }
+    setUpdate("idle");
+  }
+
+  async function installUpdate() {
+    setUpdate("installing");
+    try {
+      // On success the app relaunches and this window goes with it.
+      await invoke("install_update");
+    } catch (error) {
+      setProblem(String(error));
+      setUpdate("idle");
+    }
+  }
+
   async function download() {
     setDownloaded(0);
     const settled = attempt("download_model");
@@ -179,6 +207,7 @@ function Settings() {
     void refreshLanguage();
     void refresh();
     void refreshMicrophones();
+    void getVersion().then(setVersion);
     void recheck();
     // macOS does not say when a permission changes. Coming back to this
     // window from System Settings is the moment to look again.
@@ -350,6 +379,39 @@ function Settings() {
           </label>
         </Show>
       </div>
+      <h2>{t("update.heading")}</h2>
+      <p class="status">{t("update.current", { version: version() })}</p>
+      <Show
+        when={found()?.newer}
+        fallback={
+          <>
+            <button
+              type="button"
+              disabled={update() !== "idle"}
+              onClick={() => void checkForUpdate()}
+            >
+              {update() === "checking" ? t("update.checking") : t("update.check")}
+            </button>
+            <Show when={found() && !found()?.newer}>
+              <p class="status" role="status">
+                {t("update.newest")}
+              </p>
+            </Show>
+          </>
+        }
+      >
+        <p class="status" role="status">
+          {t("update.available", { version: found()?.newer ?? "" })}
+        </p>
+        <button
+          type="button"
+          disabled={update() !== "idle"}
+          onClick={() => void installUpdate()}
+        >
+          {update() === "installing" ? t("update.installing") : t("update.install")}
+        </button>
+      </Show>
+      <p class="status">{t("update.what")}</p>
       <h2>{t("permissions.heading")}</h2>
       <ul class="permissions">
         <For each={PERMISSIONS}>

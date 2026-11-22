@@ -88,5 +88,16 @@
   "download.what": "It comes from Hugging Face and is checked before use. Nothing about you or your dictations is sent.",
   "download.progress": "Downloading… {{ done }} of {{ size }}",
   "download.cancel": "Cancel",
-  "status.downloading": "Downloading the speech model…"
+  "status.downloading": "Downloading the speech model…",
+  "update.check_failed": "Could not check for updates. Check your connection and try again.",
+  "update.not_installed": "The update could not be installed. Try again later.",
+  "update.heading": "Updates",
+  "update.current": "You are running version {{ version }}.",
+  "update.check": "Check for updates",
+  "update.checking": "Checking…",
+  "update.what": "Checking contacts GitHub, where releases are published. It happens only when you ask.",
+  "update.newest": "This is the newest version.",
+  "update.available": "Version {{ version }} is available.",
+  "update.install": "Install and relaunch",
+  "update.installing": "Installing… ButterVoice will relaunch by itself."
 }

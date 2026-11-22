@@ -17,6 +17,8 @@ pub enum Message {
     DownloadDamaged,
     DownloadNotSaved,
     DownloadUnreachable,
+    UpdateCheckFailed,
+    UpdateNotInstalled,
 }
 
 impl Message {
@@ -34,6 +36,8 @@ impl Message {
             Message::DownloadDamaged => "download.damaged",
             Message::DownloadNotSaved => "download.not_saved",
             Message::DownloadUnreachable => "download.unreachable",
+            Message::UpdateCheckFailed => "update.check_failed",
+            Message::UpdateNotInstalled => "update.not_installed",
         }
     }
 
@@ -46,7 +50,9 @@ impl Message {
 mod tests {
     use super::*;
 
-    const EVERY_MESSAGE: [Message; 12] = [
+    const EVERY_MESSAGE: [Message; 14] = [
+        Message::UpdateCheckFailed,
+        Message::UpdateNotInstalled,
         Message::DownloadCancelled,
         Message::DownloadInterrupted,
         Message::DownloadDamaged,
