@@ -211,6 +211,30 @@ impl KeyDictations {
         Some(AfterTranscription::Type(text))
     }
 
+    /// For a dictation whose text is wanted but must not be typed, such as
+    /// a recording made as a sample.
+    pub fn transcription_kept(
+        &mut self,
+        provider: Provider,
+        language: Language,
+        outcome: Result<Transcript, TranscriptionFailure>,
+        at: Timestamp,
+    ) -> Option<FinishedDictation> {
+        let Phase::Transcribing(mut stopped, stats) =
+            std::mem::replace(&mut self.phase, Phase::Idle)
+        else {
+            return None;
+        };
+        stopped.timeline.mark(Mark::TranscriptReady, at);
+        stopped.provider = Some(provider);
+        stopped.language = Some(language);
+        let transcription = match outcome {
+            Ok(transcript) => Transcription::Succeeded(transcript),
+            Err(failure) => Transcription::Failed(failure),
+        };
+        Some(self.finish(stopped, Some(stats), transcription, Typing::NotAttempted))
+    }
+
     pub fn typing_finished(
         &mut self,
         outcome: Result<(), TypingFailure>,

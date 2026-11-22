@@ -508,3 +508,53 @@ fn a_finished_dictation_says_which_language_it_was_transcribed_as() {
 
     assert_eq!(finished.language, Some(Language::BrazilianPortuguese));
 }
+
+#[test]
+fn a_dictation_kept_as_a_sample_is_transcribed_but_never_typed() {
+    let mut dictations = held_and_released();
+    dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
+
+    let finished = dictations
+        .transcription_kept(
+            Provider::Local,
+            Language::English,
+            heard("hello world"),
+            at_micros(2_392_500),
+        )
+        .expect("the dictation finishes");
+
+    assert_eq!(
+        finished.transcription,
+        Transcription::Succeeded(Transcript {
+            text: "hello world".to_string()
+        })
+    );
+    assert_eq!(finished.typing, Typing::NotAttempted);
+    assert_eq!(finished.provider, Some(Provider::Local));
+    assert_eq!(finished.language, Some(Language::English));
+    assert_eq!(dictations.status(), DictationStatus::Idle);
+}
+
+#[test]
+fn a_sample_is_not_text_that_the_next_dictation_carries_on_from() {
+    let mut dictations = held_and_released();
+    dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
+    dictations.transcription_kept(
+        Provider::Local,
+        Language::English,
+        heard("hello world"),
+        at_micros(2_392_500),
+    );
+
+    dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(3_000_000));
+    dictations.flags_changed(NO_MODIFIERS, at_micros(3_900_000));
+    dictations.capture_stopped(Some(speech()), at_micros(3_920_000));
+    let after = dictations.transcription_finished(
+        Provider::Local,
+        Language::English,
+        heard("again"),
+        at_micros(4_300_000),
+    );
+
+    assert_eq!(after, Some(AfterTranscription::Type("again".to_string())));
+}
