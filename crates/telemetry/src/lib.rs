@@ -1,9 +1,9 @@
-use std::error::Error;
 use std::path::Path;
 use std::time::Duration;
 
 use buttervoice_core::timeline::Summary;
 use tracing::Subscriber;
+use tracing::subscriber::SetGlobalDefaultError;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{InitError, RollingFileAppender, Rotation};
 use tracing_subscriber::layer::SubscriberExt;
@@ -27,7 +27,15 @@ pub fn file_subscriber(
     Ok((tracing_subscriber::registry().with(file_layer), guard))
 }
 
-pub fn install(log_dir: &Path) -> Result<WorkerGuard, Box<dyn Error + Send + Sync>> {
+#[derive(Debug, thiserror::Error)]
+pub enum InstallError {
+    #[error("could not open the log file")]
+    LogFile(#[from] InitError),
+    #[error("telemetry is already installed in this process")]
+    AlreadyInstalled(#[from] SetGlobalDefaultError),
+}
+
+pub fn install(log_dir: &Path) -> Result<WorkerGuard, InstallError> {
     let (subscriber, guard) = file_subscriber(log_dir)?;
     tracing::subscriber::set_global_default(subscriber)?;
     Ok(guard)
