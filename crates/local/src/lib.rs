@@ -54,3 +54,9 @@ impl LocalTranscriber {
         })
     }
 }
+
+/// The engine otherwise writes hundreds of lines to standard error for every
+/// model it loads. Call once at startup, before loading a model.
+pub fn silence_engine_log() {
+    transcribe_cpp::disable_logging();
+}

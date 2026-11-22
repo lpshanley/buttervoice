@@ -110,6 +110,7 @@ fn run() -> Result<(), String> {
         );
     };
     let models: Vec<String> = args.collect();
+    buttervoice_local::silence_engine_log();
     let api_key = std::env::var("XAI_API_KEY")
         .ok()
         .filter(|key| !key.trim().is_empty());
