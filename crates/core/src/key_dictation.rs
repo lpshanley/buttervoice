@@ -103,6 +103,7 @@ pub struct KeyDictations {
     control: RecordingControl,
     phase: Phase,
     purpose_from_now: Purpose,
+    last_dictation_text: Option<String>,
 }
 
 impl KeyDictations {
@@ -112,6 +113,7 @@ impl KeyDictations {
             control: RecordingControl::new(mode),
             phase: Phase::Idle,
             purpose_from_now: Purpose::Dictation(Provider::Local),
+            last_dictation_text: None,
         }
     }
 
@@ -132,6 +134,11 @@ impl KeyDictations {
     /// its own.
     pub fn set_purpose(&mut self, purpose: Purpose) {
         self.purpose_from_now = purpose;
+    }
+
+    /// The text of the last dictation, typed or not, held only in memory.
+    pub fn last_dictation_text(&self) -> Option<&str> {
+        self.last_dictation_text.as_deref()
     }
 
     pub fn latest_dictation(&self) -> Option<DictationId> {
@@ -248,6 +255,7 @@ impl KeyDictations {
             }
         };
         let text = transcript.text.clone();
+        self.last_dictation_text = Some(text.clone());
         self.phase = Phase::Typing(stopped, stats, transcript);
         Some(AfterTranscription::Type(text))
     }

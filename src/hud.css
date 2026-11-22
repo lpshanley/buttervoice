@@ -3,6 +3,7 @@
   --hud-text: #f6efdf;
   --hud-listening: #ffcf4a;
   --hud-working: #9aa3ad;
+  --hud-not-typed: #ff8a65;
 
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
   font-size: 13px;
@@ -67,6 +68,10 @@
 .hud.starting .dot {
   background: var(--hud-listening);
   opacity: 0.4;
+}
+
+.hud.not_typed .dot {
+  background: var(--hud-not-typed);
 }
 
 @keyframes pulse {

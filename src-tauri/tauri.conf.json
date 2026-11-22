@@ -16,7 +16,7 @@
       {
         "label": "hud",
         "title": "ButterVoice",
-        "width": 180,
+        "width": 320,
         "height": 56,
         "decorations": false,
         "transparent": true,

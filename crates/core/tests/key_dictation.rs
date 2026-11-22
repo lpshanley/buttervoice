@@ -647,3 +647,43 @@ fn a_dictation_may_only_be_heard_by_the_provider_chosen_when_it_began() {
     assert!(Purpose::Dictation(Provider::Grok).allows(Provider::Grok));
     assert!(!Purpose::Dictation(Provider::Grok).allows(Provider::Local));
 }
+
+// The last dictation's text is kept in memory, never on disk, so a person
+// can copy it from the menu when it did not land where they wanted.
+
+fn transcribed(dictations: &mut KeyDictations, text: &str) {
+    dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(1_000_000));
+    dictations.flags_changed(NO_MODIFIERS, at_micros(1_956_365));
+    dictations.capture_stopped(Some(speech()), at_micros(1_990_000));
+    dictations.transcription_finished(
+        Provider::Local,
+        "parakeet-ultra",
+        Language::English,
+        heard(text),
+        at_micros(2_400_000),
+    );
+}
+
+#[test]
+fn the_last_dictation_can_be_had_again_even_when_typing_it_failed() {
+    let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
+    assert_eq!(dictations.last_dictation_text(), None);
+
+    transcribed(&mut dictations, "Hello there.");
+    dictations.typing_finished(Err(TypingFailure::NotPermitted), at_micros(2_500_000));
+
+    assert_eq!(dictations.last_dictation_text(), Some("Hello there."));
+}
+
+#[test]
+fn a_blank_dictation_or_a_sample_take_leaves_the_last_dictation_as_it_was() {
+    let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
+    transcribed(&mut dictations, "Hello there.");
+    dictations.typing_finished(Ok(()), at_micros(2_500_000));
+
+    transcribed(&mut dictations, "");
+    dictations.set_purpose(Purpose::SampleTake);
+    transcribed(&mut dictations, "A sentence read for a sample.");
+
+    assert_eq!(dictations.last_dictation_text(), Some("Hello there."));
+}

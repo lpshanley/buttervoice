@@ -1,3 +1,4 @@
+mod clipboard;
 mod hud;
 mod key_tap;
 mod messages;
@@ -15,11 +16,12 @@ use std::time::Duration;
 use buttervoice_core::capture::{InputKind, MicrophoneChoice};
 use buttervoice_core::hotkey::HotkeyKey;
 use buttervoice_core::key_dictation::{
-    AfterCapture, AfterTranscription, CaptureCommand, KeyDictations, Purpose,
+    AfterCapture, AfterTranscription, CaptureCommand, FinishedDictation, KeyDictations, Purpose,
 };
 use buttervoice_core::language::Language;
 use buttervoice_core::recording::Mode;
 use buttervoice_core::transcription::Provider;
+use buttervoice_core::typing::Typing;
 use buttervoice_core::update_schedule::check_due;
 use buttervoice_local::fetch::FetchError;
 use buttervoice_samples::RecordedWith;
@@ -128,6 +130,13 @@ fn listen_for_the_dictation_key(
                     None => None,
                 };
                 hud.show(lock(&dictations).status());
+                if let Some(FinishedDictation {
+                    typing: Typing::Failed(_),
+                    ..
+                }) = &finished
+                {
+                    hud.not_typed();
+                }
                 if let Some(finished) = finished {
                     buttervoice_telemetry::record_dictation(&finished);
                 }
@@ -542,6 +551,7 @@ fn menu_in<R: tauri::Runtime, M: Manager<R>>(
     let item = |id, message: Message| {
         MenuItem::with_id(app, id, message.text(language), true, None::<&str>)
     };
+    let copy_last = item(COPY_LAST, Message::CopyLastDictation)?;
     let mark_bad = item(MARK_BAD, Message::MarkLastDictationAsBad)?;
     let record_samples = item(SAMPLES, Message::RecordSamples)?;
     let settings = item(SETTINGS, Message::OpenSettings)?;
@@ -550,10 +560,20 @@ fn menu_in<R: tauri::Runtime, M: Manager<R>>(
         let install = item(INSTALL_UPDATE, Message::InstallUpdate)?;
         Menu::with_items(
             app,
-            &[&install, &mark_bad, &record_samples, &settings, &quit],
+            &[
+                &install,
+                &copy_last,
+                &mark_bad,
+                &record_samples,
+                &settings,
+                &quit,
+            ],
         )
     } else {
-        Menu::with_items(app, &[&mark_bad, &record_samples, &settings, &quit])
+        Menu::with_items(
+            app,
+            &[&copy_last, &mark_bad, &record_samples, &settings, &quit],
+        )
     }
 }
 
@@ -618,6 +638,16 @@ fn add_menu_bar_item(app: &tauri::App, language: Language) -> tauri::Result<()> 
         .on_menu_event(|app, event| {
             if event.id() == QUIT {
                 app.exit(0);
+            } else if event.id() == COPY_LAST {
+                // Only when asked: the clipboard is the person's own.
+                let text = lock(&app.state::<Dictations>())
+                    .last_dictation_text()
+                    .map(str::to_string);
+                if let Some(text) = text
+                    && !clipboard::copy(&text)
+                {
+                    tracing::warn!("the last dictation could not be copied");
+                }
             } else if event.id() == MARK_BAD {
                 let latest = lock(&app.state::<Dictations>()).latest_dictation();
                 buttervoice_telemetry::record_marked_bad(latest);
@@ -657,6 +687,7 @@ const SAMPLES_CHANGED: &str = "samples-changed";
 
 const QUIT: &str = "quit";
 const MARK_BAD: &str = "mark-bad";
+const COPY_LAST: &str = "copy-last";
 /// Both the menu item and the window it opens.
 const SETTINGS: &str = "settings";
 

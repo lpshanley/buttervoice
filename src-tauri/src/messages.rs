@@ -6,6 +6,7 @@ use buttervoice_core::language::Language;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Message {
     MarkLastDictationAsBad,
+    CopyLastDictation,
     RecordSamples,
     OpenSettings,
     Quit,
@@ -28,6 +29,7 @@ impl Message {
     fn key(self) -> &'static str {
         match self {
             Message::MarkLastDictationAsBad => "tray.mark_bad",
+            Message::CopyLastDictation => "tray.copy_last",
             Message::RecordSamples => "tray.record_samples",
             Message::OpenSettings => "tray.settings",
             Message::Quit => "tray.quit",
@@ -56,7 +58,7 @@ impl Message {
 mod tests {
     use super::*;
 
-    const EVERY_MESSAGE: [Message; 17] = [
+    const EVERY_MESSAGE: [Message; 18] = [
         Message::PackageNotMade,
         Message::InstallUpdate,
         Message::UpdateCheckFailed,
@@ -70,6 +72,7 @@ mod tests {
         Message::SamplesNotSaved,
         Message::TakeNotSaved,
         Message::MarkLastDictationAsBad,
+        Message::CopyLastDictation,
         Message::OpenSettings,
         Message::Quit,
         Message::EnterAKeyFirst,

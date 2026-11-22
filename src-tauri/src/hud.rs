@@ -52,6 +52,16 @@ impl Hud {
             DictationStatus::Listening => "listening",
             DictationStatus::Working => "working",
         };
+        self.emit(name);
+    }
+
+    /// Says for a moment that a dictation could not be typed. The window
+    /// fades it out itself, or the next dictation replaces it.
+    pub fn not_typed(&self) {
+        self.emit("not_typed");
+    }
+
+    fn emit(&self, name: &str) {
         if let Err(error) = self.app.emit_to(WINDOW, STATUS_EVENT, name) {
             tracing::warn!(%error, "the HUD could not be updated");
         }

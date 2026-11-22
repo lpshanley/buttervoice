@@ -315,6 +315,8 @@ dependencies = [
  "buttervoice-samples",
  "buttervoice-telemetry",
  "cpal",
+ "objc2-app-kit",
+ "objc2-foundation",
  "rust-i18n",
  "security-framework",
  "serde",
