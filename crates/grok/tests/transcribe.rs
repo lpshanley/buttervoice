@@ -100,3 +100,22 @@ fn a_service_that_cannot_be_reached_is_reported_as_unreachable() {
 
     assert_eq!(outcome, Err(TranscriptionFailure::Unreachable));
 }
+
+#[test]
+fn asks_for_a_voice_gate_threshold_only_when_one_is_set() {
+    let reply = r#"{"text":"","language":"en","duration":0.0}"#;
+
+    let server = TestServer::responding(200, reply);
+    let _ = transcriber(&server.base_url).transcribe(&a_little_audio());
+    assert!(!server.received().body_text().contains("vad_threshold"));
+
+    let server = TestServer::responding(200, reply);
+    let _ = transcriber(&server.base_url)
+        .with_vad_threshold(0.1)
+        .transcribe(&a_little_audio());
+    let body = server.received().body_text();
+    let threshold = body
+        .find("name=\"vad_threshold\"\r\n\r\n0.1\r\n")
+        .expect("the upload should carry vad_threshold = 0.1");
+    assert!(threshold < body.find("name=\"file\"").unwrap());
+}

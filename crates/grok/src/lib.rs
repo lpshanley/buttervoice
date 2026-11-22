@@ -21,6 +21,7 @@ pub struct GrokTranscriber {
     client: Client,
     endpoint: String,
     api_key: String,
+    vad_threshold: Option<f32>,
 }
 
 #[derive(Deserialize)]
@@ -39,7 +40,18 @@ impl GrokTranscriber {
             client,
             endpoint: format!("{}/stt", base_url.trim_end_matches('/')),
             api_key,
+            vad_threshold: None,
         })
+    }
+
+    /// How sure the service must be that a stretch of audio is speech before
+    /// it transcribes it, from 0.0 to 1.0. Without this the service uses its
+    /// own default.
+    pub fn with_vad_threshold(self, threshold: f32) -> Self {
+        Self {
+            vad_threshold: Some(threshold),
+            ..self
+        }
     }
 
     pub fn transcribe(&self, audio: &CapturedAudio) -> Result<Transcript, TranscriptionFailure> {
@@ -48,10 +60,13 @@ impl GrokTranscriber {
             .mime_str("audio/wav")
             .map_err(|_| TranscriptionFailure::Rejected)?;
         // `file` goes last: the service may ignore fields that come after it.
-        let form = multipart::Form::new()
+        let mut form = multipart::Form::new()
             .text("language", LANGUAGE)
-            .text("format", "true")
-            .part("file", file);
+            .text("format", "true");
+        if let Some(threshold) = self.vad_threshold {
+            form = form.text("vad_threshold", threshold.to_string());
+        }
+        let form = form.part("file", file);
         let response = self
             .client
             .post(&self.endpoint)
