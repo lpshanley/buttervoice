@@ -32,3 +32,30 @@ pub enum Transcription {
     Succeeded(Transcript),
     Failed(TranscriptionFailure),
 }
+
+impl Provider {
+    pub fn name(self) -> &'static str {
+        match self {
+            Provider::Local => "local",
+            Provider::Grok => "grok",
+        }
+    }
+
+    /// The provider a saved choice stands for. With no choice, or one this
+    /// version does not know, dictation stays on this machine.
+    pub fn from_setting(saved: Option<&str>) -> Provider {
+        match saved {
+            Some("grok") => Provider::Grok,
+            _ => Provider::Local,
+        }
+    }
+
+    /// Runs only this provider's set-up. In local mode nothing of the cloud
+    /// service is built, and its API key is never looked up.
+    pub fn set_up<T>(self, local: impl FnOnce() -> T, cloud: impl FnOnce() -> T) -> T {
+        match self {
+            Provider::Local => local(),
+            Provider::Grok => cloud(),
+        }
+    }
+}

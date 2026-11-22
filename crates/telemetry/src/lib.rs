@@ -162,7 +162,7 @@ pub fn record_dictation(dictation: &FinishedDictation) {
         key_down_to_first_sample_ms = summary.key_down_to_first_sample.map(millis),
         key_down_to_first_sound_ms = summary.key_down_to_first_sound.map(millis),
         key_up_to_capture_stopped_ms = summary.key_up_to_capture_stopped.map(millis),
-        provider = dictation.provider.map(provider_name),
+        provider = dictation.provider.map(Provider::name),
         transcription = transcription_outcome(&dictation.transcription),
         transcription_failure = transcription_failure(&dictation.transcription),
         transcription_ms = summary.transcription.map(millis),
@@ -178,13 +178,6 @@ fn input_kind_name(input: InputKind) -> &'static str {
     match input {
         InputKind::BuiltIn => "built_in",
         InputKind::Other => "other",
-    }
-}
-
-fn provider_name(provider: Provider) -> &'static str {
-    match provider {
-        Provider::Local => "local",
-        Provider::Grok => "grok",
     }
 }
 
