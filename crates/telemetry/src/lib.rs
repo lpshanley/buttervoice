@@ -139,6 +139,12 @@ pub fn record_marked_bad(latest_dictation: Option<DictationId>) {
     );
 }
 
+/// A started dictation with no "dictation" line after it is one that got
+/// stuck or died part-way.
+pub fn record_dictation_started(dictation: DictationId) {
+    tracing::info!(dictation_id = dictation.0, "dictation started");
+}
+
 pub fn record_dictation(dictation: &FinishedDictation) {
     let summary = &dictation.summary;
     tracing::info!(

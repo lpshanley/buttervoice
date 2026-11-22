@@ -9,7 +9,7 @@ use buttervoice_core::recording::StopReason;
 use buttervoice_core::timeline::{Mark, Summary, Timeline, Timestamp};
 use buttervoice_core::transcription::{Transcript, Transcription, TranscriptionFailure};
 use buttervoice_core::typing::{Typing, TypingFailure};
-use buttervoice_telemetry::{file_subscriber, record_dictation};
+use buttervoice_telemetry::{file_subscriber, record_dictation, record_dictation_started};
 use serde_json::Value;
 
 fn at_micros(micros: u64) -> Timestamp {
@@ -192,4 +192,17 @@ fn the_line_says_whether_the_text_was_typed() {
     let refused = lines_logged(&dictation(Typing::Failed(TypingFailure::NotPermitted)));
     assert_eq!(refused[0]["typing"], "failed");
     assert_eq!(refused[0]["typing_failure"], "not_permitted");
+}
+
+#[test]
+fn the_start_of_a_dictation_is_logged_with_its_id() {
+    let log_dir = tempfile::tempdir().unwrap();
+    let (subscriber, guard) = file_subscriber(log_dir.path()).unwrap();
+    tracing::subscriber::with_default(subscriber, || record_dictation_started(DictationId(7)));
+    drop(guard);
+
+    let lines = common::read_lines(log_dir.path());
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0]["message"], "dictation started");
+    assert_eq!(lines[0]["dictation_id"], 7);
 }

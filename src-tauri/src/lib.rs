@@ -86,7 +86,7 @@ fn listen_for_the_dictation_key(
             let mut waiting_for_permission = false;
             loop {
                 let ended = key_tap::run(|event| {
-                    let (command, status) = {
+                    let (command, status, started) = {
                         let mut dictations = lock(&dictations);
                         let command = match event {
                             TapEvent::Ready { flags, at } => {
@@ -101,12 +101,18 @@ fn listen_for_the_dictation_key(
                                 dictations.resync(flags, at)
                             }
                         };
-                        (command, dictations.status())
+                        let started = matches!(command, Some(CaptureCommand::Start))
+                            .then(|| dictations.latest_dictation())
+                            .flatten();
+                        (command, dictations.status(), started)
                     };
-                    // The microphone first: the HUD can wait a moment, the
-                    // first word cannot.
+                    // The microphone first: the HUD and the log can wait a
+                    // moment, the first word cannot.
                     send(command);
                     hud.show(status);
+                    if let Some(dictation) = started {
+                        buttervoice_telemetry::record_dictation_started(dictation);
+                    }
                 });
                 send(lock(&dictations).key_listener_lost(key_tap::now()));
                 hud.show(lock(&dictations).status());
