@@ -11,6 +11,10 @@ impl Timestamp {
     pub const fn from_nanos(nanos: u64) -> Self {
         Self(nanos)
     }
+
+    pub const fn as_nanos(self) -> u64 {
+        self.0
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
