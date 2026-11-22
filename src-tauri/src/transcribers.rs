@@ -34,9 +34,8 @@ pub struct Setup {
 
 pub struct Transcribers {
     keychain_service: String,
-    preferences_file: PathBuf,
     model_file: PathBuf,
-    preferences: RwLock<Preferences>,
+    preferences: Arc<preferences::Store>,
     /// Stands in for a language the person has not chosen yet.
     system_language: Language,
     ready: RwLock<Ready>,
@@ -48,15 +47,14 @@ impl Transcribers {
     /// nothing else should wait with either.
     pub fn start(
         keychain_service: String,
-        preferences_file: PathBuf,
+        preferences: Arc<preferences::Store>,
         model_file: PathBuf,
         system_language: Language,
     ) -> Arc<Self> {
         let transcribers = Arc::new(Self {
             keychain_service,
-            preferences: RwLock::new(preferences::load(&preferences_file)),
+            preferences,
             system_language,
-            preferences_file,
             model_file,
             ready: RwLock::new(Ready::Starting),
         });
@@ -163,14 +161,7 @@ impl Transcribers {
     }
 
     fn change(&self, change: impl FnOnce(&mut Preferences)) -> std::io::Result<()> {
-        let mut changed = self.preferences();
-        change(&mut changed);
-        preferences::save(&self.preferences_file, &changed)?;
-        *self
-            .preferences
-            .write()
-            .unwrap_or_else(PoisonError::into_inner) = changed;
-        Ok(())
+        self.preferences.change(change)
     }
 
     pub fn save_key(&self, key: &str) -> Result<(), String> {
@@ -231,10 +222,7 @@ impl Transcribers {
     }
 
     fn preferences(&self) -> Preferences {
-        *self
-            .preferences
-            .read()
-            .unwrap_or_else(PoisonError::into_inner)
+        self.preferences.get()
     }
 
     fn ready(&self) -> Ready {

@@ -441,9 +441,12 @@ pub fn run() {
             // A menu-bar app: no Dock icon and no window of its own.
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             buttervoice_local::silence_engine_log();
+            let preferences = Arc::new(preferences::Store::open(
+                app.path().app_config_dir()?.join(PREFERENCES_FILE),
+            ));
             let transcribers = Transcribers::start(
                 keychain_service(&app.config().identifier),
-                app.path().app_config_dir()?.join(PREFERENCES_FILE),
+                preferences.clone(),
                 app.path().app_data_dir()?.join("models").join(LOCAL_MODEL),
                 // Until a person chooses, the language closest to the one
                 // their Mac is set to stands in.

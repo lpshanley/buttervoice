@@ -1,6 +1,7 @@
 //! The choices that outlive a run, kept as JSON in the app's own folder.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{PoisonError, RwLock};
 
 use buttervoice_core::language::Language;
 use buttervoice_core::transcription::Provider;
@@ -13,6 +14,34 @@ pub struct Preferences {
     pub provider: Provider,
     pub dictation_language: Option<Language>,
     pub display_language: Option<Language>,
+}
+
+/// The saved choices, shared by every part of the app that reads them. A
+/// change is written to disk first and only taken once it is saved.
+pub struct Store {
+    file: PathBuf,
+    current: RwLock<Preferences>,
+}
+
+impl Store {
+    pub fn open(file: PathBuf) -> Self {
+        Self {
+            current: RwLock::new(load(&file)),
+            file,
+        }
+    }
+
+    pub fn get(&self) -> Preferences {
+        *self.current.read().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub fn change(&self, change: impl FnOnce(&mut Preferences)) -> std::io::Result<()> {
+        let mut changed = self.get();
+        change(&mut changed);
+        save(&self.file, &changed)?;
+        *self.current.write().unwrap_or_else(PoisonError::into_inner) = changed;
+        Ok(())
+    }
 }
 
 const PROVIDER: &str = "provider";
@@ -81,6 +110,32 @@ mod tests {
                 display_language: None,
             }
         );
+    }
+
+    #[test]
+    fn a_change_is_saved_and_seen_by_the_next_start() {
+        let file = a_file_named("store.json");
+        let store = Store::open(file.clone());
+
+        store
+            .change(|preferences| preferences.provider = Provider::Grok)
+            .unwrap();
+
+        assert_eq!(store.get().provider, Provider::Grok);
+        assert_eq!(Store::open(file).get().provider, Provider::Grok);
+    }
+
+    #[test]
+    fn a_change_that_cannot_be_saved_is_not_taken() {
+        let blocker = a_file_named("not-a-folder");
+        std::fs::create_dir_all(blocker.parent().unwrap()).unwrap();
+        std::fs::write(&blocker, "a file where a folder is needed").unwrap();
+        let store = Store::open(blocker.join("preferences.json"));
+
+        let outcome = store.change(|preferences| preferences.provider = Provider::Grok);
+
+        assert!(outcome.is_err());
+        assert_eq!(store.get().provider, Provider::Local);
     }
 
     #[test]
