@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use buttervoice_core::DictationId;
@@ -46,15 +47,55 @@ pub enum InstallError {
 
 /// Dropping this writes out any pending lines and stops the log writer.
 pub struct Telemetry {
-    _log_file: WorkerGuard,
+    log_file: LogFile,
+}
+
+impl Drop for Telemetry {
+    fn drop(&mut self) {
+        flush(&self.log_file);
+    }
+}
+
+type LogFile = Arc<Mutex<Option<WorkerGuard>>>;
+
+fn flush(log_file: &LogFile) {
+    log_file
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take();
 }
 
 pub fn install(log_dir: &Path) -> Result<Telemetry, InstallError> {
-    let (subscriber, log_file) = file_subscriber(log_dir)?;
+    let (subscriber, guard) = file_subscriber(log_dir)?;
     tracing::subscriber::set_global_default(subscriber)?;
-    Ok(Telemetry {
-        _log_file: log_file,
-    })
+    let log_file = Arc::new(Mutex::new(Some(guard)));
+    log_panics(log_file.clone());
+    Ok(Telemetry { log_file })
+}
+
+fn log_panics(log_file: LogFile) {
+    let previous_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic| {
+        let location = panic
+            .location()
+            .map(|location| format!("{}:{}", location.file(), location.line()));
+        let thread = std::thread::current();
+        // A message built at run time can quote what it was handling, such
+        // as dictated text. One fixed in the source cannot.
+        let fixed_message = panic.payload().downcast_ref::<&'static str>();
+        tracing::error!(
+            location,
+            thread = thread.name(),
+            panic_message = fixed_message,
+            "panic"
+        );
+        // A build that aborts on panic runs nothing after this hook, so the
+        // line has to reach the file now.
+        if cfg!(panic = "abort") {
+            flush(&log_file);
+        }
+        previous_hook(panic);
+    }));
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
