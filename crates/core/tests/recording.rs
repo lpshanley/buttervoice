@@ -114,3 +114,14 @@ fn a_manual_stop_ends_the_dictation_and_the_later_key_release_does_nothing() {
     );
     assert_eq!(control.key_released(PressId(1)), Decision::Ignore);
 }
+
+#[test]
+fn losing_the_key_listener_stops_the_dictation_being_recorded() {
+    let mut control = RecordingControl::new(Mode::PushToTalk);
+    control.key_pressed(PressId(1));
+
+    assert_eq!(
+        control.key_listener_lost(),
+        Decision::Stop(DictationId(1), StopReason::KeyListenerLost)
+    );
+}

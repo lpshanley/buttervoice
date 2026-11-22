@@ -14,6 +14,7 @@ pub enum StopReason {
     KeyReleased,
     KeyPressedAgain,
     Manual,
+    KeyListenerLost,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,10 +78,11 @@ impl RecordingControl {
     }
 
     pub fn manual_stop(&mut self) -> Decision {
-        match self.state {
-            State::Recording { dictation, .. } => self.stop(dictation, StopReason::Manual),
-            _ => Decision::Ignore,
-        }
+        self.stop_any_recording(StopReason::Manual)
+    }
+
+    pub fn key_listener_lost(&mut self) -> Decision {
+        self.stop_any_recording(StopReason::KeyListenerLost)
     }
 
     pub fn processing_finished(&mut self) {
@@ -97,6 +99,13 @@ impl RecordingControl {
             started_by: press,
         };
         Decision::Start(dictation)
+    }
+
+    fn stop_any_recording(&mut self, reason: StopReason) -> Decision {
+        match self.state {
+            State::Recording { dictation, .. } => self.stop(dictation, reason),
+            _ => Decision::Ignore,
+        }
     }
 
     fn stop(&mut self, dictation: DictationId, reason: StopReason) -> Decision {
