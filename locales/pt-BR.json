@@ -46,7 +46,7 @@
   "samples.progress": "Solicitação {{ position }} de {{ total }}",
   "samples.hold": "Segure a tecla de ditado e fale.",
   "samples.said_label": "O que você realmente disse",
-  "samples.said_hint": "Corrija se for diferente do que você disse.",
+  "samples.said_hint": "Escreva as palavras como você falou, como “nove e meia”, e não “9:30”. Altere só se você disse algo diferente.",
   "samples.nothing_said": "Gravado. Não é preciso escrever nada nesta.",
   "samples.keep": "Manter",
   "samples.redo": "Gravar de novo",
@@ -61,5 +61,6 @@
   "samples.kind.hard_words": "Palavras difíceis",
   "samples.kind.natural_speech": "Com suas palavras",
   "samples.kind.conditions": "Uma condição especial",
-  "samples.kind.silence": "Silêncio"
+  "samples.kind.silence": "Silêncio",
+  "samples.heard": "Um modelo neste Mac ouviu:"
 }

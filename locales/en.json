@@ -46,7 +46,7 @@
   "samples.progress": "Prompt {{ position }} of {{ total }}",
   "samples.hold": "Hold the dictation key and speak.",
   "samples.said_label": "What you actually said",
-  "samples.said_hint": "Correct this if it differs from what you said.",
+  "samples.said_hint": "Write the words as you spoke them, such as “nine thirty”, not “9:30”. Change this only if you said something different.",
   "samples.nothing_said": "Recorded. Nothing needs to be written for this one.",
   "samples.keep": "Keep",
   "samples.redo": "Record again",
@@ -61,5 +61,6 @@
   "samples.kind.hard_words": "Tricky words",
   "samples.kind.natural_speech": "In your own words",
   "samples.kind.conditions": "A special condition",
-  "samples.kind.silence": "Silence"
+  "samples.kind.silence": "Silence",
+  "samples.heard": "A model on this Mac heard:"
 }

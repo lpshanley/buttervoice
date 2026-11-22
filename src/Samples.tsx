@@ -42,8 +42,9 @@ function Samples() {
   async function refresh() {
     const now = await invoke<State>("samples_state");
     setState(now);
-    // What a model heard is only a starting point for the person to correct.
-    if (now.take) setSaid(now.take.heard ?? now.prompt?.say ?? "");
+    // The box holds the words as spoken. A model writes "9:30" for "nine
+    // thirty", so its text only starts the box when there was no script.
+    if (now.take) setSaid(now.prompt?.say ?? now.take.heard ?? "");
   }
 
   async function act(command: string, args?: Record<string, unknown>) {
@@ -139,6 +140,11 @@ function Samples() {
               onInput={(event) => setSaid(event.currentTarget.value)}
             />
             <p class="status">{t("samples.said_hint")}</p>
+            <Show when={state().take?.heard}>
+              <p class="status">
+                {t("samples.heard")} <q>{state().take?.heard}</q>
+              </p>
+            </Show>
           </Show>
           <div class="row">
             <button type="button" onClick={() => void keep()}>
