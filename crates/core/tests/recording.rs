@@ -59,3 +59,18 @@ fn a_repeated_processed_signal_does_not_abandon_the_dictation_being_recorded() {
         Decision::Stop(DictationId(2))
     );
 }
+
+#[test]
+fn a_late_release_of_an_earlier_press_cannot_stop_a_newer_dictation() {
+    let mut control = RecordingControl::new(Mode::PushToTalk);
+    control.key_pressed(PressId(1));
+    control.key_released(PressId(1));
+    control.processing_finished();
+    control.key_pressed(PressId(2));
+
+    assert_eq!(control.key_released(PressId(1)), Decision::Ignore);
+    assert_eq!(
+        control.key_released(PressId(2)),
+        Decision::Stop(DictationId(2))
+    );
+}

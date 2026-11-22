@@ -18,7 +18,10 @@ pub enum Decision {
 #[derive(Debug, Clone, Copy)]
 enum State {
     Idle,
-    Recording(DictationId),
+    Recording {
+        dictation: DictationId,
+        started_by: PressId,
+    },
     Processing,
 }
 
@@ -36,20 +39,30 @@ impl RecordingControl {
         }
     }
 
-    pub fn key_pressed(&mut self, _press: PressId) -> Decision {
+    pub fn key_pressed(&mut self, press: PressId) -> Decision {
         let State::Idle = self.state else {
             return Decision::Ignore;
         };
         self.dictations_started += 1;
         let dictation = DictationId(self.dictations_started);
-        self.state = State::Recording(dictation);
+        self.state = State::Recording {
+            dictation,
+            started_by: press,
+        };
         Decision::Start(dictation)
     }
 
-    pub fn key_released(&mut self, _press: PressId) -> Decision {
-        let State::Recording(dictation) = self.state else {
+    pub fn key_released(&mut self, press: PressId) -> Decision {
+        let State::Recording {
+            dictation,
+            started_by,
+        } = self.state
+        else {
             return Decision::Ignore;
         };
+        if press != started_by {
+            return Decision::Ignore;
+        }
         self.state = State::Processing;
         Decision::Stop(dictation)
     }
