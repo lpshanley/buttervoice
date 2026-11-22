@@ -13,6 +13,7 @@ pub enum Mode {
 pub enum StopReason {
     KeyReleased,
     KeyPressedAgain,
+    Manual,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,6 +72,13 @@ impl RecordingControl {
                 },
                 Mode::PushToTalk,
             ) if press == started_by => self.stop(dictation, StopReason::KeyReleased),
+            _ => Decision::Ignore,
+        }
+    }
+
+    pub fn manual_stop(&mut self) -> Decision {
+        match self.state {
+            State::Recording { dictation, .. } => self.stop(dictation, StopReason::Manual),
             _ => Decision::Ignore,
         }
     }

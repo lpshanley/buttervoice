@@ -102,3 +102,15 @@ fn in_toggle_mode_a_repeat_of_the_starting_press_does_not_stop_the_dictation() {
 
     assert_eq!(control.key_pressed(PressId(1)), Decision::Ignore);
 }
+
+#[test]
+fn a_manual_stop_ends_the_dictation_and_the_later_key_release_does_nothing() {
+    let mut control = RecordingControl::new(Mode::PushToTalk);
+    control.key_pressed(PressId(1));
+
+    assert_eq!(
+        control.manual_stop(),
+        Decision::Stop(DictationId(1), StopReason::Manual)
+    );
+    assert_eq!(control.key_released(PressId(1)), Decision::Ignore);
+}
