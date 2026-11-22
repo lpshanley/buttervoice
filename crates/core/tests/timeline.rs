@@ -42,3 +42,15 @@ fn reports_time_from_key_up_to_text_landing() {
         Some(Duration::from_micros(612_500))
     );
 }
+
+#[test]
+fn reports_how_long_the_key_was_held() {
+    let mut timeline = Timeline::new(DictationId(1));
+    timeline.mark(Mark::KeyDown, at_micros(1_000_000));
+    timeline.mark(Mark::KeyUp, at_micros(1_956_365));
+
+    assert_eq!(
+        timeline.summary().key_held,
+        Some(Duration::from_micros(956_365))
+    );
+}

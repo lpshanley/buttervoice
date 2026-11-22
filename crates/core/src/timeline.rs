@@ -24,6 +24,7 @@ pub enum Mark {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Summary {
     pub dictation_id: DictationId,
+    pub key_held: Option<Duration>,
     pub key_down_to_first_sample: Option<Duration>,
     pub key_up_to_text_landed: Option<Duration>,
 }
@@ -60,6 +61,7 @@ impl Timeline {
     pub fn summary(&self) -> Summary {
         Summary {
             dictation_id: self.dictation_id,
+            key_held: between(self.key_down, self.key_up),
             key_down_to_first_sample: between(self.key_down, self.first_sample),
             key_up_to_text_landed: between(self.key_up, self.text_landed),
         }
