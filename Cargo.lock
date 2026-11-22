@@ -312,7 +312,6 @@ dependencies = [
  "buttervoice-core",
  "buttervoice-grok",
  "buttervoice-local",
- "buttervoice-replay",
  "buttervoice-samples",
  "buttervoice-telemetry",
  "cpal",

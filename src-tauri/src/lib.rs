@@ -9,11 +9,9 @@ mod transcribers;
 mod typing;
 mod updates;
 
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use buttervoice_core::capture::CapturedAudio;
 use buttervoice_core::capture::{InputKind, MicrophoneChoice};
 use buttervoice_core::hotkey::HotkeyKey;
 use buttervoice_core::key_dictation::{
@@ -24,7 +22,6 @@ use buttervoice_core::recording::Mode;
 use buttervoice_core::transcription::Provider;
 use buttervoice_core::update_schedule::check_due;
 use buttervoice_local::fetch::FetchError;
-use buttervoice_replay::recordings;
 use buttervoice_samples::RecordedWith;
 use buttervoice_samples::session::Take;
 use buttervoice_telemetry::{Build, BuildKind, Telemetry};
@@ -52,7 +49,6 @@ fn listen_for_the_dictation_key(
     preferences: Arc<preferences::Store>,
     app: tauri::AppHandle,
 ) -> std::io::Result<()> {
-    let recordings_dir = std::env::var_os(RECORDINGS_VARIABLE).map(PathBuf::from);
     let microphone = microphone::spawn(
         {
             let preferences = preferences.clone();
@@ -106,9 +102,6 @@ fn listen_for_the_dictation_key(
                         }
                     }
                     Some(AfterCapture::Transcribe(audio)) => {
-                        if let Some(dir) = &recordings_dir {
-                            save_for_replay(dir, &audio);
-                        }
                         // Transcribing happens outside the lock, so key events
                         // are still handled while it runs.
                         let heard = transcribers.transcribe(&audio);
@@ -190,18 +183,6 @@ fn listen_for_the_dictation_key(
             }
         })?;
     Ok(())
-}
-
-/// When set, every dictation's audio is saved into this folder for the
-/// replay tool. Meant for development: it writes a real voice to disk.
-const RECORDINGS_VARIABLE: &str = "BUTTERVOICE_RECORDINGS_DIR";
-
-fn save_for_replay(dir: &Path, audio: &CapturedAudio) {
-    let number = recordings::next_number(dir);
-    match recordings::save(dir, number, audio) {
-        Ok(_) => tracing::info!(number, "recording saved for replay"),
-        Err(error) => tracing::warn!(%error, "recording could not be saved for replay"),
-    }
 }
 
 #[derive(serde::Serialize)]
