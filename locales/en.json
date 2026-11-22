@@ -26,5 +26,10 @@
   "permission.input_monitoring.name": "Input Monitoring",
   "permission.input_monitoring.why": "To notice the dictation key.",
   "permission.accessibility.name": "Accessibility",
-  "permission.accessibility.why": "To type the text into other apps."
+  "permission.accessibility.why": "To type the text into other apps.",
+  "tray.mark_bad": "Mark Last Dictation as Bad",
+  "tray.settings": "Settings…",
+  "tray.quit": "Quit ButterVoice",
+  "error.enter_a_key": "Enter a key first.",
+  "error.choice_not_saved": "The choice could not be saved."
 }

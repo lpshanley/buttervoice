@@ -1,5 +1,6 @@
 mod hud;
 mod key_tap;
+mod messages;
 mod microphone;
 mod preferences;
 mod saved_key;
@@ -15,16 +16,20 @@ use buttervoice_core::hotkey::HotkeyKey;
 use buttervoice_core::key_dictation::{
     AfterCapture, AfterTranscription, CaptureCommand, KeyDictations,
 };
+use buttervoice_core::language::Language;
 use buttervoice_core::recording::Mode;
 use buttervoice_core::transcription::Provider;
 use buttervoice_replay::recordings;
 use buttervoice_telemetry::{Build, BuildKind, Telemetry};
 use hud::Hud;
 use key_tap::{TapEnded, TapEvent};
+use messages::Message;
 use tauri::Manager;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use transcribers::Transcribers;
+
+rust_i18n::i18n!("../locales", fallback = "en");
 
 const KEY_LISTENER_RETRY: Duration = Duration::from_secs(2);
 
@@ -155,8 +160,14 @@ fn transcription_setup(transcribers: tauri::State<'_, Arc<Transcribers>>) -> Tra
 fn choose_provider(
     provider: String,
     transcribers: tauri::State<'_, Arc<Transcribers>>,
+    language: tauri::State<'_, DisplayLanguage>,
 ) -> Result<(), String> {
-    transcribers.choose_provider(Provider::from_setting(Some(&provider)))
+    transcribers
+        .choose_provider(Provider::from_setting(Some(&provider)))
+        .map_err(|error| {
+            tracing::error!(%error, "the provider choice could not be saved");
+            Message::ChoiceNotSaved.text(language.0)
+        })
 }
 
 // `async` keeps the Keychain call, which can wait on a system prompt, off
@@ -165,9 +176,20 @@ fn choose_provider(
 fn save_api_key(
     key: String,
     transcribers: tauri::State<'_, Arc<Transcribers>>,
+    language: tauri::State<'_, DisplayLanguage>,
 ) -> Result<(), String> {
+    if key.trim().is_empty() {
+        return Err(Message::EnterAKeyFirst.text(language.0));
+    }
     transcribers.save_key(&key)
 }
+
+#[tauri::command]
+fn display_language(language: tauri::State<'_, DisplayLanguage>) -> &'static str {
+    language.0.tag()
+}
+
+struct DisplayLanguage(Language);
 
 #[tauri::command(async)]
 fn forget_api_key(transcribers: tauri::State<'_, Arc<Transcribers>>) -> Result<(), String> {
@@ -185,16 +207,13 @@ fn keychain_service(identifier: &str) -> String {
     }
 }
 
-fn add_menu_bar_item(app: &tauri::App) -> tauri::Result<()> {
-    let mark_bad = MenuItem::with_id(
-        app,
-        MARK_BAD,
-        "Mark Last Dictation as Bad",
-        true,
-        None::<&str>,
-    )?;
-    let settings = MenuItem::with_id(app, SETTINGS, "Settings\u{2026}", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, QUIT, "Quit ButterVoice", true, None::<&str>)?;
+fn add_menu_bar_item(app: &tauri::App, language: Language) -> tauri::Result<()> {
+    let item = |id, message: Message| {
+        MenuItem::with_id(app, id, message.text(language), true, None::<&str>)
+    };
+    let mark_bad = item(MARK_BAD, Message::MarkLastDictationAsBad)?;
+    let settings = item(SETTINGS, Message::OpenSettings)?;
+    let quit = item(QUIT, Message::Quit)?;
     let menu = Menu::with_items(app, &[&mark_bad, &settings, &quit])?;
     let mut item = TrayIconBuilder::new()
         .tooltip("ButterVoice")
@@ -260,7 +279,11 @@ pub fn run() {
             });
             // A menu-bar app: no Dock icon and no window of its own.
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-            add_menu_bar_item(app)?;
+            // Until a person can choose, the app is shown in the language
+            // closest to the one their Mac is set to.
+            let language = Language::closest_to(&sys_locale::get_locale().unwrap_or_default());
+            app.manage(DisplayLanguage(language));
+            add_menu_bar_item(app, language)?;
             let hud = Arc::new(Hud::set_up(app.handle())?);
             buttervoice_local::silence_engine_log();
             let transcribers = Transcribers::start(
@@ -288,6 +311,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             transcription_setup,
+            display_language,
             choose_provider,
             save_api_key,
             forget_api_key

@@ -102,9 +102,8 @@ impl Transcribers {
         }
     }
 
-    pub fn choose_provider(&self, provider: Provider) -> Result<(), String> {
-        preferences::save_provider(&self.preferences_file, provider)
-            .map_err(|error| format!("The choice could not be saved: {error}"))?;
+    pub fn choose_provider(&self, provider: Provider) -> std::io::Result<()> {
+        preferences::save_provider(&self.preferences_file, provider)?;
         *self
             .provider
             .write()
@@ -114,9 +113,6 @@ impl Transcribers {
     }
 
     pub fn save_key(&self, key: &str) -> Result<(), String> {
-        if key.trim().is_empty() {
-            return Err("Enter a key first.".to_string());
-        }
         saved_key::save(&self.keychain_service, key.trim())?;
         self.set_up();
         Ok(())

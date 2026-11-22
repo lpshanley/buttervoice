@@ -26,5 +26,10 @@
   "permission.input_monitoring.name": "Monitoramento de Entrada",
   "permission.input_monitoring.why": "Para perceber a tecla de ditado.",
   "permission.accessibility.name": "Acessibilidade",
-  "permission.accessibility.why": "Para digitar o texto em outros apps."
+  "permission.accessibility.why": "Para digitar o texto em outros apps.",
+  "tray.mark_bad": "Marcar o último ditado como ruim",
+  "tray.settings": "Ajustes…",
+  "tray.quit": "Encerrar o ButterVoice",
+  "error.enter_a_key": "Digite uma chave primeiro.",
+  "error.choice_not_saved": "Não foi possível salvar a escolha."
 }

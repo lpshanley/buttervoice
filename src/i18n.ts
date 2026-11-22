@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import { translator } from "@solid-primitives/i18n";
+import { invoke } from "@tauri-apps/api/core";
 import english from "../locales/en.json";
 import brazilianPortuguese from "../locales/pt-BR.json";
 
@@ -20,6 +21,12 @@ function systemLocale(): Locale {
 
 const [locale, setLocale] = createSignal<Locale>(systemLocale());
 
-export { locale, setLocale };
+export { locale };
+
+// The Rust side decides the display language, so the windows and the menu
+// bar item never disagree. Until it answers, the system language stands in.
+export async function followTheApp() {
+  setLocale(await invoke<Locale>("display_language"));
+}
 
 export const t = translator(() => dictionaries[locale()]);
