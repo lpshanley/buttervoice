@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::path::Path;
 use std::time::Duration;
 
@@ -24,6 +25,12 @@ pub fn file_subscriber(
         .flatten_event(true)
         .with_writer(writer);
     Ok((tracing_subscriber::registry().with(file_layer), guard))
+}
+
+pub fn install(log_dir: &Path) -> Result<WorkerGuard, Box<dyn Error + Send + Sync>> {
+    let (subscriber, guard) = file_subscriber(log_dir)?;
+    tracing::subscriber::set_global_default(subscriber)?;
+    Ok(guard)
 }
 
 pub fn record_dictation(summary: &Summary) {

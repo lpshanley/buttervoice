@@ -1,4 +1,4 @@
-use std::path::Path;
+mod common;
 
 use buttervoice_core::DictationId;
 use buttervoice_core::timeline::{Mark, Summary, Timeline, Timestamp};
@@ -14,20 +14,7 @@ fn lines_logged_for(summary: &Summary) -> Vec<Value> {
     let (subscriber, guard) = file_subscriber(log_dir.path()).unwrap();
     tracing::subscriber::with_default(subscriber, || record_dictation(summary));
     drop(guard);
-    read_lines(log_dir.path())
-}
-
-fn read_lines(log_dir: &Path) -> Vec<Value> {
-    std::fs::read_dir(log_dir)
-        .unwrap()
-        .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
-        .flat_map(|contents| {
-            contents
-                .lines()
-                .map(|line| serde_json::from_str(line).unwrap())
-                .collect::<Vec<Value>>()
-        })
-        .collect()
+    common::read_lines(log_dir.path())
 }
 
 #[test]
