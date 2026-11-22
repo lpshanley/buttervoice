@@ -386,3 +386,25 @@ fn the_status_goes_from_listening_to_working_to_idle_over_a_dictation() {
     dictations.typing_finished(Ok(()), at_micros(2_400_000));
     assert_eq!(dictations.status(), DictationStatus::Idle);
 }
+
+#[test]
+fn the_latest_dictation_is_the_one_most_recently_started_finished_or_not() {
+    let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
+
+    dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(1_000_000));
+    assert_eq!(dictations.latest_dictation(), Some(DictationId(1)));
+
+    dictations.flags_changed(NO_MODIFIERS, at_micros(1_956_365));
+    finished(dictations.capture_stopped(None, at_micros(1_960_000)));
+    assert_eq!(dictations.latest_dictation(), Some(DictationId(1)));
+
+    dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(5_000_000));
+    assert_eq!(dictations.latest_dictation(), Some(DictationId(2)));
+}
+
+#[test]
+fn before_the_first_dictation_there_is_no_latest_one() {
+    let dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
+
+    assert_eq!(dictations.latest_dictation(), None);
+}

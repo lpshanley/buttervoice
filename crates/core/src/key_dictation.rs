@@ -1,3 +1,4 @@
+use crate::DictationId;
 use crate::capture::{AudioStats, Captured, CapturedAudio};
 use crate::hotkey::{HotkeyDecoder, HotkeyKey, KeyEdge};
 use crate::recording::{Decision, Mode, RecordingControl, StopReason};
@@ -98,6 +99,10 @@ impl KeyDictations {
                 DictationStatus::Working
             }
         }
+    }
+
+    pub fn latest_dictation(&self) -> Option<DictationId> {
+        self.control.latest_dictation()
     }
 
     pub fn flags_changed(&mut self, flags: u64, at: Timestamp) -> Option<CaptureCommand> {

@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::time::Duration;
 
+use buttervoice_core::DictationId;
 use buttervoice_core::key_dictation::FinishedDictation;
 use buttervoice_core::recording::StopReason;
 use buttervoice_core::transcription::{Transcription, TranscriptionFailure};
@@ -80,6 +81,13 @@ pub fn record_app_started(build: &Build) {
         },
         commit = build.commit,
         "app started"
+    );
+}
+
+pub fn record_marked_bad(latest_dictation: Option<DictationId>) {
+    tracing::info!(
+        dictation_id = latest_dictation.map(|dictation| dictation.0),
+        "dictation marked bad"
     );
 }
 

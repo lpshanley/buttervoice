@@ -55,6 +55,10 @@ impl RecordingControl {
         self.mode_for_next_dictation = mode;
     }
 
+    pub fn latest_dictation(&self) -> Option<DictationId> {
+        (self.dictations_started > 0).then_some(DictationId(self.dictations_started))
+    }
+
     pub fn key_pressed(&mut self, press: PressId) -> Decision {
         match self.state {
             State::Idle => self.start(press),

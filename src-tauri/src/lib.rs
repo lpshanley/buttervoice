@@ -28,14 +28,13 @@ use transcribers::Transcribers;
 
 const KEY_LISTENER_RETRY: Duration = Duration::from_secs(2);
 
+type Dictations = Arc<Mutex<KeyDictations>>;
+
 fn listen_for_the_dictation_key(
+    dictations: Dictations,
     hud: Arc<Hud>,
     transcribers: Arc<Transcribers>,
 ) -> std::io::Result<()> {
-    let dictations = Arc::new(Mutex::new(KeyDictations::new(
-        HotkeyKey::RightOption,
-        Mode::PushToTalk,
-    )));
     let recordings_dir = std::env::var_os(RECORDINGS_VARIABLE).map(PathBuf::from);
     let microphone = microphone::spawn({
         let dictations = dictations.clone();
@@ -170,15 +169,25 @@ fn keychain_service(identifier: &str) -> String {
 }
 
 fn add_menu_bar_item(app: &tauri::App) -> tauri::Result<()> {
+    let mark_bad = MenuItem::with_id(
+        app,
+        MARK_BAD,
+        "Mark Last Dictation as Bad",
+        true,
+        None::<&str>,
+    )?;
     let settings = MenuItem::with_id(app, SETTINGS, "Settings\u{2026}", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, QUIT, "Quit ButterVoice", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&settings, &quit])?;
+    let menu = Menu::with_items(app, &[&mark_bad, &settings, &quit])?;
     let mut item = TrayIconBuilder::new()
         .tooltip("ButterVoice")
         .menu(&menu)
         .on_menu_event(|app, event| {
             if event.id() == QUIT {
                 app.exit(0);
+            } else if event.id() == MARK_BAD {
+                let latest = lock(&app.state::<Dictations>()).latest_dictation();
+                buttervoice_telemetry::record_marked_bad(latest);
             } else if event.id() == SETTINGS
                 && let Some(window) = app.get_webview_window(SETTINGS)
             {
@@ -194,6 +203,7 @@ fn add_menu_bar_item(app: &tauri::App) -> tauri::Result<()> {
 }
 
 const QUIT: &str = "quit";
+const MARK_BAD: &str = "mark-bad";
 /// Both the menu item and the window it opens.
 const SETTINGS: &str = "settings";
 
@@ -230,7 +240,12 @@ pub fn run() {
             let hud = Arc::new(Hud::set_up(app.handle())?);
             let transcribers = Transcribers::start(keychain_service(&app.config().identifier));
             app.manage(transcribers.clone());
-            listen_for_the_dictation_key(hud, transcribers)?;
+            let dictations: Dictations = Arc::new(Mutex::new(KeyDictations::new(
+                HotkeyKey::RightOption,
+                Mode::PushToTalk,
+            )));
+            app.manage(dictations.clone());
+            listen_for_the_dictation_key(dictations, hud, transcribers)?;
             Ok(())
         })
         // Closing the settings window only hides it, so it can be opened again.
