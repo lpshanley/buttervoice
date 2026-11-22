@@ -1,0 +1,106 @@
+[
+  {
+    "kind": "read_sentence",
+    "say": "Can you send me the notes from this morning's meeting?"
+  },
+  {
+    "kind": "read_sentence",
+    "say": "I'll be about ten minutes late, start without me."
+  },
+  {
+    "kind": "read_sentence",
+    "say": "Let's move the review to Thursday afternoon."
+  },
+  {
+    "kind": "read_sentence",
+    "say": "The build passed, so I'm merging it now."
+  },
+  {
+    "kind": "short_utterance",
+    "say": "Yes."
+  },
+  {
+    "kind": "short_utterance",
+    "say": "Sounds good."
+  },
+  {
+    "kind": "short_utterance",
+    "say": "On it."
+  },
+  {
+    "kind": "short_utterance",
+    "say": "Thanks, got it."
+  },
+  {
+    "kind": "short_utterance",
+    "say": "Not yet."
+  },
+  {
+    "kind": "hard_words",
+    "say": "Check whether the cache is stale before blaming the network."
+  },
+  {
+    "kind": "hard_words",
+    "say": "The invoice is for one thousand two hundred fifty dollars, due March third."
+  },
+  {
+    "kind": "hard_words",
+    "say": "Ping me at nine thirty, or email me the Kubernetes config."
+  },
+  {
+    "kind": "hard_words",
+    "say": "We shipped version two point four on the twenty-first of October."
+  },
+  {
+    "kind": "hard_words",
+    "say": "Their API returns JSON over HTTPS, not XML."
+  },
+  {
+    "kind": "long_dictation",
+    "say": "This week I finished the first pass of the new onboarding flow. The main change is that people choose their language before anything else, and the app then recommends a way to transcribe that suits it. I still need to write the part that downloads the speech model, show progress while it does, and check the file before using it. After that I want to spend a day on the settings window, because it has grown twice and the layout needs attention. If nothing unexpected comes up, I should have something for the team to try by the end of next week."
+  },
+  {
+    "kind": "long_dictation",
+    "say": "Here is a quick summary of yesterday's discussion. We agreed that every model has to be tested on real recordings before anyone is offered it, and that the results should show what it costs to run as well as how accurate it is. Two people volunteered to record samples, one in English and one in Portuguese. The open question is how long we keep those recordings and who can listen to them. I'll write that up and send it round before Friday so everyone can comment."
+  },
+  {
+    "kind": "conditions",
+    "say": "Could you take a look at this when you have a minute?",
+    "do": "Say it quietly, as if someone nearby were asleep.",
+    "conditions": "quiet voice"
+  },
+  {
+    "kind": "conditions",
+    "say": "Could you take a look at this when you have a minute?",
+    "do": "Lean back, or stand about a metre from the computer.",
+    "conditions": "far from the microphone"
+  },
+  {
+    "kind": "conditions",
+    "say": "Could you take a look at this when you have a minute?",
+    "do": "Say it as fast as you comfortably can.",
+    "conditions": "speaking fast"
+  },
+  {
+    "kind": "conditions",
+    "say": "Could you take a look at this when you have a minute?",
+    "do": "Play some music or run a fan nearby, then say it.",
+    "conditions": "background noise"
+  },
+  {
+    "kind": "natural_speech",
+    "do": "In your own words, describe what you did this morning. Two or three sentences."
+  },
+  {
+    "kind": "natural_speech",
+    "do": "Explain to a colleague how to get to your desk or your home office."
+  },
+  {
+    "kind": "silence",
+    "do": "Hold the key for about three seconds and say nothing."
+  },
+  {
+    "kind": "silence",
+    "do": "Hold the key and type a few words on the keyboard without speaking."
+  }
+]

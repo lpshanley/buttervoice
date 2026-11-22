@@ -1,0 +1,106 @@
+[
+  {
+    "kind": "read_sentence",
+    "say": "Você pode me mandar as anotações da reunião de hoje de manhã?"
+  },
+  {
+    "kind": "read_sentence",
+    "say": "Vou me atrasar uns dez minutos, podem começar sem mim."
+  },
+  {
+    "kind": "read_sentence",
+    "say": "Vamos passar a revisão para quinta à tarde."
+  },
+  {
+    "kind": "read_sentence",
+    "say": "O build passou, então vou fazer o merge agora."
+  },
+  {
+    "kind": "short_utterance",
+    "say": "Sim."
+  },
+  {
+    "kind": "short_utterance",
+    "say": "Pode ser."
+  },
+  {
+    "kind": "short_utterance",
+    "say": "Deixa comigo."
+  },
+  {
+    "kind": "short_utterance",
+    "say": "Obrigado, entendi."
+  },
+  {
+    "kind": "short_utterance",
+    "say": "Ainda não."
+  },
+  {
+    "kind": "hard_words",
+    "say": "Verifique se o cache está desatualizado antes de culpar a rede."
+  },
+  {
+    "kind": "hard_words",
+    "say": "A fatura é de mil duzentos e cinquenta reais, com vencimento em três de março."
+  },
+  {
+    "kind": "hard_words",
+    "say": "Me chama às nove e meia ou me manda por e-mail a configuração do Kubernetes."
+  },
+  {
+    "kind": "hard_words",
+    "say": "Lançamos a versão dois ponto quatro no dia vinte e um de outubro."
+  },
+  {
+    "kind": "hard_words",
+    "say": "A API deles retorna JSON por HTTPS, não XML."
+  },
+  {
+    "kind": "long_dictation",
+    "say": "Esta semana terminei a primeira versão do novo fluxo de configuração inicial. A principal mudança é que as pessoas escolhem o idioma antes de qualquer outra coisa, e o aplicativo então recomenda uma forma de transcrição adequada. Ainda preciso escrever a parte que baixa o modelo de fala, mostrar o progresso durante o download e verificar o arquivo antes de usá-lo. Depois disso quero dedicar um dia à janela de ajustes, porque ela cresceu duas vezes e o layout precisa de atenção. Se nada inesperado acontecer, devo ter algo para a equipe testar até o fim da semana que vem."
+  },
+  {
+    "kind": "long_dictation",
+    "say": "Aqui vai um resumo rápido da conversa de ontem. Combinamos que todo modelo precisa ser testado com gravações reais antes de ser oferecido a alguém, e que os resultados devem mostrar quanto custa executá-lo, além da precisão. Duas pessoas se ofereceram para gravar amostras, uma em inglês e outra em português. A questão em aberto é por quanto tempo guardamos essas gravações e quem pode ouvi-las. Vou escrever isso e enviar para todos antes de sexta para que possam comentar."
+  },
+  {
+    "kind": "conditions",
+    "say": "Você pode dar uma olhada nisso quando tiver um minuto?",
+    "do": "Fale baixinho, como se alguém estivesse dormindo por perto.",
+    "conditions": "quiet voice"
+  },
+  {
+    "kind": "conditions",
+    "say": "Você pode dar uma olhada nisso quando tiver um minuto?",
+    "do": "Afaste-se, ou fique a cerca de um metro do computador.",
+    "conditions": "far from the microphone"
+  },
+  {
+    "kind": "conditions",
+    "say": "Você pode dar uma olhada nisso quando tiver um minuto?",
+    "do": "Fale o mais rápido que conseguir sem se atrapalhar.",
+    "conditions": "speaking fast"
+  },
+  {
+    "kind": "conditions",
+    "say": "Você pode dar uma olhada nisso quando tiver um minuto?",
+    "do": "Coloque uma música ou ligue um ventilador por perto e então fale.",
+    "conditions": "background noise"
+  },
+  {
+    "kind": "natural_speech",
+    "do": "Com suas palavras, conte o que você fez hoje de manhã. Duas ou três frases."
+  },
+  {
+    "kind": "natural_speech",
+    "do": "Explique a um colega como chegar à sua mesa ou ao seu escritório em casa."
+  },
+  {
+    "kind": "silence",
+    "do": "Segure a tecla por uns três segundos sem dizer nada."
+  },
+  {
+    "kind": "silence",
+    "do": "Segure a tecla e digite algumas palavras no teclado, sem falar."
+  }
+]

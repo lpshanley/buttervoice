@@ -1,3 +1,4 @@
+pub mod script;
 pub mod session;
 
 use std::path::Path;
