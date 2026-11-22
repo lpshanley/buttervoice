@@ -1,6 +1,7 @@
 mod common;
 
 use buttervoice_core::DictationId;
+use buttervoice_core::recording::StopReason;
 use buttervoice_core::timeline::{Mark, Summary, Timeline, Timestamp};
 use buttervoice_telemetry::{file_subscriber, record_dictation};
 use serde_json::Value;
@@ -10,9 +11,13 @@ fn at_micros(micros: u64) -> Timestamp {
 }
 
 fn lines_logged_for(summary: &Summary) -> Vec<Value> {
+    lines_logged_for_stop(summary, StopReason::KeyReleased)
+}
+
+fn lines_logged_for_stop(summary: &Summary, stopped_because: StopReason) -> Vec<Value> {
     let log_dir = tempfile::tempdir().unwrap();
     let (subscriber, guard) = file_subscriber(log_dir.path()).unwrap();
-    tracing::subscriber::with_default(subscriber, || record_dictation(summary));
+    tracing::subscriber::with_default(subscriber, || record_dictation(summary, stopped_because));
     drop(guard);
     common::read_lines(log_dir.path())
 }
@@ -43,4 +48,20 @@ fn a_latency_that_was_never_measured_is_left_out_of_the_line() {
 
     assert_eq!(lines.len(), 1);
     assert_eq!(lines[0].get("key_up_to_text_landed_ms"), None);
+}
+
+#[test]
+fn the_line_says_why_the_dictation_stopped() {
+    let summary = Timeline::new(DictationId(9)).summary();
+
+    for (stopped_because, expected) in [
+        (StopReason::KeyReleased, "key_released"),
+        (StopReason::KeyPressedAgain, "key_pressed_again"),
+        (StopReason::Manual, "manual"),
+        (StopReason::KeyListenerLost, "key_listener_lost"),
+    ] {
+        let lines = lines_logged_for_stop(&summary, stopped_because);
+
+        assert_eq!(lines[0]["stopped_because"], expected);
+    }
 }

@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::time::Duration;
 
+use buttervoice_core::recording::StopReason;
 use buttervoice_core::timeline::Summary;
 use tracing::Subscriber;
 use tracing::subscriber::SetGlobalDefaultError;
@@ -41,14 +42,24 @@ pub fn install(log_dir: &Path) -> Result<WorkerGuard, InstallError> {
     Ok(guard)
 }
 
-pub fn record_dictation(summary: &Summary) {
+pub fn record_dictation(summary: &Summary, stopped_because: StopReason) {
     tracing::info!(
         dictation_id = summary.dictation_id.0,
+        stopped_because = stop_reason_name(stopped_because),
         key_held_ms = summary.key_held.map(millis),
         key_down_to_first_sample_ms = summary.key_down_to_first_sample.map(millis),
         key_up_to_text_landed_ms = summary.key_up_to_text_landed.map(millis),
         "dictation"
     );
+}
+
+fn stop_reason_name(reason: StopReason) -> &'static str {
+    match reason {
+        StopReason::KeyReleased => "key_released",
+        StopReason::KeyPressedAgain => "key_pressed_again",
+        StopReason::Manual => "manual",
+        StopReason::KeyListenerLost => "key_listener_lost",
+    }
 }
 
 fn millis(duration: Duration) -> f64 {
