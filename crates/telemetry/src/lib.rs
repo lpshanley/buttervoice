@@ -44,6 +44,7 @@ pub fn install(log_dir: &Path) -> Result<WorkerGuard, InstallError> {
 pub fn record_dictation(summary: &Summary) {
     tracing::info!(
         dictation_id = summary.dictation_id.0,
+        key_held_ms = summary.key_held.map(millis),
         key_down_to_first_sample_ms = summary.key_down_to_first_sample.map(millis),
         key_up_to_text_landed_ms = summary.key_up_to_text_landed.map(millis),
         "dictation"

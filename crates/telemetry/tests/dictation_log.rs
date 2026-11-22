@@ -29,6 +29,7 @@ fn a_dictation_is_logged_as_one_line_with_its_id_and_latencies_in_milliseconds()
 
     assert_eq!(lines.len(), 1);
     assert_eq!(lines[0]["dictation_id"], 7);
+    assert_eq!(lines[0]["key_held_ms"], 3000.0);
     assert_eq!(lines[0]["key_down_to_first_sample_ms"], 180.25);
     assert_eq!(lines[0]["key_up_to_text_landed_ms"], 612.5);
 }
