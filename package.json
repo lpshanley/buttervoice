@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "",
   "type": "module",
+  "packageManager": "pnpm@12.3.4",
   "scripts": {
     "start": "vite",
     "dev": "vite",
