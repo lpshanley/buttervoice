@@ -91,18 +91,6 @@ fn a_take_waits_to_be_kept_or_redone_and_does_not_move_the_session_on() {
 }
 
 #[test]
-fn redoing_throws_the_take_away_and_stays_on_the_prompt() {
-    let mut session = a_session(vec![read("one"), read("two")]);
-    session.recorded(a_take(0.25));
-
-    session.redo();
-
-    assert_eq!(session.take(), None);
-    assert_eq!(session.prompt(), Some(&read("one")));
-    assert!(session.finish().samples.is_empty());
-}
-
-#[test]
 fn recording_again_before_keeping_replaces_the_take() {
     let mut session = a_session(vec![read("one")]);
     session.recorded(a_take(0.25));
@@ -253,4 +241,34 @@ fn going_back_from_the_end_reopens_the_last_prompt() {
     session.back();
 
     assert_eq!(session.prompt(), Some(&read("one")));
+}
+
+#[test]
+fn next_keeps_a_waiting_take_and_moves_on() {
+    let mut session = a_session(vec![read("one"), read("two")]);
+    session.recorded(a_take(0.25));
+
+    session.next("one");
+
+    assert_eq!(session.prompt(), Some(&read("two")));
+    assert_eq!(session.take(), None);
+    let set = session.finish();
+    assert_eq!(set.samples.len(), 1);
+    assert_eq!(set.samples[0].said, "one");
+    assert_eq!(set.samples[0].audio, a_take(0.25).audio);
+}
+
+#[test]
+fn next_with_no_take_waiting_moves_on_and_keeps_what_was_there() {
+    let mut session = a_session(vec![read("one"), read("two")]);
+    session.recorded(a_take(0.25));
+    session.keep("one");
+    session.back();
+
+    session.next("ignored");
+
+    assert_eq!(session.prompt(), Some(&read("two")));
+    let set = session.finish();
+    assert_eq!(set.samples.len(), 1);
+    assert_eq!(set.samples[0].said, "one");
 }

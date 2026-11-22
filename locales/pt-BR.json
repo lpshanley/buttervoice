@@ -48,8 +48,6 @@
   "samples.said_label": "O que você realmente disse",
   "samples.said_hint": "Escreva as palavras como você falou, como “nove e meia”, e não “9:30”. Altere só se você disse algo diferente.",
   "samples.nothing_said": "Gravado. Não é preciso escrever nada nesta.",
-  "samples.keep": "Manter",
-  "samples.redo": "Gravar de novo",
   "samples.skip": "Pular",
   "samples.done": "Essas são todas. Salve o conjunto para terminar.",
   "samples.save": "Salvar o conjunto",
@@ -78,5 +76,6 @@
   "samples.difference": "Comparado com as palavras na tela:",
   "samples.difference_hint": "Números escritos como algarismos, como 9:30, também aparecem como diferença.",
   "samples.no_difference": "O modelo ouviu exatamente as palavras na tela.",
-  "samples.save_now": "Salvar o que você tem"
+  "samples.save_now": "Salvar o que você tem",
+  "samples.record_over": "Não ficou bom? Segure a tecla de novo para gravar por cima."
 }

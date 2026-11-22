@@ -48,8 +48,6 @@
   "samples.said_label": "What you actually said",
   "samples.said_hint": "Write the words as you spoke them, such as “nine thirty”, not “9:30”. Change this only if you said something different.",
   "samples.nothing_said": "Recorded. Nothing needs to be written for this one.",
-  "samples.keep": "Keep",
-  "samples.redo": "Record again",
   "samples.skip": "Skip",
   "samples.done": "That's all of them. Save the set to finish.",
   "samples.save": "Save the set",
@@ -78,5 +76,6 @@
   "samples.difference": "Compared with the words on screen:",
   "samples.difference_hint": "Numbers written as figures, like 9:30, show as differences too.",
   "samples.no_difference": "The model heard exactly the words on screen.",
-  "samples.save_now": "Save what you have"
+  "samples.save_now": "Save what you have",
+  "samples.record_over": "Not right? Hold the key again to record over it."
 }

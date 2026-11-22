@@ -89,8 +89,12 @@ impl Session {
         true
     }
 
-    pub fn redo(&mut self) {
-        self.take = None;
+    /// Moves on, keeping a take that is waiting as what the person says
+    /// they said. With no take waiting it moves on keeping nothing new.
+    pub fn next(&mut self, said: &str) {
+        if !self.keep(said) {
+            self.skip();
+        }
     }
 
     pub fn skip(&mut self) {

@@ -94,9 +94,11 @@ function Samples() {
     await act("samples_start", { speaker: speaker() });
   }
 
-  async function keep() {
+  // With a take waiting, Next keeps it as the words in the box, which start
+  // as the script, so a take that matches is one press.
+  async function next() {
     const silent = state().prompt?.kind === "silence";
-    await act("samples_keep", { said: silent ? "" : said() });
+    await act("samples_next", { said: silent ? "" : said() });
   }
 
   async function finish() {
@@ -219,14 +221,7 @@ function Samples() {
               </p>
             </Show>
           </Show>
-          <div class="row">
-            <button type="button" onClick={() => void keep()}>
-              {t("samples.keep")}
-            </button>
-            <button type="button" class="quiet" onClick={() => void act("samples_redo")}>
-              {t("samples.redo")}
-            </button>
-          </div>
+          <p class="status">{t("samples.record_over")}</p>
         </Show>
         <div class="row">
           <button
@@ -238,7 +233,14 @@ function Samples() {
             {t("samples.back")}
           </button>
           <button type="button" class="quiet" onClick={() => void act("samples_skip")}>
-            {state().kept_here ? t("samples.next") : t("samples.skip")}
+            {t("samples.skip")}
+          </button>
+          <button
+            type="button"
+            disabled={!state().take && !state().kept_here}
+            onClick={() => void next()}
+          >
+            {t("samples.next")}
           </button>
         </div>
       </Show>

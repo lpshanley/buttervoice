@@ -296,13 +296,8 @@ fn what_the_system_says(name: &str) -> String {
 }
 
 #[tauri::command]
-fn samples_keep(said: String, recorder: tauri::State<'_, Arc<Recorder>>) -> bool {
-    recorder.keep(&said)
-}
-
-#[tauri::command]
-fn samples_redo(recorder: tauri::State<'_, Arc<Recorder>>) {
-    recorder.redo();
+fn samples_next(said: String, recorder: tauri::State<'_, Arc<Recorder>>) {
+    recorder.next(&said);
 }
 
 #[tauri::command]
@@ -534,8 +529,7 @@ pub fn run() {
             choose_microphone,
             samples_state,
             samples_start,
-            samples_keep,
-            samples_redo,
+            samples_next,
             samples_skip,
             samples_back,
             samples_audio,

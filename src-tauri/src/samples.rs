@@ -90,15 +90,9 @@ impl Recorder {
         }
     }
 
-    pub fn keep(&self, said: &str) -> bool {
-        self.session()
-            .as_mut()
-            .is_some_and(|session| session.keep(said))
-    }
-
-    pub fn redo(&self) {
+    pub fn next(&self, said: &str) {
         if let Some(session) = self.session().as_mut() {
-            session.redo();
+            session.next(said);
         }
     }
 
