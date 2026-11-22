@@ -11,6 +11,7 @@ pub mod recording;
 pub mod timeline;
 pub mod transcription;
 pub mod typing;
+pub mod update_schedule;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DictationId(pub u64);
