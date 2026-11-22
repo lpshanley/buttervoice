@@ -403,7 +403,7 @@ checksum = "87a0cf66fd1eb2fb7b822cb78370d82303750809bc6ba855f3f58e517d3238db"
 
 [[package]]
 name = "buttervoice"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "buttervoice-core",
  "buttervoice-grok",
@@ -423,7 +423,7 @@ dependencies = [
 
 [[package]]
 name = "buttervoice-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rtrb",
  "rubato",
@@ -431,7 +431,7 @@ dependencies = [
 
 [[package]]
 name = "buttervoice-grok"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "buttervoice-core",
  "reqwest",
@@ -441,7 +441,7 @@ dependencies = [
 
 [[package]]
 name = "buttervoice-local"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "buttervoice-core",
  "tempfile",
@@ -451,7 +451,7 @@ dependencies = [
 
 [[package]]
 name = "buttervoice-replay"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "buttervoice-core",
  "buttervoice-grok",
@@ -464,7 +464,7 @@ dependencies = [
 
 [[package]]
 name = "buttervoice-telemetry"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "buttervoice-core",
  "serde_json",
