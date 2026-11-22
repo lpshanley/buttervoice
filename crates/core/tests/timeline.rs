@@ -67,3 +67,19 @@ fn reports_time_from_key_down_to_the_first_real_sound() {
         Some(Duration::from_micros(823_864))
     );
 }
+
+#[test]
+fn reports_how_long_stopping_capture_and_transcribing_took() {
+    let mut timeline = Timeline::new(DictationId(1));
+    timeline.mark(Mark::KeyUp, at_micros(4_000_000));
+    timeline.mark(Mark::CaptureStopped, at_micros(4_025_000));
+    timeline.mark(Mark::TranscriptReady, at_micros(4_437_500));
+
+    let summary = timeline.summary();
+
+    assert_eq!(
+        summary.key_up_to_capture_stopped,
+        Some(Duration::from_micros(25_000))
+    );
+    assert_eq!(summary.transcription, Some(Duration::from_micros(412_500)));
+}

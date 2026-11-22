@@ -23,6 +23,8 @@ pub enum Mark {
     FirstSample,
     FirstSound,
     KeyUp,
+    CaptureStopped,
+    TranscriptReady,
     TextLanded,
 }
 
@@ -32,6 +34,8 @@ pub struct Summary {
     pub key_held: Option<Duration>,
     pub key_down_to_first_sample: Option<Duration>,
     pub key_down_to_first_sound: Option<Duration>,
+    pub key_up_to_capture_stopped: Option<Duration>,
+    pub transcription: Option<Duration>,
     pub key_up_to_text_landed: Option<Duration>,
 }
 
@@ -42,6 +46,8 @@ pub struct Timeline {
     first_sample: Option<Timestamp>,
     first_sound: Option<Timestamp>,
     key_up: Option<Timestamp>,
+    capture_stopped: Option<Timestamp>,
+    transcript_ready: Option<Timestamp>,
     text_landed: Option<Timestamp>,
 }
 
@@ -53,6 +59,8 @@ impl Timeline {
             first_sample: None,
             first_sound: None,
             key_up: None,
+            capture_stopped: None,
+            transcript_ready: None,
             text_landed: None,
         }
     }
@@ -63,6 +71,8 @@ impl Timeline {
             Mark::FirstSample => self.first_sample = Some(at),
             Mark::FirstSound => self.first_sound = Some(at),
             Mark::KeyUp => self.key_up = Some(at),
+            Mark::CaptureStopped => self.capture_stopped = Some(at),
+            Mark::TranscriptReady => self.transcript_ready = Some(at),
             Mark::TextLanded => self.text_landed = Some(at),
         }
     }
@@ -73,6 +83,8 @@ impl Timeline {
             key_held: between(self.key_down, self.key_up),
             key_down_to_first_sample: between(self.key_down, self.first_sample),
             key_down_to_first_sound: between(self.key_down, self.first_sound),
+            key_up_to_capture_stopped: between(self.key_up, self.capture_stopped),
+            transcription: between(self.capture_stopped, self.transcript_ready),
             key_up_to_text_landed: between(self.key_up, self.text_landed),
         }
     }
