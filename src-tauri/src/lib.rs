@@ -22,6 +22,7 @@ use buttervoice_core::key_dictation::{
 use buttervoice_core::language::Language;
 use buttervoice_core::recording::Mode;
 use buttervoice_core::transcription::Provider;
+use buttervoice_core::update_schedule::check_due;
 use buttervoice_local::fetch::FetchError;
 use buttervoice_replay::recordings;
 use buttervoice_samples::RecordedWith;
@@ -247,11 +248,7 @@ fn choose_language(
     transcribers
         .choose_language(language)
         .map_err(|error| not_saved(error, &transcribers))?;
-    if let Some(item) = app.tray_by_id(MENU_BAR_ITEM) {
-        let menu = menu_in(&app, language).map_err(|error| error.to_string())?;
-        item.set_menu(Some(menu))
-            .map_err(|error| error.to_string())?;
-    }
+    refresh_menu(&app);
     app.emit(DISPLAY_LANGUAGE_CHANGED, language.tag())
         .map_err(|error| error.to_string())
 }
@@ -385,10 +382,41 @@ async fn check_for_update(
     updates: tauri::State<'_, Updates>,
     transcribers: tauri::State<'_, Arc<Transcribers>>,
 ) -> Result<updates::Found, String> {
-    updates.check(&app).await.map_err(|error| {
+    let found = updates.check(&app).await.map_err(|error| {
         tracing::warn!(%error, "the update check failed");
         Message::UpdateCheckFailed.text(transcribers.display_language())
-    })
+    })?;
+    refresh_menu(&app);
+    Ok(found)
+}
+
+/// What the settings window shows without asking GitHub.
+#[derive(serde::Serialize)]
+struct UpdateSetup {
+    daily: bool,
+    known: Option<String>,
+}
+
+#[tauri::command]
+fn update_setup(
+    updates: tauri::State<'_, Updates>,
+    preferences: tauri::State<'_, Arc<preferences::Store>>,
+) -> UpdateSetup {
+    UpdateSetup {
+        daily: preferences.get().check_for_updates_daily,
+        known: updates.known(),
+    }
+}
+
+#[tauri::command]
+fn choose_daily_update_check(
+    on: bool,
+    preferences: tauri::State<'_, Arc<preferences::Store>>,
+    transcribers: tauri::State<'_, Arc<Transcribers>>,
+) -> Result<(), String> {
+    preferences
+        .change(|saved| saved.check_for_updates_daily = on)
+        .map_err(|error| not_saved(error, &transcribers))
 }
 
 #[tauri::command]
@@ -451,9 +479,11 @@ fn keychain_service(identifier: &str) -> String {
     }
 }
 
+/// `update_found` adds an item that leads to installing it.
 fn menu_in<R: tauri::Runtime, M: Manager<R>>(
     app: &M,
     language: Language,
+    update_found: bool,
 ) -> tauri::Result<Menu<R>> {
     let item = |id, message: Message| {
         MenuItem::with_id(app, id, message.text(language), true, None::<&str>)
@@ -462,13 +492,72 @@ fn menu_in<R: tauri::Runtime, M: Manager<R>>(
     let record_samples = item(SAMPLES, Message::RecordSamples)?;
     let settings = item(SETTINGS, Message::OpenSettings)?;
     let quit = item(QUIT, Message::Quit)?;
-    Menu::with_items(app, &[&mark_bad, &record_samples, &settings, &quit])
+    if update_found {
+        let install = item(INSTALL_UPDATE, Message::InstallUpdate)?;
+        Menu::with_items(
+            app,
+            &[&install, &mark_bad, &record_samples, &settings, &quit],
+        )
+    } else {
+        Menu::with_items(app, &[&mark_bad, &record_samples, &settings, &quit])
+    }
+}
+
+/// Rebuilds the menu bar item's menu for the current language and update.
+fn refresh_menu(app: &tauri::AppHandle) {
+    let language = app.state::<Arc<Transcribers>>().display_language();
+    let update_found = app.state::<Updates>().known().is_some();
+    if let Some(item) = app.tray_by_id(MENU_BAR_ITEM)
+        && let Ok(menu) = menu_in(app, language, update_found)
+    {
+        let _ = item.set_menu(Some(menu));
+    }
+}
+
+const INSTALL_UPDATE: &str = "install-update";
+
+/// How often the app looks at whether a daily check is due, and how long
+/// after starting it first looks: not at once, so starting stays quick.
+const UPDATE_LOOK_EVERY: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+const UPDATE_FIRST_LOOK: std::time::Duration = std::time::Duration::from_secs(60);
+
+fn check_for_updates_daily(app: tauri::AppHandle, preferences: Arc<preferences::Store>) {
+    let looking = std::thread::Builder::new()
+        .name("update-check".into())
+        .spawn(move || {
+            std::thread::sleep(UPDATE_FIRST_LOOK);
+            loop {
+                let saved = preferences.get();
+                let now = seconds_since_1970();
+                if check_due(saved.check_for_updates_daily, saved.last_update_check, now) {
+                    // Recorded before the check, so a Mac that is offline
+                    // tries once a day, not every hour.
+                    let _ = preferences.change(|saved| saved.last_update_check = Some(now));
+                    let updates = app.state::<Updates>();
+                    match tauri::async_runtime::block_on(updates.check(&app)) {
+                        Ok(_) => refresh_menu(&app),
+                        Err(error) => tracing::warn!(%error, "the daily update check failed"),
+                    }
+                }
+                std::thread::sleep(UPDATE_LOOK_EVERY);
+            }
+        });
+    if let Err(error) = looking {
+        tracing::error!(%error, "the daily update check could not be started");
+    }
+}
+
+fn seconds_since_1970() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_secs())
+        .unwrap_or_default()
 }
 
 const MENU_BAR_ITEM: &str = "menu-bar";
 
 fn add_menu_bar_item(app: &tauri::App, language: Language) -> tauri::Result<()> {
-    let menu = menu_in(app, language)?;
+    let menu = menu_in(app, language, false)?;
     let mut item = TrayIconBuilder::with_id(MENU_BAR_ITEM)
         .tooltip("ButterVoice")
         .menu(&menu)
@@ -478,6 +567,12 @@ fn add_menu_bar_item(app: &tauri::App, language: Language) -> tauri::Result<()> 
             } else if event.id() == MARK_BAD {
                 let latest = lock(&app.state::<Dictations>()).latest_dictation();
                 buttervoice_telemetry::record_marked_bad(latest);
+            } else if event.id() == INSTALL_UPDATE
+                && let Some(window) = app.get_webview_window(SETTINGS)
+            {
+                // The settings window shows the update and installs it.
+                let _ = window.show();
+                let _ = window.set_focus();
             } else if (event.id() == SETTINGS || event.id() == SAMPLES)
                 && let Some(window) = app.get_webview_window(event.id().as_ref())
             {
@@ -577,6 +672,7 @@ pub fn run() {
                 preferences.clone(),
                 app.handle().clone(),
             )?;
+            check_for_updates_daily(app.handle().clone(), preferences.clone());
             app.manage(preferences);
             Ok(())
         })
@@ -595,6 +691,8 @@ pub fn run() {
             microphone_setup,
             download_model,
             check_for_update,
+            update_setup,
+            choose_daily_update_check,
             install_update,
             cancel_model_download,
             choose_microphone,

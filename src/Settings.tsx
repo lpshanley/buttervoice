@@ -105,6 +105,14 @@ function Settings() {
   const [update, setUpdate] = createSignal<"idle" | "checking" | "installing">("idle");
   const [found, setFound] = createSignal<Found | null>(null);
   const [version, setVersion] = createSignal("");
+  const [daily, setDaily] = createSignal(true);
+
+  async function refreshUpdates() {
+    const now = await invoke<{ daily: boolean; known: string | null }>("update_setup");
+    setDaily(now.daily);
+    // A daily check may already have found one while this window was shut.
+    if (now.known) setFound({ current: version(), newer: now.known });
+  }
 
   async function checkForUpdate() {
     setUpdate("checking");
@@ -207,7 +215,9 @@ function Settings() {
     void refreshLanguage();
     void refresh();
     void refreshMicrophones();
-    void getVersion().then(setVersion);
+    void getVersion()
+      .then(setVersion)
+      .then(() => refreshUpdates());
     void recheck();
     // macOS does not say when a permission changes. Coming back to this
     // window from System Settings is the moment to look again.
@@ -411,6 +421,18 @@ function Settings() {
           {update() === "installing" ? t("update.installing") : t("update.install")}
         </button>
       </Show>
+      <label class="switch">
+        <input
+          type="checkbox"
+          checked={daily()}
+          onChange={(event) =>
+            void attempt("choose_daily_update_check", { on: event.currentTarget.checked }).then(
+              () => refreshUpdates(),
+            )
+          }
+        />
+        <span>{t("update.daily")}</span>
+      </label>
       <p class="status">{t("update.what")}</p>
       <h2>{t("permissions.heading")}</h2>
       <ul class="permissions">

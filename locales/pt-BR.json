@@ -95,9 +95,11 @@
   "update.current": "Você está usando a versão {{ version }}.",
   "update.check": "Procurar atualizações",
   "update.checking": "Procurando…",
-  "update.what": "A verificação acessa o GitHub, onde as versões são publicadas. Isso só acontece quando você pede.",
+  "update.what": "A verificação acessa o GitHub, onde as versões são publicadas: uma vez por dia enquanto isto estiver ligado, e sempre que você pedir. Nada sobre você ou seus ditados é enviado.",
   "update.newest": "Esta é a versão mais recente.",
   "update.available": "A versão {{ version }} está disponível.",
   "update.install": "Instalar e reabrir",
-  "update.installing": "Instalando… O ButterVoice vai reabrir sozinho."
+  "update.installing": "Instalando… O ButterVoice vai reabrir sozinho.",
+  "tray.install_update": "Instalar atualização…",
+  "update.daily": "Procurar atualizações uma vez por dia"
 }

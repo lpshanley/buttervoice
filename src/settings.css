@@ -222,3 +222,16 @@
 .settings button:disabled {
   opacity: 0.45;
 }
+
+.settings label.switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-weight: 400;
+}
+
+.settings label.switch input {
+  flex: none;
+  accent-color: var(--accent);
+}

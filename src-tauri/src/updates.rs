@@ -39,6 +39,15 @@ impl Updates {
         })
     }
 
+    /// The newer version found by the last check, without asking again.
+    pub fn known(&self) -> Option<String> {
+        self.found
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .map(|update| update.version.clone())
+    }
+
     /// Downloads and installs the update found by the last check, then
     /// relaunches into it.
     pub async fn install(&self, app: &AppHandle) -> Result<(), String> {
