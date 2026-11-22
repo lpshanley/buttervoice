@@ -43,6 +43,8 @@ pub struct FinishedDictation {
     pub audio: Option<AudioStats>,
     pub input: Option<InputKind>,
     pub provider: Option<Provider>,
+    /// The catalog id of what transcribed it, such as `parakeet-ultra`.
+    pub backend: Option<&'static str>,
     pub language: Option<Language>,
     pub transcription: Transcription,
     pub typing: Typing,
@@ -55,6 +57,7 @@ struct Stopped {
     key_down_at: Timestamp,
     input: Option<InputKind>,
     provider: Option<Provider>,
+    backend: Option<&'static str>,
     language: Option<Language>,
 }
 
@@ -171,6 +174,7 @@ impl KeyDictations {
     pub fn transcription_finished(
         &mut self,
         provider: Provider,
+        backend: &'static str,
         language: Language,
         outcome: Result<Transcript, TranscriptionFailure>,
         at: Timestamp,
@@ -182,6 +186,7 @@ impl KeyDictations {
         };
         stopped.timeline.mark(Mark::TranscriptReady, at);
         stopped.provider = Some(provider);
+        stopped.backend = Some(backend);
         stopped.language = Some(language);
         let transcript = match outcome {
             Ok(transcript) if !transcript.text.is_empty() => transcript,
@@ -216,6 +221,7 @@ impl KeyDictations {
     pub fn transcription_kept(
         &mut self,
         provider: Provider,
+        backend: &'static str,
         language: Language,
         outcome: Result<Transcript, TranscriptionFailure>,
         at: Timestamp,
@@ -227,6 +233,7 @@ impl KeyDictations {
         };
         stopped.timeline.mark(Mark::TranscriptReady, at);
         stopped.provider = Some(provider);
+        stopped.backend = Some(backend);
         stopped.language = Some(language);
         let transcription = match outcome {
             Ok(transcript) => Transcription::Succeeded(transcript),
@@ -307,6 +314,7 @@ impl KeyDictations {
             audio,
             input: stopped.input,
             provider: stopped.provider,
+            backend: stopped.backend,
             language: stopped.language,
             transcription,
             typing,
@@ -347,6 +355,7 @@ impl KeyDictations {
                     key_down_at,
                     input: None,
                     provider: None,
+                    backend: None,
                     language: None,
                 });
                 Some(CaptureCommand::Stop)

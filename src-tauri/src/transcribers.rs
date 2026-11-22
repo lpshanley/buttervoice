@@ -31,6 +31,18 @@ enum Ready {
     GrokWithoutKey,
 }
 
+/// What a dictation was transcribed by, in which language, and how it went.
+pub struct Transcribed {
+    pub provider: Provider,
+    /// The catalog id, such as `parakeet-ultra`.
+    pub backend: &'static str,
+    pub language: Language,
+    pub outcome: Result<Transcript, TranscriptionFailure>,
+}
+
+/// Grok's id in the catalog.
+const GROK: &str = "grok";
+
 pub struct Setup {
     pub provider: Provider,
     /// The size of the model the person's language needs, for a download.
@@ -76,48 +88,57 @@ impl Transcribers {
         transcribers
     }
 
-    pub fn transcribe(
-        &self,
-        audio: &CapturedAudio,
-    ) -> (Provider, Language, Result<Transcript, TranscriptionFailure>) {
+    pub fn transcribe(&self, audio: &CapturedAudio) -> Transcribed {
         let language = self.dictation_language();
-        let (provider, outcome) = match self.ready() {
-            Ready::Local(local, _) if !local.speaks(language) => (
+        let local_id = || self.wanted_backend().map_or("none", |backend| backend.id);
+        let (provider, backend, outcome) = match self.ready() {
+            Ready::Local(local, backend) if !local.speaks(language) => (
                 Provider::Local,
+                backend.id,
                 Err(TranscriptionFailure::LanguageNotSupported),
             ),
-            Ready::Local(local, _) => {
+            Ready::Local(local, backend) => {
                 let outcome = local.transcribe(audio, language).map_err(|error| {
                     tracing::error!(%error, "the local engine could not transcribe");
                     TranscriptionFailure::EngineFailed
                 });
-                (Provider::Local, outcome)
+                (Provider::Local, backend.id, outcome)
             }
             // The cloud service hears quiet speech worse; the local engine
             // does not care.
             Ready::Grok(grok, _) => (
                 Provider::Grok,
+                GROK,
                 grok.transcribe(&audio.boosted_for_transcription(), language),
             ),
             Ready::NoLocalModel => (
                 Provider::Local,
+                "none",
                 Err(TranscriptionFailure::LanguageNotSupported),
             ),
-            Ready::Starting | Ready::LocalModelMissing | Ready::LocalModelUnusable => {
-                (Provider::Local, Err(TranscriptionFailure::NotConfigured))
-            }
-            Ready::GrokWithoutKey => (Provider::Grok, Err(TranscriptionFailure::NotConfigured)),
+            Ready::Starting | Ready::LocalModelMissing | Ready::LocalModelUnusable => (
+                Provider::Local,
+                local_id(),
+                Err(TranscriptionFailure::NotConfigured),
+            ),
+            Ready::GrokWithoutKey => (
+                Provider::Grok,
+                GROK,
+                Err(TranscriptionFailure::NotConfigured),
+            ),
         };
-        (provider, language, outcome)
+        Transcribed {
+            provider,
+            backend,
+            language,
+            outcome,
+        }
     }
 
     /// What a transcriber on this Mac makes of a recording, or `None` when
     /// there is none for the person's language. A sample is never sent to a
     /// cloud service just to suggest its text.
-    pub fn heard_on_this_mac(
-        &self,
-        audio: &CapturedAudio,
-    ) -> Option<(Provider, Language, Result<Transcript, TranscriptionFailure>)> {
+    pub fn heard_on_this_mac(&self, audio: &CapturedAudio) -> Option<Transcribed> {
         let language = self.dictation_language();
         match self.ready() {
             Ready::Local(local, _) if local.speaks(language) => Some(self.transcribe(audio)),

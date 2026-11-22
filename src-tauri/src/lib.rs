@@ -35,7 +35,7 @@ use samples::Recorder;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager};
-use transcribers::Transcribers;
+use transcribers::{Transcribed, Transcribers};
 use updates::Updates;
 
 rust_i18n::i18n!("../locales", fallback = "en");
@@ -70,7 +70,10 @@ fn listen_for_the_dictation_key(
                     Some(AfterCapture::Transcribe(audio)) if taking_samples(&recorder, &app) => {
                         let hint = transcribers.heard_on_this_mac(&audio);
                         let heard = match &hint {
-                            Some((_, _, Ok(transcript))) => Some(transcript.text.clone()),
+                            Some(Transcribed {
+                                outcome: Ok(transcript),
+                                ..
+                            }) => Some(transcript.text.clone()),
                             _ => None,
                         };
                         recorder.recorded(Take {
@@ -80,8 +83,13 @@ fn listen_for_the_dictation_key(
                         });
                         let _ = app.emit_to(SAMPLES, SAMPLES_CHANGED, ());
                         match hint {
-                            Some((provider, language, outcome)) => lock(&dictations)
-                                .transcription_kept(provider, language, outcome, key_tap::now()),
+                            Some(heard) => lock(&dictations).transcription_kept(
+                                heard.provider,
+                                heard.backend,
+                                heard.language,
+                                heard.outcome,
+                                key_tap::now(),
+                            ),
                             None => lock(&dictations).kept_untranscribed(),
                         }
                     }
@@ -91,11 +99,12 @@ fn listen_for_the_dictation_key(
                         }
                         // Transcribing happens outside the lock, so key events
                         // are still handled while it runs.
-                        let (provider, language, outcome) = transcribers.transcribe(&audio);
+                        let heard = transcribers.transcribe(&audio);
                         let after = lock(&dictations).transcription_finished(
-                            provider,
-                            language,
-                            outcome,
+                            heard.provider,
+                            heard.backend,
+                            heard.language,
+                            heard.outcome,
                             key_tap::now(),
                         );
                         match after {

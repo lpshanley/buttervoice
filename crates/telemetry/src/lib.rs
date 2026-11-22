@@ -164,6 +164,7 @@ pub fn record_dictation(dictation: &FinishedDictation) {
         key_down_to_first_sound_ms = summary.key_down_to_first_sound.map(millis),
         key_up_to_capture_stopped_ms = summary.key_up_to_capture_stopped.map(millis),
         provider = dictation.provider.map(Provider::name),
+        backend = dictation.backend,
         language = dictation.language.map(Language::tag),
         transcription = transcription_outcome(&dictation.transcription),
         transcription_failure = transcription_failure(&dictation.transcription),

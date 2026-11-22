@@ -42,6 +42,7 @@ fn uneventful(summary: Summary) -> FinishedDictation {
         audio: None,
         input: None,
         provider: None,
+        backend: None,
         language: None,
         transcription: Transcription::NotAttempted,
         typing: Typing::NotAttempted,
@@ -256,6 +257,16 @@ fn the_line_says_which_language_was_dictated() {
 
         assert_eq!(lines[0]["language"], expected);
     }
+}
+
+#[test]
+fn the_line_names_the_model_that_transcribed_the_dictation() {
+    let lines = lines_logged(&FinishedDictation {
+        backend: Some("parakeet-ultra"),
+        ..uneventful(Timeline::new(DictationId(18)).summary())
+    });
+
+    assert_eq!(lines[0]["backend"], "parakeet-ultra");
 }
 
 #[test]
