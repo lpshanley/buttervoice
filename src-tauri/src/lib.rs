@@ -18,6 +18,7 @@ use buttervoice_core::key_dictation::{
 use buttervoice_core::recording::Mode;
 use buttervoice_core::transcription::TranscriptionFailure;
 use buttervoice_replay::recordings;
+use buttervoice_telemetry::{Build, BuildKind};
 use hud::Hud;
 use key_tap::{TapEnded, TapEvent};
 use tauri::Manager;
@@ -210,7 +211,15 @@ pub fn run() {
         .setup(|app| {
             let log_file_guard = buttervoice_telemetry::install(&app.path().app_log_dir()?)?;
             app.manage(log_file_guard);
-            tracing::info!(version = env!("CARGO_PKG_VERSION"), "app started");
+            buttervoice_telemetry::record_app_started(&Build {
+                version: env!("CARGO_PKG_VERSION"),
+                kind: if cfg!(debug_assertions) {
+                    BuildKind::Debug
+                } else {
+                    BuildKind::Release
+                },
+                commit: env!("BUTTERVOICE_COMMIT"),
+            });
             // A menu-bar app: no Dock icon and no window of its own.
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             add_menu_bar_item(app)?;

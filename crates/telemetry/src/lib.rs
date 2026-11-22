@@ -49,6 +49,33 @@ pub fn install(log_dir: &Path) -> Result<WorkerGuard, InstallError> {
     Ok(guard)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildKind {
+    Debug,
+    Release,
+}
+
+/// Which build of the app is running. The installed app and a development
+/// build write to the same log file.
+#[derive(Debug, Clone, Copy)]
+pub struct Build<'a> {
+    pub version: &'a str,
+    pub kind: BuildKind,
+    pub commit: &'a str,
+}
+
+pub fn record_app_started(build: &Build) {
+    tracing::info!(
+        version = build.version,
+        build = match build.kind {
+            BuildKind::Debug => "debug",
+            BuildKind::Release => "release",
+        },
+        commit = build.commit,
+        "app started"
+    );
+}
+
 pub fn record_dictation(dictation: &FinishedDictation) {
     let summary = &dictation.summary;
     tracing::info!(
