@@ -1,6 +1,8 @@
 mod key_tap;
+mod microphone;
 
-use buttervoice_core::capture::CaptureReport;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+
 use buttervoice_core::hotkey::HotkeyKey;
 use buttervoice_core::key_dictation::{CaptureCommand, KeyDictations};
 use buttervoice_core::recording::Mode;
@@ -14,34 +16,52 @@ fn greet(name: &str) -> String {
 }
 
 fn listen_for_the_dictation_key() -> std::io::Result<()> {
+    let dictations = Arc::new(Mutex::new(KeyDictations::new(
+        HotkeyKey::RightOption,
+        Mode::PushToTalk,
+    )));
+    let microphone = microphone::spawn({
+        let dictations = dictations.clone();
+        move |report| {
+            let finished = lock(&dictations).capture_stopped(report);
+            if let Some(finished) = finished {
+                buttervoice_telemetry::record_dictation(
+                    &finished.summary,
+                    finished.stopped_because,
+                );
+            }
+        }
+    })?;
     std::thread::Builder::new()
         .name("key-tap".into())
-        .spawn(|| {
-            let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
+        .spawn(move || {
+            let send = |command: Option<CaptureCommand>| {
+                if let Some(command) = command {
+                    let _ = microphone.send(command);
+                }
+            };
             let ended = key_tap::run(|event| {
                 let command = match event {
-                    TapEvent::FlagsChanged { flags, at } => dictations.flags_changed(flags, at),
+                    TapEvent::FlagsChanged { flags, at } => {
+                        lock(&dictations).flags_changed(flags, at)
+                    }
                     TapEvent::Interrupted { flags, at } => {
                         tracing::warn!("key listener interrupted");
-                        dictations.resync(flags, at)
+                        lock(&dictations).resync(flags, at)
                     }
                 };
-                carry_out(command, &mut dictations);
+                send(command);
             });
-            let command = dictations.key_listener_lost(key_tap::now());
-            carry_out(command, &mut dictations);
+            send(lock(&dictations).key_listener_lost(key_tap::now()));
             tracing::error!(reason = %ended, "key listener stopped");
         })?;
     Ok(())
 }
 
-fn carry_out(command: Option<CaptureCommand>, dictations: &mut KeyDictations) {
-    // No microphone yet: capture "stops" at once with nothing captured.
-    if command == Some(CaptureCommand::Stop)
-        && let Some(finished) = dictations.capture_stopped(CaptureReport::default())
-    {
-        buttervoice_telemetry::record_dictation(&finished.summary, finished.stopped_because);
-    }
+/// The state behind the lock is only ever changed by whole method calls, so
+/// it is still usable after another thread panicked while holding it.
+fn lock(dictations: &Mutex<KeyDictations>) -> MutexGuard<'_, KeyDictations> {
+    dictations.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
