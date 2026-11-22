@@ -1,0 +1,31 @@
+{
+  "name": "buttervoice",
+  "version": "0.1.0",
+  "description": "",
+  "type": "module",
+  "scripts": {
+    "start": "vite",
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src",
+    "tauri": "tauri"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@solidjs/web": "^2.0.3",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-opener": "^2",
+    "solid-js": "^2.0.3"
+  },
+  "devDependencies": {
+    "@solidjs/diagnostics": "^2.0.3",
+    "@solidjs/vite-plugin": "^3.0.1",
+    "@tauri-apps/cli": "^2",
+    "eslint-plugin-solid": "~0.20.1",
+    "oxlint": "~1.92.0",
+    "typescript": "~7.0.2",
+    "vite": "^8.0.16"
+  }
+}
