@@ -30,9 +30,24 @@ pub struct Backend {
 
 /// In order of preference: among backends that fit a person equally, the
 /// earlier one is recommended.
-pub const CATALOG: [Backend; 2] = [
-    // Chosen by benchmark on real dictations: as accurate as the
-    // alternatives tried and several times faster.
+pub const CATALOG: [Backend; 3] = [
+    // Fewest mistakes of five local models across 48 real samples on the
+    // built-in microphone and AirPods, and as fast as any. It also speaks
+    // Brazilian Portuguese, which has not been tested yet.
+    Backend {
+        id: "parakeet-ultra",
+        place: Place::ThisMac,
+        model: Some(Model {
+            file: "parakeet-ultra-Q8_0.gguf",
+            source: "https://huggingface.co/handy-computer/parakeet-ultra-gguf/resolve/a1539be1b849ea7463b88343e5277b373d0c4ea9/parakeet-ultra-Q8_0.gguf",
+            sha256: "007a59761e9258779f189df396b50d12b83bb5b79e66df4b955c230d2f2a0a59",
+            bytes: 740_363_168,
+            licence: "CC-BY-4.0",
+        }),
+        speaks: &[Language::English, Language::BrazilianPortuguese],
+        vetted_for: &[Language::English],
+    },
+    // English only; close behind on the same samples.
     Backend {
         id: "parakeet-tdt-0.6b-v2",
         place: Place::ThisMac,
@@ -67,4 +82,14 @@ pub fn best_local_fit(catalog: &[Backend], language: Language) -> Option<&Backen
     catalog
         .iter()
         .find(|backend| backend.place == Place::ThisMac && backend.vetted_for.contains(&language))
+}
+
+/// The model to load on this Mac for someone dictating in `language`: the
+/// best one vetted for it, or else one that at least speaks it.
+pub fn local_backend_for(catalog: &[Backend], language: Language) -> Option<&Backend> {
+    best_local_fit(catalog, language).or_else(|| {
+        catalog
+            .iter()
+            .find(|backend| backend.place == Place::ThisMac && backend.speaks.contains(&language))
+    })
 }

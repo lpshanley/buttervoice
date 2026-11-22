@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 
-use buttervoice_core::backend::{Backend, CATALOG, Model, Place, best_local_fit, find};
+use buttervoice_core::backend::{
+    Backend, CATALOG, Model, Place, best_local_fit, find, local_backend_for,
+};
 use buttervoice_core::language::Language;
 
 const A_MODEL: Model = Model {
@@ -73,10 +75,18 @@ fn a_saved_choice_finds_its_backend_and_an_unknown_one_finds_none() {
 }
 
 #[test]
-fn english_is_recommended_the_model_that_won_its_benchmark() {
+fn english_is_recommended_the_model_that_did_best_on_real_samples() {
     let fit = best_local_fit(&CATALOG, Language::English);
 
-    assert_eq!(fit.map(|backend| backend.id), Some("parakeet-tdt-0.6b-v2"));
+    assert_eq!(fit.map(|backend| backend.id), Some("parakeet-ultra"));
+}
+
+#[test]
+fn the_english_only_model_stays_available_as_an_alternative() {
+    let english_only = find("parakeet-tdt-0.6b-v2").expect("in the catalog");
+
+    assert_eq!(english_only.place, Place::ThisMac);
+    assert_eq!(english_only.speaks, &[Language::English]);
 }
 
 #[test]
@@ -124,4 +134,45 @@ fn what_runs_on_this_mac_names_a_checkable_model_file_and_a_cloud_service_names_
             _ => panic!("{} does not fit where it runs", backend.id),
         }
     }
+}
+
+#[test]
+fn the_model_to_load_for_a_language_is_the_one_vetted_for_it() {
+    let chosen = local_backend_for(&CATALOG, Language::English);
+
+    assert_eq!(chosen.map(|backend| backend.id), Some("parakeet-ultra"));
+}
+
+#[test]
+fn without_a_model_vetted_for_the_language_one_that_speaks_it_is_loaded() {
+    let catalog = [
+        Backend {
+            speaks: &[Language::English],
+            ..on_this_mac("english-only", &[Language::English])
+        },
+        on_this_mac("speaks-portuguese-untested", &[Language::English]),
+    ];
+
+    let chosen = local_backend_for(&catalog, Language::BrazilianPortuguese);
+
+    assert_eq!(
+        chosen.map(|backend| backend.id),
+        Some("speaks-portuguese-untested")
+    );
+}
+
+#[test]
+fn when_nothing_on_this_mac_speaks_the_language_there_is_no_model_to_load() {
+    let catalog = [
+        Backend {
+            speaks: &[Language::English],
+            ..on_this_mac("english-only", &[Language::English])
+        },
+        in_the_cloud("cloud", &[Language::BrazilianPortuguese]),
+    ];
+
+    assert_eq!(
+        local_backend_for(&catalog, Language::BrazilianPortuguese),
+        None
+    );
 }
