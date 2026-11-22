@@ -7,7 +7,7 @@ use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::time::Duration;
 
 use buttervoice_core::capture::{
-    AudioFormat, CaptureReader, Captured, capture_channel, choose_input,
+    AudioFormat, CaptureReader, Captured, capture_channel, choose_input, input_kind,
 };
 use buttervoice_core::key_dictation::CaptureCommand;
 use buttervoice_core::timeline::Timestamp;
@@ -89,7 +89,7 @@ fn start() -> Result<Capturing, StartError> {
         sample_rate: config.sample_rate,
         channels: config.channels,
     };
-    let (mut writer, audio) = capture_channel(format, BUFFERED);
+    let (mut writer, audio) = capture_channel(input_kind(&chosen), format, BUFFERED);
     let stream_errors = Arc::new(AtomicU64::new(0));
     let stream = device.build_input_stream(
         config,

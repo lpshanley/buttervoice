@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use buttervoice_core::DictationId;
+use buttervoice_core::capture::InputKind;
 use buttervoice_core::key_dictation::FinishedDictation;
 use buttervoice_core::recording::StopReason;
 use buttervoice_core::transcription::{Transcription, TranscriptionFailure};
@@ -151,6 +152,9 @@ pub fn record_dictation(dictation: &FinishedDictation) {
         dictation_id = summary.dictation_id.0,
         stopped_because = stop_reason_name(dictation.stopped_because),
         key_held_ms = summary.key_held.map(millis),
+        input = dictation.input.map(input_kind_name),
+        input_sample_rate_hz = dictation.audio.map(|audio| audio.format.sample_rate),
+        input_channels = dictation.audio.map(|audio| audio.format.channels),
         captured_audio_ms = dictation.audio.map(|audio| millis(audio.duration)),
         dropped_samples = dictation.audio.map(|audio| audio.dropped_samples),
         audio_peak_dbfs = dictation.audio.and_then(|audio| dbfs(audio.peak)),
@@ -167,6 +171,13 @@ pub fn record_dictation(dictation: &FinishedDictation) {
         key_up_to_text_typed_ms = summary.key_up_to_text_typed.map(millis),
         "dictation"
     );
+}
+
+fn input_kind_name(input: InputKind) -> &'static str {
+    match input {
+        InputKind::BuiltIn => "built_in",
+        InputKind::Other => "other",
+    }
 }
 
 fn stop_reason_name(reason: StopReason) -> &'static str {

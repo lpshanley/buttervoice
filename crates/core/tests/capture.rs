@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use buttervoice_core::capture::{AudioFormat, CapturedAudio, capture_channel, choose_input};
+use buttervoice_core::capture::{
+    AudioFormat, CapturedAudio, InputKind, capture_channel, choose_input, input_kind,
+};
 use buttervoice_core::timeline::Timestamp;
 
 fn at_micros(micros: u64) -> Timestamp {
@@ -25,6 +27,12 @@ fn without_a_built_in_microphone_the_system_default_is_used() {
     assert_eq!(choose_input(&[HEADSET], Some(HEADSET)), Some(HEADSET));
 }
 
+#[test]
+fn only_the_macs_own_microphone_counts_as_built_in() {
+    assert_eq!(input_kind(BUILT_IN), InputKind::BuiltIn);
+    assert_eq!(input_kind(HEADSET), InputKind::Other);
+}
+
 const ONE_SAMPLE_PER_MS: AudioFormat = AudioFormat {
     sample_rate: 1_000,
     channels: 1,
@@ -32,7 +40,11 @@ const ONE_SAMPLE_PER_MS: AudioFormat = AudioFormat {
 
 #[test]
 fn captured_audio_comes_out_in_the_order_it_was_written() {
-    let (mut writer, reader) = capture_channel(ONE_SAMPLE_PER_MS, Duration::from_millis(8));
+    let (mut writer, reader) = capture_channel(
+        InputKind::Other,
+        ONE_SAMPLE_PER_MS,
+        Duration::from_millis(8),
+    );
     writer.buffer_captured(&[0.1, 0.2], at_micros(1_000));
     writer.buffer_captured(&[0.3], at_micros(3_000));
 
@@ -44,7 +56,11 @@ fn captured_audio_comes_out_in_the_order_it_was_written() {
 
 #[test]
 fn audio_that_does_not_fit_is_counted_as_dropped() {
-    let (mut writer, reader) = capture_channel(ONE_SAMPLE_PER_MS, Duration::from_millis(4));
+    let (mut writer, reader) = capture_channel(
+        InputKind::Other,
+        ONE_SAMPLE_PER_MS,
+        Duration::from_millis(4),
+    );
     writer.buffer_captured(&[0.1, 0.2, 0.3, 0.4, 0.5, 0.6], at_micros(1_000));
 
     let audio = reader.finish().audio;
@@ -55,7 +71,11 @@ fn audio_that_does_not_fit_is_counted_as_dropped() {
 
 #[test]
 fn collecting_makes_room_for_more_audio() {
-    let (mut writer, mut reader) = capture_channel(ONE_SAMPLE_PER_MS, Duration::from_millis(4));
+    let (mut writer, mut reader) = capture_channel(
+        InputKind::Other,
+        ONE_SAMPLE_PER_MS,
+        Duration::from_millis(4),
+    );
     writer.buffer_captured(&[0.1, 0.2, 0.3, 0.4], at_micros(1_000));
     reader.collect();
     writer.buffer_captured(&[0.5, 0.6, 0.7, 0.8], at_micros(5_000));
@@ -68,7 +88,11 @@ fn collecting_makes_room_for_more_audio() {
 
 #[test]
 fn the_channel_reports_when_the_first_sample_and_first_sound_were_captured() {
-    let (mut writer, reader) = capture_channel(ONE_SAMPLE_PER_MS, Duration::from_millis(8));
+    let (mut writer, reader) = capture_channel(
+        InputKind::Other,
+        ONE_SAMPLE_PER_MS,
+        Duration::from_millis(8),
+    );
     writer.buffer_captured(&[0.0, 0.0], at_micros(1_000));
     writer.buffer_captured(&[0.0, 0.25], at_micros(3_000));
 
@@ -76,6 +100,17 @@ fn the_channel_reports_when_the_first_sample_and_first_sound_were_captured() {
 
     assert_eq!(report.first_sample_at, Some(at_micros(1_000)));
     assert_eq!(report.first_sound_at, Some(at_micros(3_000)));
+}
+
+#[test]
+fn captured_audio_says_which_kind_of_input_it_came_from() {
+    let (_writer, reader) = capture_channel(
+        InputKind::BuiltIn,
+        ONE_SAMPLE_PER_MS,
+        Duration::from_millis(8),
+    );
+
+    assert_eq!(reader.finish().input, InputKind::BuiltIn);
 }
 
 #[test]

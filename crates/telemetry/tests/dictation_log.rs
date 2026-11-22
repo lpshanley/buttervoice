@@ -3,7 +3,7 @@ mod common;
 use std::time::Duration;
 
 use buttervoice_core::DictationId;
-use buttervoice_core::capture::AudioStats;
+use buttervoice_core::capture::{AudioFormat, AudioStats, InputKind};
 use buttervoice_core::key_dictation::FinishedDictation;
 use buttervoice_core::recording::StopReason;
 use buttervoice_core::timeline::{Mark, Summary, Timeline, Timestamp};
@@ -11,6 +11,11 @@ use buttervoice_core::transcription::{Transcript, Transcription, TranscriptionFa
 use buttervoice_core::typing::{Typing, TypingFailure};
 use buttervoice_telemetry::{file_subscriber, record_dictation, record_dictation_started};
 use serde_json::Value;
+
+const MONO_48K: AudioFormat = AudioFormat {
+    sample_rate: 48_000,
+    channels: 1,
+};
 
 fn at_micros(micros: u64) -> Timestamp {
     Timestamp::from_nanos(micros * 1_000)
@@ -25,6 +30,7 @@ fn lines_logged_for_stop(summary: &Summary, stopped_because: StopReason) -> Vec<
         summary: summary.clone(),
         stopped_because,
         audio: None,
+        input: None,
         transcription: Transcription::NotAttempted,
         typing: Typing::NotAttempted,
     })
@@ -90,11 +96,13 @@ fn the_line_says_how_much_audio_was_captured_and_how_much_was_dropped() {
         summary: Timeline::new(DictationId(10)).summary(),
         stopped_because: StopReason::KeyReleased,
         audio: Some(AudioStats {
+            format: MONO_48K,
             duration: Duration::from_millis(500),
             dropped_samples: 7,
             peak: 1.0,
             rms: 0.1,
         }),
+        input: None,
         transcription: Transcription::NotAttempted,
         typing: Typing::NotAttempted,
     });
@@ -116,6 +124,7 @@ fn the_line_reports_a_transcription_without_the_words_that_were_said() {
         summary: timeline.summary(),
         stopped_because: StopReason::KeyReleased,
         audio: None,
+        input: None,
         transcription: Transcription::Succeeded(Transcript {
             text: "hello world".to_string(),
         }),
@@ -144,6 +153,7 @@ fn the_line_says_why_a_transcription_failed() {
             summary: summary.clone(),
             stopped_because: StopReason::KeyReleased,
             audio: None,
+            input: None,
             transcription: Transcription::Failed(failure),
             typing: Typing::NotAttempted,
         });
@@ -159,11 +169,13 @@ fn audio_that_is_pure_silence_has_no_level_in_the_line() {
         summary: Timeline::new(DictationId(13)).summary(),
         stopped_because: StopReason::KeyReleased,
         audio: Some(AudioStats {
+            format: MONO_48K,
             duration: Duration::from_millis(500),
             dropped_samples: 0,
             peak: 0.0,
             rms: 0.0,
         }),
+        input: None,
         transcription: Transcription::NotAttempted,
         typing: Typing::NotAttempted,
     });
@@ -178,6 +190,7 @@ fn the_line_says_whether_the_text_was_typed() {
         summary: Timeline::new(DictationId(14)).summary(),
         stopped_because: StopReason::KeyReleased,
         audio: None,
+        input: None,
         transcription: Transcription::NotAttempted,
         typing,
     };
@@ -192,6 +205,36 @@ fn the_line_says_whether_the_text_was_typed() {
     let refused = lines_logged(&dictation(Typing::Failed(TypingFailure::NotPermitted)));
     assert_eq!(refused[0]["typing"], "failed");
     assert_eq!(refused[0]["typing_failure"], "not_permitted");
+}
+
+#[test]
+fn the_line_says_which_kind_of_input_was_used_and_its_format() {
+    for (input, expected) in [
+        (InputKind::BuiltIn, "built_in"),
+        (InputKind::Other, "other"),
+    ] {
+        let lines = lines_logged(&FinishedDictation {
+            summary: Timeline::new(DictationId(15)).summary(),
+            stopped_because: StopReason::KeyReleased,
+            audio: Some(AudioStats {
+                format: AudioFormat {
+                    sample_rate: 24_000,
+                    channels: 2,
+                },
+                duration: Duration::from_millis(500),
+                dropped_samples: 0,
+                peak: 0.5,
+                rms: 0.1,
+            }),
+            input: Some(input),
+            transcription: Transcription::NotAttempted,
+            typing: Typing::NotAttempted,
+        });
+
+        assert_eq!(lines[0]["input"], expected);
+        assert_eq!(lines[0]["input_sample_rate_hz"], 24_000);
+        assert_eq!(lines[0]["input_channels"], 2);
+    }
 }
 
 #[test]

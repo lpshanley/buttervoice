@@ -1,7 +1,9 @@
 use std::time::Duration;
 
 use buttervoice_core::DictationId;
-use buttervoice_core::capture::{AudioFormat, AudioStats, CaptureReport, Captured, CapturedAudio};
+use buttervoice_core::capture::{
+    AudioFormat, AudioStats, CaptureReport, Captured, CapturedAudio, InputKind,
+};
 use buttervoice_core::hotkey::HotkeyKey;
 use buttervoice_core::key_dictation::{
     AfterCapture, AfterTranscription, CaptureCommand, DictationStatus, FinishedDictation,
@@ -37,6 +39,7 @@ fn speech() -> Captured {
             first_sample_at: Some(at_micros(1_084_000)),
             first_sound_at: Some(at_micros(1_095_000)),
         },
+        input: InputKind::BuiltIn,
     }
 }
 
@@ -198,6 +201,10 @@ fn a_finished_dictation_describes_its_capture() {
     assert_eq!(
         finished.audio,
         Some(AudioStats {
+            format: AudioFormat {
+                sample_rate: 48_000,
+                channels: 1,
+            },
             duration: Duration::from_millis(500),
             dropped_samples: 3,
             peak: 0.25,
@@ -407,4 +414,17 @@ fn before_the_first_dictation_there_is_no_latest_one() {
     let dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
 
     assert_eq!(dictations.latest_dictation(), None);
+}
+
+#[test]
+fn a_finished_dictation_says_which_kind_of_input_it_was_captured_from() {
+    let mut dictations = held_and_released();
+    dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
+
+    let finished = finished_without_typing(
+        dictations
+            .transcription_finished(Err(TranscriptionFailure::Unreachable), at_micros(2_100_000)),
+    );
+
+    assert_eq!(finished.input, Some(InputKind::BuiltIn));
 }

@@ -64,6 +64,7 @@ pub struct CapturedAudio {
 /// `peak` and `rms` are on the sample scale, where 1.0 is full scale.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AudioStats {
+    pub format: AudioFormat,
     pub duration: Duration,
     pub dropped_samples: u64,
     pub peak: f32,
@@ -77,6 +78,7 @@ const TRANSCRIPTION_PEAK: f32 = 0.708;
 pub struct Captured {
     pub audio: CapturedAudio,
     pub report: CaptureReport,
+    pub input: InputKind,
 }
 
 impl CapturedAudio {
@@ -130,6 +132,7 @@ impl CapturedAudio {
 
     pub fn stats(&self) -> AudioStats {
         AudioStats {
+            format: self.format,
             duration: self.duration(),
             dropped_samples: self.dropped_samples,
             peak: self
@@ -171,6 +174,7 @@ pub struct CaptureWriter {
 }
 
 pub struct CaptureReader {
+    input: InputKind,
     format: AudioFormat,
     samples: rtrb::Consumer<f32>,
     collected: Vec<f32>,
@@ -179,7 +183,11 @@ pub struct CaptureReader {
 
 /// `buffered` is how much audio may wait between two calls to
 /// [`CaptureReader::collect`] before samples are dropped.
-pub fn capture_channel(format: AudioFormat, buffered: Duration) -> (CaptureWriter, CaptureReader) {
+pub fn capture_channel(
+    input: InputKind,
+    format: AudioFormat,
+    buffered: Duration,
+) -> (CaptureWriter, CaptureReader) {
     let samples_per_second = u128::from(format.sample_rate) * u128::from(format.channels);
     let capacity = (samples_per_second * buffered.as_nanos() / 1_000_000_000) as usize;
     let (producer, consumer) = rtrb::RingBuffer::new(capacity);
@@ -190,6 +198,7 @@ pub fn capture_channel(format: AudioFormat, buffered: Duration) -> (CaptureWrite
             shared: shared.clone(),
         },
         CaptureReader {
+            input,
             format,
             samples: consumer,
             collected: Vec::new(),
@@ -229,11 +238,26 @@ impl CaptureReader {
                 dropped_samples: self.shared.dropped_samples.load(Relaxed),
             },
             report: self.shared.marks.report(),
+            input: self.input,
         }
     }
 }
 
 const BUILT_IN_MICROPHONE: &str = "BuiltInMicrophoneDevice";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputKind {
+    BuiltIn,
+    Other,
+}
+
+pub fn input_kind(id: &str) -> InputKind {
+    if id == BUILT_IN_MICROPHONE {
+        InputKind::BuiltIn
+    } else {
+        InputKind::Other
+    }
+}
 
 /// The input device to capture from, out of the ids macOS lists. The Mac's
 /// own microphone wins over the system default because a Bluetooth headset

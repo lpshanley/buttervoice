@@ -1,5 +1,5 @@
 use crate::DictationId;
-use crate::capture::{AudioStats, Captured, CapturedAudio};
+use crate::capture::{AudioStats, Captured, CapturedAudio, InputKind};
 use crate::hotkey::{HotkeyDecoder, HotkeyKey, KeyEdge};
 use crate::recording::{Decision, Mode, RecordingControl, StopReason};
 use crate::timeline::{Mark, Summary, Timeline, Timestamp};
@@ -40,6 +40,7 @@ pub struct FinishedDictation {
     pub summary: Summary,
     pub stopped_because: StopReason,
     pub audio: Option<AudioStats>,
+    pub input: Option<InputKind>,
     pub transcription: Transcription,
     pub typing: Typing,
 }
@@ -49,6 +50,7 @@ struct Stopped {
     timeline: Timeline,
     stopped_because: StopReason,
     key_down_at: Timestamp,
+    input: Option<InputKind>,
 }
 
 #[derive(Debug)]
@@ -141,6 +143,7 @@ impl KeyDictations {
                 Typing::NotAttempted,
             )));
         };
+        stopped.input = Some(captured.input);
         if let Some(at) = captured.report.first_sample_at {
             stopped.timeline.mark(Mark::FirstSample, at);
         }
@@ -254,6 +257,7 @@ impl KeyDictations {
             summary: stopped.timeline.summary(),
             stopped_because: stopped.stopped_because,
             audio,
+            input: stopped.input,
             transcription,
             typing,
         }
@@ -291,6 +295,7 @@ impl KeyDictations {
                     timeline,
                     stopped_because,
                     key_down_at,
+                    input: None,
                 });
                 Some(CaptureCommand::Stop)
             }
