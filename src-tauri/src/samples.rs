@@ -2,9 +2,12 @@
 //! finished sets are kept.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use buttervoice_core::key_dictation::Purpose;
 use buttervoice_core::language::Language;
+use buttervoice_core::transcription::Provider;
 use buttervoice_samples::diff::{Part, word_diff};
 use buttervoice_samples::session::{Session, Take};
 use buttervoice_samples::{RecordedWith, script::script};
@@ -68,6 +71,7 @@ pub struct Recorder {
     /// The session and the folder it is saved to as it goes.
     session: Mutex<Option<(Session, PathBuf)>>,
     last_saved: Mutex<Option<PathBuf>>,
+    window_shown: AtomicBool,
 }
 
 impl Recorder {
@@ -76,11 +80,28 @@ impl Recorder {
             sets_folder,
             session: Mutex::new(None),
             last_saved: Mutex::new(None),
+            window_shown: AtomicBool::new(false),
         }
     }
 
     pub fn active(&self) -> bool {
         self.session().is_some()
+    }
+
+    /// The window being open or closed. A dictation is a take only while
+    /// the person can see the prompt it answers.
+    pub fn window_shown(&self, shown: bool) {
+        self.window_shown.store(shown, Ordering::Relaxed);
+    }
+
+    /// What a dictation begun now is for, given the provider chosen for
+    /// ordinary dictation.
+    pub fn purpose_for(&self, provider: Provider) -> Purpose {
+        if self.window_shown.load(Ordering::Relaxed) && self.active() {
+            Purpose::SampleTake
+        } else {
+            Purpose::Dictation(provider)
+        }
     }
 
     /// `seconds_since_1970` only makes the folder's name unique.
@@ -247,7 +268,38 @@ fn folder_name(speaker: &str, seconds_since_1970: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::folder_name;
+    use super::{Recorder, folder_name};
+    use buttervoice_core::key_dictation::Purpose;
+    use buttervoice_core::language::Language;
+    use buttervoice_core::transcription::Provider;
+    use buttervoice_samples::RecordedWith;
+
+    fn a_session_started(recorder: &Recorder) {
+        let recorded_with = RecordedWith {
+            speaker: "speaker-a".to_string(),
+            app_version: "0.2.0".to_string(),
+            app_commit: "0a1b2c3".to_string(),
+            chip: "Apple M5 Pro".to_string(),
+            macos: "27.2".to_string(),
+        };
+        recorder.start(recorded_with, Language::English, 17);
+    }
+
+    #[test]
+    fn a_dictation_is_a_take_only_while_a_session_is_on_screen() {
+        let recorder = Recorder::new("unused".into());
+        let dictation = Purpose::Dictation(Provider::Grok);
+        assert_eq!(recorder.purpose_for(Provider::Grok), dictation);
+
+        recorder.window_shown(true);
+        assert_eq!(recorder.purpose_for(Provider::Grok), dictation);
+
+        a_session_started(&recorder);
+        assert_eq!(recorder.purpose_for(Provider::Grok), Purpose::SampleTake);
+
+        recorder.window_shown(false);
+        assert_eq!(recorder.purpose_for(Provider::Grok), dictation);
+    }
 
     #[test]
     fn a_label_cannot_steer_where_a_set_is_written() {

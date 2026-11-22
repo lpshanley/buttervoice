@@ -8,6 +8,7 @@ use std::sync::{Arc, PoisonError, RwLock};
 use buttervoice_core::api_key::{self, KeySource};
 use buttervoice_core::backend::{Backend, CATALOG, Place, best_local_fit, local_backend_for};
 use buttervoice_core::capture::CapturedAudio;
+use buttervoice_core::key_dictation::Purpose;
 use buttervoice_core::language::Language;
 use buttervoice_core::transcription::{Provider, Transcript, TranscriptionFailure};
 use buttervoice_grok::GrokTranscriber;
@@ -102,10 +103,42 @@ impl Transcribers {
         transcribers
     }
 
-    pub fn transcribe(&self, audio: &CapturedAudio) -> Transcribed {
+    /// Transcribes with the engine ready now, unless `purpose` does not
+    /// allow it to hear the dictation: it is never handed to another.
+    pub fn transcribe(&self, audio: &CapturedAudio, purpose: Purpose) -> Transcribed {
+        self.transcribe_with(self.ready(), audio, purpose)
+    }
+
+    fn transcribe_with(
+        &self,
+        ready: Ready,
+        audio: &CapturedAudio,
+        purpose: Purpose,
+    ) -> Transcribed {
         let language = self.dictation_language();
         let local_id = || self.wanted_backend().map_or("none", |backend| backend.id);
-        let (provider, backend, outcome) = match self.ready() {
+        let ready_provider = match ready {
+            Ready::Grok(..) | Ready::GrokWithoutKey => Provider::Grok,
+            _ => Provider::Local,
+        };
+        if !purpose.allows(ready_provider) {
+            let chosen = match purpose {
+                Purpose::Dictation(provider) => provider,
+                Purpose::SampleTake => Provider::Local,
+            };
+            tracing::warn!(?purpose, "the provider changed while the key was held");
+            return Transcribed {
+                provider: chosen,
+                backend: if chosen == Provider::Grok {
+                    GROK
+                } else {
+                    local_id()
+                },
+                language,
+                outcome: Err(TranscriptionFailure::NotConfigured),
+            };
+        }
+        let (provider, backend, outcome) = match ready {
             Ready::Local(local, backend) if !local.speaks(language) => (
                 Provider::Local,
                 backend.id,
@@ -154,8 +187,11 @@ impl Transcribers {
     /// cloud service just to suggest its text.
     pub fn heard_on_this_mac(&self, audio: &CapturedAudio) -> Option<Transcribed> {
         let language = self.dictation_language();
-        match self.ready() {
-            Ready::Local(local, _) if local.speaks(language) => Some(self.transcribe(audio)),
+        let ready = self.ready();
+        match &ready {
+            Ready::Local(local, _) if local.speaks(language) => {
+                Some(self.transcribe_with(ready, audio, Purpose::SampleTake))
+            }
             _ => None,
         }
     }

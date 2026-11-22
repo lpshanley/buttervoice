@@ -15,7 +15,7 @@ use std::time::Duration;
 use buttervoice_core::capture::{InputKind, MicrophoneChoice};
 use buttervoice_core::hotkey::HotkeyKey;
 use buttervoice_core::key_dictation::{
-    AfterCapture, AfterTranscription, CaptureCommand, KeyDictations,
+    AfterCapture, AfterTranscription, CaptureCommand, KeyDictations, Purpose,
 };
 use buttervoice_core::language::Language;
 use buttervoice_core::recording::Mode;
@@ -49,6 +49,11 @@ fn listen_for_the_dictation_key(
     preferences: Arc<preferences::Store>,
     app: tauri::AppHandle,
 ) -> std::io::Result<()> {
+    let purpose_now = {
+        let recorder = recorder.clone();
+        let preferences = preferences.clone();
+        move || recorder.purpose_for(preferences.get().provider)
+    };
     let microphone = microphone::spawn(
         {
             let preferences = preferences.clone();
@@ -73,9 +78,7 @@ fn listen_for_the_dictation_key(
                 let input = captured.as_ref().map(|captured| captured.input);
                 let after = lock(&dictations).capture_stopped(captured, key_tap::now());
                 let finished = match after {
-                    // While samples are being recorded, a dictation is a take
-                    // for the session and is never typed anywhere.
-                    Some(AfterCapture::Transcribe(audio)) if taking_samples(&recorder, &app) => {
+                    Some(AfterCapture::Transcribe(audio, Purpose::SampleTake)) => {
                         let hint = transcribers.heard_on_this_mac(&audio);
                         let heard = match &hint {
                             Some(Transcribed {
@@ -101,10 +104,10 @@ fn listen_for_the_dictation_key(
                             None => lock(&dictations).kept_untranscribed(),
                         }
                     }
-                    Some(AfterCapture::Transcribe(audio)) => {
+                    Some(AfterCapture::Transcribe(audio, purpose)) => {
                         // Transcribing happens outside the lock, so key events
                         // are still handled while it runs.
-                        let heard = transcribers.transcribe(&audio);
+                        let heard = transcribers.transcribe(&audio, purpose);
                         let after = lock(&dictations).transcription_finished(
                             heard.provider,
                             heard.backend,
@@ -146,6 +149,7 @@ fn listen_for_the_dictation_key(
                 let ended = key_tap::run(|event| {
                     let (command, status, started) = {
                         let mut dictations = lock(&dictations);
+                        dictations.set_purpose(purpose_now());
                         let command = match event {
                             TapEvent::Ready { flags, at } => {
                                 tracing::info!("key listener ready");
@@ -619,6 +623,9 @@ fn add_menu_bar_item(app: &tauri::App, language: Language) -> tauri::Result<()> 
             } else if (event.id() == SETTINGS || event.id() == SAMPLES)
                 && let Some(window) = app.get_webview_window(event.id().as_ref())
             {
+                if event.id() == SAMPLES {
+                    app.state::<Arc<Recorder>>().window_shown(true);
+                }
                 let _ = window.show();
                 let _ = window.set_focus();
             }
@@ -637,14 +644,6 @@ const PREFERENCES_FILE: &str = "preferences.json";
 /// A session only takes dictations while its window is showing. With the
 /// window closed part-way through, dictation goes back to typing and the
 /// session waits.
-fn taking_samples(recorder: &Recorder, app: &tauri::AppHandle) -> bool {
-    recorder.active()
-        && app
-            .get_webview_window(SAMPLES)
-            .and_then(|window| window.is_visible().ok())
-            .unwrap_or(false)
-}
-
 /// Both the menu item and the window it opens.
 const SAMPLES: &str = "samples";
 const SAMPLES_CHANGED: &str = "samples-changed";
@@ -724,6 +723,9 @@ pub fn run() {
                 && (window.label() == SETTINGS || window.label() == SAMPLES)
             {
                 api.prevent_close();
+                if window.label() == SAMPLES {
+                    window.state::<Arc<Recorder>>().window_shown(false);
+                }
                 let _ = window.hide();
             }
         })

@@ -24,9 +24,31 @@ pub enum DictationStatus {
     Working,
 }
 
+/// What a dictation is for. It is fixed when the dictation's key goes
+/// down, so nothing that changes while the key is held can type it or send
+/// it somewhere else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Purpose {
+    /// Typed into the app in front, heard by this provider.
+    Dictation(Provider),
+    /// A take for a sample session: never typed, and never heard anywhere
+    /// but this Mac.
+    SampleTake,
+}
+
+impl Purpose {
+    /// Whether this provider may hear a dictation made for this purpose.
+    pub fn allows(self, provider: Provider) -> bool {
+        match self {
+            Purpose::Dictation(chosen) => provider == chosen,
+            Purpose::SampleTake => provider == Provider::Local,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum AfterCapture {
-    Transcribe(CapturedAudio),
+    Transcribe(CapturedAudio, Purpose),
     Finished(FinishedDictation),
 }
 
@@ -54,6 +76,7 @@ pub struct FinishedDictation {
 #[derive(Debug)]
 struct Stopped {
     timeline: Timeline,
+    purpose: Purpose,
     stopped_because: StopReason,
     input: Option<InputKind>,
     provider: Option<Provider>,
@@ -66,6 +89,7 @@ enum Phase {
     Idle,
     Capturing {
         timeline: Timeline,
+        purpose: Purpose,
         heard_sound: bool,
     },
     StoppingCapture(Stopped),
@@ -78,6 +102,7 @@ pub struct KeyDictations {
     decoder: HotkeyDecoder,
     control: RecordingControl,
     phase: Phase,
+    purpose_from_now: Purpose,
 }
 
 impl KeyDictations {
@@ -86,6 +111,7 @@ impl KeyDictations {
             decoder: HotkeyDecoder::new(key),
             control: RecordingControl::new(mode),
             phase: Phase::Idle,
+            purpose_from_now: Purpose::Dictation(Provider::Local),
         }
     }
 
@@ -100,6 +126,12 @@ impl KeyDictations {
                 DictationStatus::Working
             }
         }
+    }
+
+    /// What a dictation begun from now on is for. One already begun keeps
+    /// its own.
+    pub fn set_purpose(&mut self, purpose: Purpose) {
+        self.purpose_from_now = purpose;
     }
 
     pub fn latest_dictation(&self) -> Option<DictationId> {
@@ -166,8 +198,9 @@ impl KeyDictations {
                 Typing::NotAttempted,
             )));
         }
+        let purpose = stopped.purpose;
         self.phase = Phase::Transcribing(stopped, stats);
-        Some(AfterCapture::Transcribe(captured.audio))
+        Some(AfterCapture::Transcribe(captured.audio, purpose))
     }
 
     pub fn transcription_finished(
@@ -188,6 +221,14 @@ impl KeyDictations {
         stopped.backend = Some(backend);
         stopped.language = Some(language);
         let transcript = match outcome {
+            Ok(transcript) if stopped.purpose == Purpose::SampleTake => {
+                return Some(AfterTranscription::Finished(self.finish(
+                    stopped,
+                    Some(stats),
+                    Transcription::Succeeded(transcript),
+                    Typing::NotAttempted,
+                )));
+            }
             Ok(transcript) if !transcript.text.is_empty() => transcript,
             Ok(blank) => {
                 return Some(AfterTranscription::Finished(self.finish(
@@ -313,19 +354,24 @@ impl KeyDictations {
                 timeline.mark(Mark::KeyDown, at);
                 self.phase = Phase::Capturing {
                     timeline,
+                    purpose: self.purpose_from_now,
                     heard_sound: false,
                 };
                 Some(CaptureCommand::Start)
             }
             Decision::Stop(_, stopped_because) => {
-                let Phase::Capturing { mut timeline, .. } =
-                    std::mem::replace(&mut self.phase, Phase::Idle)
+                let Phase::Capturing {
+                    mut timeline,
+                    purpose,
+                    ..
+                } = std::mem::replace(&mut self.phase, Phase::Idle)
                 else {
                     return None;
                 };
                 timeline.mark(Mark::KeyUp, at);
                 self.phase = Phase::StoppingCapture(Stopped {
                     timeline,
+                    purpose,
                     stopped_because,
                     input: None,
                     provider: None,

@@ -7,7 +7,7 @@ use buttervoice_core::capture::{
 use buttervoice_core::hotkey::HotkeyKey;
 use buttervoice_core::key_dictation::{
     AfterCapture, AfterTranscription, CaptureCommand, DictationStatus, FinishedDictation,
-    KeyDictations,
+    KeyDictations, Purpose,
 };
 use buttervoice_core::language::Language;
 use buttervoice_core::recording::{Mode, StopReason};
@@ -92,7 +92,10 @@ fn captured_speech_is_handed_over_for_transcription() {
 
     assert_eq!(
         dictations.capture_stopped(Some(speech()), at_micros(1_980_000)),
-        Some(AfterCapture::Transcribe(half_a_second_of_audio()))
+        Some(AfterCapture::Transcribe(
+            half_a_second_of_audio(),
+            Purpose::Dictation(Provider::Local)
+        ))
     );
 }
 
@@ -576,4 +579,71 @@ fn each_dictation_waits_for_its_own_first_sound() {
     dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(3_000_000));
 
     assert_eq!(dictations.status(), DictationStatus::Starting);
+}
+
+// What a dictation is for is fixed when its key goes down, so nothing that
+// changes while the key is held, such as the samples window closing or the
+// provider changing, can type it or send it somewhere else.
+
+#[test]
+fn a_dictation_keeps_the_purpose_it_began_with() {
+    let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
+    dictations.set_purpose(Purpose::SampleTake);
+    dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(1_000_000));
+    dictations.set_purpose(Purpose::Dictation(Provider::Grok));
+    dictations.flags_changed(NO_MODIFIERS, at_micros(1_956_365));
+
+    assert_eq!(
+        dictations.capture_stopped(Some(speech()), at_micros(1_990_000)),
+        Some(AfterCapture::Transcribe(
+            half_a_second_of_audio(),
+            Purpose::SampleTake
+        ))
+    );
+}
+
+#[test]
+fn a_dictation_begun_without_a_purpose_is_dictated_on_this_mac() {
+    let mut dictations = held_and_released();
+
+    assert_eq!(
+        dictations.capture_stopped(Some(speech()), at_micros(1_990_000)),
+        Some(AfterCapture::Transcribe(
+            half_a_second_of_audio(),
+            Purpose::Dictation(Provider::Local)
+        ))
+    );
+}
+
+#[test]
+fn a_sample_take_is_never_typed() {
+    let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
+    dictations.set_purpose(Purpose::SampleTake);
+    dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(1_000_000));
+    dictations.flags_changed(NO_MODIFIERS, at_micros(1_956_365));
+    dictations.capture_stopped(Some(speech()), at_micros(1_990_000));
+
+    let dictation = finished_without_typing(dictations.transcription_finished(
+        Provider::Local,
+        "parakeet-ultra",
+        Language::English,
+        heard("Hello there."),
+        at_micros(2_400_000),
+    ));
+
+    assert_eq!(dictation.typing, Typing::NotAttempted);
+}
+
+#[test]
+fn a_sample_take_may_only_be_heard_on_this_mac() {
+    assert!(Purpose::SampleTake.allows(Provider::Local));
+    assert!(!Purpose::SampleTake.allows(Provider::Grok));
+}
+
+#[test]
+fn a_dictation_may_only_be_heard_by_the_provider_chosen_when_it_began() {
+    assert!(Purpose::Dictation(Provider::Local).allows(Provider::Local));
+    assert!(!Purpose::Dictation(Provider::Local).allows(Provider::Grok));
+    assert!(Purpose::Dictation(Provider::Grok).allows(Provider::Grok));
+    assert!(!Purpose::Dictation(Provider::Grok).allows(Provider::Local));
 }
