@@ -1,0 +1,97 @@
+name: Release
+
+# Pushing a version tag builds, signs and notarizes the app and opens a DRAFT
+# release. Nobody receives it until the draft is published by hand: the
+# updater only ever looks at the latest published release.
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  TARGET: aarch64-apple-darwin
+
+jobs:
+  release:
+    name: Signed macOS build
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install --no-self-update
+      - name: Check that the tag is the app's version
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 --locked \
+            | jq -r '.packages[] | select(.name == "buttervoice") | .version')
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::The tag is $GITHUB_REF_NAME but the app's version is $version."
+            exit 1
+          fi
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          # A release is built from a clean slate and leaves no cache behind
+          # for other runs to pick up.
+          save-if: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          cache: true
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - run: pnpm install --frozen-lockfile
+      - name: Put the notarization key where Apple's tools can read it
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          key="$RUNNER_TEMP/notarization-key.p8"
+          printf '%s' "$APPLE_API_KEY_P8" > "$key"
+          echo "APPLE_API_KEY_PATH=$key" >> "$GITHUB_ENV"
+      - name: Build, sign, notarize the app and open a draft release
+        id: build
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: ButterVoice ${{ github.ref_name }}
+          releaseDraft: true
+          generateReleaseNotes: true
+          args: --target ${{ env.TARGET }}
+      # Tauri notarizes the app inside the disk image but not the disk image
+      # itself, and the disk image is what a person downloads and opens.
+      - name: Notarize the disk image and replace the one on the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          ARTIFACTS: ${{ steps.build.outputs.artifactPaths }}
+        run: |
+          built=$(printf '%s' "$ARTIFACTS" | jq -r '.[] | select(endswith(".dmg"))')
+          xcrun notarytool submit "$built" --wait \
+            --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER"
+          xcrun stapler staple "$built"
+          # The release holds the disk image under the name the action gave
+          # it, which is not always the name it was built under.
+          published=$(gh release view "$GITHUB_REF_NAME" --json assets \
+            --jq '.assets[].name | select(endswith(".dmg"))')
+          cp "$built" "$RUNNER_TEMP/$published"
+          gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/$published" --clobber
+      - name: Remove the notarization key
+        if: always()
+        run: rm -f "$APPLE_API_KEY_PATH"
