@@ -1,3 +1,4 @@
+pub mod diff;
 pub mod script;
 pub mod session;
 
