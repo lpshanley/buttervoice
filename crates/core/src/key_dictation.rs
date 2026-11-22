@@ -18,6 +18,8 @@ pub enum CaptureCommand {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DictationStatus {
     Idle,
+    /// The key is down but no sound has come from the microphone yet.
+    Starting,
     Listening,
     /// The key is up and the words are on their way.
     Working,
@@ -77,6 +79,7 @@ enum Phase {
     Capturing {
         timeline: Timeline,
         key_down_at: Timestamp,
+        heard_sound: bool,
     },
     StoppingCapture(Stopped),
     Transcribing(Stopped, AudioStats),
@@ -104,6 +107,9 @@ impl KeyDictations {
     pub fn status(&self) -> DictationStatus {
         match self.phase {
             Phase::Idle => DictationStatus::Idle,
+            Phase::Capturing {
+                heard_sound: false, ..
+            } => DictationStatus::Starting,
             Phase::Capturing { .. } => DictationStatus::Listening,
             Phase::StoppingCapture(_) | Phase::Transcribing(..) | Phase::Typing(..) => {
                 DictationStatus::Working
@@ -113,6 +119,14 @@ impl KeyDictations {
 
     pub fn latest_dictation(&self) -> Option<DictationId> {
         self.control.latest_dictation()
+    }
+
+    /// The microphone has delivered its first real sound for the dictation
+    /// being captured.
+    pub fn sound_arrived(&mut self) {
+        if let Phase::Capturing { heard_sound, .. } = &mut self.phase {
+            *heard_sound = true;
+        }
     }
 
     pub fn flags_changed(&mut self, flags: u64, at: Timestamp) -> Option<CaptureCommand> {
@@ -337,6 +351,7 @@ impl KeyDictations {
                 self.phase = Phase::Capturing {
                     timeline,
                     key_down_at: at,
+                    heard_sound: false,
                 };
                 Some(CaptureCommand::Start)
             }
@@ -344,6 +359,7 @@ impl KeyDictations {
                 let Phase::Capturing {
                     mut timeline,
                     key_down_at,
+                    ..
                 } = std::mem::replace(&mut self.phase, Phase::Idle)
                 else {
                     return None;

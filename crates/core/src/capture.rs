@@ -271,6 +271,11 @@ impl CaptureWriter {
 }
 
 impl CaptureReader {
+    /// When the first real sound was captured, while capture goes on.
+    pub fn first_sound_at(&self) -> Option<Timestamp> {
+        self.shared.marks.report().first_sound_at
+    }
+
     pub fn collect(&mut self) {
         if let Ok(waiting) = self.samples.read_chunk(self.samples.slots()) {
             let (first, second) = waiting.as_slices();

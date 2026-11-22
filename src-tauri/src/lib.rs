@@ -61,6 +61,18 @@ fn listen_for_the_dictation_key(
         {
             let dictations = dictations.clone();
             let hud = hud.clone();
+            move || {
+                let status = {
+                    let mut dictations = lock(&dictations);
+                    dictations.sound_arrived();
+                    dictations.status()
+                };
+                hud.show(status);
+            }
+        },
+        {
+            let dictations = dictations.clone();
+            let hud = hud.clone();
             move |captured| {
                 let input = captured.as_ref().map(|captured| captured.input);
                 let after = lock(&dictations).capture_stopped(captured, key_tap::now());

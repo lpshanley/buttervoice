@@ -35,9 +35,11 @@ struct Capturing {
 /// `on_stopped` runs on the microphone thread after each stop. It gets
 /// `None` when the microphone could not be started.
 /// `choice` is asked afresh at every start, so a change of microphone takes
-/// effect at the next dictation.
+/// effect at the next dictation. `on_sound` runs once per dictation, when
+/// the first real sound has been captured.
 pub fn spawn(
     choice: impl Fn() -> MicrophoneChoice + Send + 'static,
+    on_sound: impl Fn() + Send + 'static,
     on_stopped: impl Fn(Option<Captured>) + Send + 'static,
 ) -> std::io::Result<Sender<CaptureCommand>> {
     let (commands, received) = mpsc::channel();
@@ -45,6 +47,7 @@ pub fn spawn(
         .name("microphone".into())
         .spawn(move || {
             let mut capturing: Option<Capturing> = None;
+            let mut heard_sound = false;
             loop {
                 let command = match capturing.as_mut() {
                     // Idle: sleep until there is something to do.
@@ -52,12 +55,19 @@ pub fn spawn(
                     Some(capturing) => {
                         let command = received.recv_timeout(COLLECT_EVERY);
                         capturing.audio.collect();
+                        if !heard_sound && capturing.audio.first_sound_at().is_some() {
+                            heard_sound = true;
+                            on_sound();
+                        }
                         command
                     }
                 };
                 match command {
                     Ok(CaptureCommand::Start) => match start(&choice()) {
-                        Ok(started) => capturing = Some(started),
+                        Ok(started) => {
+                            heard_sound = false;
+                            capturing = Some(started);
+                        }
                         Err(error) => tracing::error!(%error, "microphone did not start"),
                     },
                     Ok(CaptureCommand::Stop) => on_stopped(capturing.take().map(stop)),

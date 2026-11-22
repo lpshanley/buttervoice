@@ -48,6 +48,7 @@ impl Hud {
         *shown = status;
         let name = match status {
             DictationStatus::Idle => "idle",
+            DictationStatus::Starting => "starting",
             DictationStatus::Listening => "listening",
             DictationStatus::Working => "working",
         };

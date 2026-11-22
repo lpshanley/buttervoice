@@ -101,5 +101,6 @@
   "update.install": "Install and relaunch",
   "update.installing": "Installing… ButterVoice will relaunch by itself.",
   "tray.install_update": "Install Update…",
-  "update.daily": "Check for updates once a day"
+  "update.daily": "Check for updates once a day",
+  "hud.starting": "Starting…"
 }

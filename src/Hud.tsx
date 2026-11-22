@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { t } from "./i18n";
 import "./hud.css";
 
-type Status = "idle" | "listening" | "working";
+type Status = "idle" | "starting" | "listening" | "working";
 
 function Hud() {
   const [status, setStatus] = createSignal<Status>("idle");

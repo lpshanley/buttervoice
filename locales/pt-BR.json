@@ -101,5 +101,6 @@
   "update.install": "Instalar e reabrir",
   "update.installing": "Instalando… O ButterVoice vai reabrir sozinho.",
   "tray.install_update": "Instalar atualização…",
-  "update.daily": "Procurar atualizações uma vez por dia"
+  "update.daily": "Procurar atualizações uma vez por dia",
+  "hud.starting": "Iniciando…"
 }

@@ -416,11 +416,14 @@ fn text_that_could_not_be_typed_does_not_count_as_the_last_text() {
 }
 
 #[test]
-fn the_status_goes_from_listening_to_working_to_idle_over_a_dictation() {
+fn the_status_goes_from_starting_to_listening_to_working_to_idle_over_a_dictation() {
     let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
     assert_eq!(dictations.status(), DictationStatus::Idle);
 
     dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(1_000_000));
+    assert_eq!(dictations.status(), DictationStatus::Starting);
+
+    dictations.sound_arrived();
     assert_eq!(dictations.status(), DictationStatus::Listening);
 
     dictations.flags_changed(NO_MODIFIERS, at_micros(1_956_365));
@@ -603,4 +606,40 @@ fn a_finished_dictation_says_which_model_transcribed_it() {
     ));
 
     assert_eq!(finished.backend, Some("parakeet-ultra"));
+}
+
+#[test]
+fn a_key_released_before_any_sound_arrived_goes_straight_to_working() {
+    let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
+    dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(1_000_000));
+
+    dictations.flags_changed(NO_MODIFIERS, at_micros(1_300_000));
+
+    assert_eq!(dictations.status(), DictationStatus::Working);
+}
+
+#[test]
+fn sound_arriving_when_nothing_is_being_captured_changes_nothing() {
+    let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
+
+    dictations.sound_arrived();
+    assert_eq!(dictations.status(), DictationStatus::Idle);
+
+    dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(1_000_000));
+    dictations.flags_changed(NO_MODIFIERS, at_micros(1_300_000));
+    dictations.sound_arrived();
+    assert_eq!(dictations.status(), DictationStatus::Working);
+}
+
+#[test]
+fn each_dictation_waits_for_its_own_first_sound() {
+    let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
+    dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(1_000_000));
+    dictations.sound_arrived();
+    dictations.flags_changed(NO_MODIFIERS, at_micros(1_956_365));
+    finished(dictations.capture_stopped(None, at_micros(1_980_000)));
+
+    dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(3_000_000));
+
+    assert_eq!(dictations.status(), DictationStatus::Starting);
 }

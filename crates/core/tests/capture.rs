@@ -400,3 +400,18 @@ fn audio_in_a_format_that_cannot_exist_is_refused() {
         assert_eq!(impossible.to_16khz_mono(), Err(ConversionFailed(format)));
     }
 }
+
+#[test]
+fn the_first_sound_can_be_seen_while_capture_goes_on() {
+    let (mut writer, reader) = capture_channel(
+        InputKind::Other,
+        ONE_SAMPLE_PER_MS,
+        Duration::from_millis(8),
+    );
+    writer.buffer_captured(&[0.0, 0.0], at_micros(1_000));
+    assert_eq!(reader.first_sound_at(), None);
+
+    writer.buffer_captured(&[0.0, 0.25], at_micros(3_000));
+
+    assert_eq!(reader.first_sound_at(), Some(at_micros(3_000)));
+}
