@@ -1,9 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What the HUD window may do",
+  "description": "What the HUD and settings windows may do",
   "windows": [
-    "hud"
+    "hud",
+    "settings"
   ],
   "permissions": [
     "core:default"

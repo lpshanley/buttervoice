@@ -27,6 +27,15 @@
         "skipTaskbar": true,
         "focus": false,
         "focusable": false
+      },
+      {
+        "label": "settings",
+        "title": "ButterVoice Settings",
+        "width": 460,
+        "height": 250,
+        "resizable": false,
+        "visible": false,
+        "center": true
       }
     ],
     "security": {

@@ -1,4 +1,4 @@
-:root {
+:root[data-view="hud"] {
   --hud-surface: rgba(28, 26, 22, 0.92);
   --hud-text: #f6efdf;
   --hud-listening: #ffcf4a;
@@ -10,9 +10,9 @@
   -webkit-font-smoothing: antialiased;
 }
 
-html,
-body,
-#root {
+:root[data-view="hud"],
+:root[data-view="hud"] body,
+:root[data-view="hud"] #root {
   height: 100%;
   margin: 0;
   background: transparent;
@@ -21,7 +21,7 @@ body,
   cursor: default;
 }
 
-#root {
+:root[data-view="hud"] #root {
   display: flex;
   align-items: center;
   justify-content: center;

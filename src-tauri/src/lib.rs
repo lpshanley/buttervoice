@@ -1,11 +1,14 @@
 mod hud;
 mod key_tap;
 mod microphone;
+mod saved_key;
+mod transcribers;
 mod typing;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use buttervoice_core::api_key::KeySource;
 use buttervoice_core::capture::CapturedAudio;
 use buttervoice_core::hotkey::HotkeyKey;
 use buttervoice_core::key_dictation::{
@@ -13,20 +16,22 @@ use buttervoice_core::key_dictation::{
 };
 use buttervoice_core::recording::Mode;
 use buttervoice_core::transcription::TranscriptionFailure;
-use buttervoice_grok::GrokTranscriber;
 use buttervoice_replay::recordings;
 use hud::Hud;
 use key_tap::TapEvent;
 use tauri::Manager;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
+use transcribers::Transcribers;
 
-fn listen_for_the_dictation_key(hud: Arc<Hud>) -> std::io::Result<()> {
+fn listen_for_the_dictation_key(
+    hud: Arc<Hud>,
+    transcribers: Arc<Transcribers>,
+) -> std::io::Result<()> {
     let dictations = Arc::new(Mutex::new(KeyDictations::new(
         HotkeyKey::RightOption,
         Mode::PushToTalk,
     )));
-    let transcriber = grok_transcriber();
     let recordings_dir = std::env::var_os(RECORDINGS_VARIABLE).map(PathBuf::from);
     let microphone = microphone::spawn({
         let dictations = dictations.clone();
@@ -40,7 +45,7 @@ fn listen_for_the_dictation_key(hud: Arc<Hud>) -> std::io::Result<()> {
                     }
                     // The network call happens outside the lock, so key
                     // events are still handled while it runs.
-                    let outcome = match &transcriber {
+                    let outcome = match transcribers.current() {
                         Some(transcriber) => {
                             transcriber.transcribe(&audio.boosted_for_transcription())
                         }
@@ -97,7 +102,6 @@ fn listen_for_the_dictation_key(hud: Arc<Hud>) -> std::io::Result<()> {
     Ok(())
 }
 
-const API_KEY_VARIABLE: &str = "XAI_API_KEY";
 /// When set, every dictation's audio is saved into this folder for the
 /// replay tool. Meant for development: it writes a real voice to disk.
 const RECORDINGS_VARIABLE: &str = "BUTTERVOICE_RECORDINGS_DIR";
@@ -110,35 +114,43 @@ fn save_for_replay(dir: &Path, audio: &CapturedAudio) {
     }
 }
 
-fn grok_transcriber() -> Option<GrokTranscriber> {
-    let Some(api_key) = std::env::var(API_KEY_VARIABLE)
-        .ok()
-        .filter(|key| !key.trim().is_empty())
-    else {
-        tracing::warn!(
-            variable = API_KEY_VARIABLE,
-            "no xAI API key in the environment; dictations will not be transcribed"
-        );
-        return None;
-    };
-    match GrokTranscriber::new(buttervoice_grok::DEFAULT_BASE_URL, api_key) {
-        Ok(transcriber) => Some(transcriber),
-        Err(error) => {
-            tracing::error!(%error, "the transcription client could not be set up");
-            None
-        }
+#[tauri::command]
+fn api_key_source(transcribers: tauri::State<'_, Arc<Transcribers>>) -> &'static str {
+    match transcribers.key_source() {
+        Some(KeySource::Environment) => "environment",
+        Some(KeySource::Saved) => "saved",
+        None => "none",
     }
 }
 
+#[tauri::command]
+fn save_api_key(
+    key: String,
+    transcribers: tauri::State<'_, Arc<Transcribers>>,
+) -> Result<(), String> {
+    transcribers.save_key(&key)
+}
+
+#[tauri::command]
+fn forget_api_key(transcribers: tauri::State<'_, Arc<Transcribers>>) -> Result<(), String> {
+    transcribers.forget_key()
+}
+
 fn add_menu_bar_item(app: &tauri::App) -> tauri::Result<()> {
+    let settings = MenuItem::with_id(app, SETTINGS, "Settings\u{2026}", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, QUIT, "Quit ButterVoice", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&quit])?;
+    let menu = Menu::with_items(app, &[&settings, &quit])?;
     let mut item = TrayIconBuilder::new()
         .tooltip("ButterVoice")
         .menu(&menu)
         .on_menu_event(|app, event| {
             if event.id() == QUIT {
                 app.exit(0);
+            } else if event.id() == SETTINGS
+                && let Some(window) = app.get_webview_window(SETTINGS)
+            {
+                let _ = window.show();
+                let _ = window.set_focus();
             }
         });
     if let Some(icon) = app.default_window_icon() {
@@ -149,6 +161,8 @@ fn add_menu_bar_item(app: &tauri::App) -> tauri::Result<()> {
 }
 
 const QUIT: &str = "quit";
+/// Both the menu item and the window it opens.
+const SETTINGS: &str = "settings";
 
 /// The state behind the lock is only ever changed by whole method calls, so
 /// it is still usable after another thread panicked while holding it.
@@ -168,9 +182,25 @@ pub fn run() {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             add_menu_bar_item(app)?;
             let hud = Arc::new(Hud::set_up(app.handle())?);
-            listen_for_the_dictation_key(hud)?;
+            let transcribers = Arc::new(Transcribers::new(app.config().identifier.clone()));
+            app.manage(transcribers.clone());
+            listen_for_the_dictation_key(hud, transcribers)?;
             Ok(())
         })
+        // Closing the settings window only hides it, so it can be opened again.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event
+                && window.label() == SETTINGS
+            {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
+        .invoke_handler(tauri::generate_handler![
+            api_key_source,
+            save_api_key,
+            forget_api_key
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

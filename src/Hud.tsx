@@ -1,6 +1,6 @@
 import { createSignal, onSettled } from "solid-js";
 import { listen } from "@tauri-apps/api/event";
-import "./App.css";
+import "./hud.css";
 
 type Status = "idle" | "listening" | "working";
 
@@ -10,7 +10,7 @@ const LABELS: Record<Status, string> = {
   working: "Working",
 };
 
-function App() {
+function Hud() {
   const [status, setStatus] = createSignal<Status>("idle");
 
   onSettled(() => {
@@ -28,4 +28,4 @@ function App() {
   );
 }
 
-export default App;
+export default Hud;

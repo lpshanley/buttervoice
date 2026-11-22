@@ -377,6 +377,7 @@ dependencies = [
  "buttervoice-replay",
  "buttervoice-telemetry",
  "cpal",
+ "security-framework",
  "serde",
  "serde_json",
  "tauri",

@@ -1,0 +1,102 @@
+:root[data-view="settings"] {
+  --surface: #fbf7ee;
+  --text: #1c1a16;
+  --muted: #6b6558;
+  --line: #d9d1bf;
+  --accent: #b98a00;
+  --accent-text: #ffffff;
+  --problem: #a3261a;
+
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-view="settings"] {
+    --surface: #1c1a16;
+    --text: #f6efdf;
+    --muted: #a59d8b;
+    --line: #3a362d;
+    --accent: #ffcf4a;
+    --accent-text: #1c1a16;
+    --problem: #ff8a7a;
+  }
+}
+
+:root[data-view="settings"] body {
+  margin: 0;
+  background: var(--surface);
+}
+
+.settings {
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings h1 {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.settings label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.settings .row {
+  display: flex;
+  gap: 8px;
+}
+
+.settings input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.settings input:focus-visible,
+.settings button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.settings button {
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  font-weight: 600;
+}
+
+.settings button.quiet {
+  align-self: flex-start;
+  padding: 0;
+  background: none;
+  color: var(--muted);
+  font-weight: 400;
+  text-decoration: underline;
+}
+
+.settings .status {
+  margin: 0;
+  color: var(--muted);
+}
+
+.settings .problem {
+  margin: 0;
+  color: var(--problem);
+}
