@@ -3,6 +3,7 @@ use crate::hotkey::{HotkeyDecoder, HotkeyKey, KeyEdge};
 use crate::recording::{Decision, Mode, RecordingControl, StopReason};
 use crate::timeline::{Mark, Summary, Timeline, Timestamp};
 use crate::transcription::{Transcript, Transcription, TranscriptionFailure};
+use crate::typing::{Typing, TypingFailure};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptureCommand {
@@ -16,6 +17,12 @@ pub enum AfterCapture {
     Finished(FinishedDictation),
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum AfterTranscription {
+    Type(String),
+    Finished(FinishedDictation),
+}
+
 /// `audio` is `None` when the microphone could not be started.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FinishedDictation {
@@ -23,6 +30,7 @@ pub struct FinishedDictation {
     pub stopped_because: StopReason,
     pub audio: Option<AudioStats>,
     pub transcription: Transcription,
+    pub typing: Typing,
 }
 
 #[derive(Debug)]
@@ -37,6 +45,7 @@ enum Phase {
     Capturing(Timeline),
     StoppingCapture(Stopped),
     Transcribing(Stopped, AudioStats),
+    Typing(Stopped, AudioStats, Transcript),
 }
 
 #[derive(Debug)]
@@ -88,6 +97,7 @@ impl KeyDictations {
                 stopped,
                 None,
                 Transcription::NotAttempted,
+                Typing::NotAttempted,
             )));
         };
         if let Some(at) = captured.report.first_sample_at {
@@ -102,6 +112,7 @@ impl KeyDictations {
                 stopped,
                 Some(stats),
                 Transcription::NotAttempted,
+                Typing::NotAttempted,
             )));
         }
         self.phase = Phase::Transcribing(stopped, stats);
@@ -112,18 +123,60 @@ impl KeyDictations {
         &mut self,
         outcome: Result<Transcript, TranscriptionFailure>,
         at: Timestamp,
-    ) -> Option<FinishedDictation> {
+    ) -> Option<AfterTranscription> {
         let Phase::Transcribing(mut stopped, stats) =
             std::mem::replace(&mut self.phase, Phase::Idle)
         else {
             return None;
         };
         stopped.timeline.mark(Mark::TranscriptReady, at);
-        let transcription = match outcome {
-            Ok(transcript) => Transcription::Succeeded(transcript),
-            Err(failure) => Transcription::Failed(failure),
+        let transcript = match outcome {
+            Ok(transcript) if !transcript.text.is_empty() => transcript,
+            Ok(blank) => {
+                return Some(AfterTranscription::Finished(self.finish(
+                    stopped,
+                    Some(stats),
+                    Transcription::Succeeded(blank),
+                    Typing::NotAttempted,
+                )));
+            }
+            Err(failure) => {
+                return Some(AfterTranscription::Finished(self.finish(
+                    stopped,
+                    Some(stats),
+                    Transcription::Failed(failure),
+                    Typing::NotAttempted,
+                )));
+            }
         };
-        Some(self.finish(stopped, Some(stats), transcription))
+        let text = transcript.text.clone();
+        self.phase = Phase::Typing(stopped, stats, transcript);
+        Some(AfterTranscription::Type(text))
+    }
+
+    pub fn typing_finished(
+        &mut self,
+        outcome: Result<(), TypingFailure>,
+        at: Timestamp,
+    ) -> Option<FinishedDictation> {
+        let Phase::Typing(mut stopped, stats, transcript) =
+            std::mem::replace(&mut self.phase, Phase::Idle)
+        else {
+            return None;
+        };
+        let typing = match outcome {
+            Ok(()) => {
+                stopped.timeline.mark(Mark::TextTyped, at);
+                Typing::Typed
+            }
+            Err(failure) => Typing::Failed(failure),
+        };
+        Some(self.finish(
+            stopped,
+            Some(stats),
+            Transcription::Succeeded(transcript),
+            typing,
+        ))
     }
 
     fn finish(
@@ -131,6 +184,7 @@ impl KeyDictations {
         stopped: Stopped,
         audio: Option<AudioStats>,
         transcription: Transcription,
+        typing: Typing,
     ) -> FinishedDictation {
         self.control.processing_finished();
         FinishedDictation {
@@ -138,6 +192,7 @@ impl KeyDictations {
             stopped_because: stopped.stopped_because,
             audio,
             transcription,
+            typing,
         }
     }
 

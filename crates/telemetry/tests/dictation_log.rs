@@ -8,6 +8,7 @@ use buttervoice_core::key_dictation::FinishedDictation;
 use buttervoice_core::recording::StopReason;
 use buttervoice_core::timeline::{Mark, Summary, Timeline, Timestamp};
 use buttervoice_core::transcription::{Transcript, Transcription, TranscriptionFailure};
+use buttervoice_core::typing::Typing;
 use buttervoice_telemetry::{file_subscriber, record_dictation};
 use serde_json::Value;
 
@@ -25,6 +26,7 @@ fn lines_logged_for_stop(summary: &Summary, stopped_because: StopReason) -> Vec<
         stopped_because,
         audio: None,
         transcription: Transcription::NotAttempted,
+        typing: Typing::NotAttempted,
     })
 }
 
@@ -94,6 +96,7 @@ fn the_line_says_how_much_audio_was_captured_and_how_much_was_dropped() {
             rms: 0.1,
         }),
         transcription: Transcription::NotAttempted,
+        typing: Typing::NotAttempted,
     });
 
     assert_eq!(lines[0]["captured_audio_ms"], 500.0);
@@ -116,6 +119,7 @@ fn the_line_reports_a_transcription_without_the_words_that_were_said() {
         transcription: Transcription::Succeeded(Transcript {
             text: "hello world".to_string(),
         }),
+        typing: Typing::NotAttempted,
     });
 
     assert_eq!(lines[0]["transcription"], "succeeded");
@@ -141,6 +145,7 @@ fn the_line_says_why_a_transcription_failed() {
             stopped_because: StopReason::KeyReleased,
             audio: None,
             transcription: Transcription::Failed(failure),
+            typing: Typing::NotAttempted,
         });
 
         assert_eq!(lines[0]["transcription"], "failed");
@@ -160,6 +165,7 @@ fn audio_that_is_pure_silence_has_no_level_in_the_line() {
             rms: 0.0,
         }),
         transcription: Transcription::NotAttempted,
+        typing: Typing::NotAttempted,
     });
 
     assert_eq!(lines[0].get("audio_peak_dbfs"), None);

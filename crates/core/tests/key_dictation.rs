@@ -4,11 +4,12 @@ use buttervoice_core::DictationId;
 use buttervoice_core::capture::{AudioFormat, AudioStats, CaptureReport, Captured, CapturedAudio};
 use buttervoice_core::hotkey::HotkeyKey;
 use buttervoice_core::key_dictation::{
-    AfterCapture, CaptureCommand, FinishedDictation, KeyDictations,
+    AfterCapture, AfterTranscription, CaptureCommand, FinishedDictation, KeyDictations,
 };
 use buttervoice_core::recording::{Mode, StopReason};
 use buttervoice_core::timeline::Timestamp;
 use buttervoice_core::transcription::{Transcript, Transcription, TranscriptionFailure};
+use buttervoice_core::typing::{Typing, TypingFailure};
 
 const RIGHT_OPTION_DOWN: u64 = 0x80140;
 const NO_MODIFIERS: u64 = 0x100;
@@ -45,6 +46,19 @@ fn finished(after: Option<AfterCapture>) -> FinishedDictation {
     }
 }
 
+fn finished_without_typing(after: Option<AfterTranscription>) -> FinishedDictation {
+    match after {
+        Some(AfterTranscription::Finished(dictation)) => dictation,
+        other => panic!("expected a finished dictation, got {other:?}"),
+    }
+}
+
+fn heard(text: &str) -> Result<Transcript, TranscriptionFailure> {
+    Ok(Transcript {
+        text: text.to_string(),
+    })
+}
+
 /// Key down at 1.000000 s and up at 1.956365 s, in push-to-talk mode.
 fn held_and_released() -> KeyDictations {
     let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
@@ -78,19 +92,27 @@ fn captured_speech_is_handed_over_for_transcription() {
 }
 
 #[test]
-fn a_dictation_finishes_with_its_transcript_when_transcription_does() {
+fn a_transcript_is_handed_over_to_be_typed() {
     let mut dictations = held_and_released();
     dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
 
-    let finished = dictations
-        .transcription_finished(
-            Ok(Transcript {
-                text: "hello world".to_string(),
-            }),
-            at_micros(2_392_500),
-        )
-        .expect("the transcript should finish the dictation");
+    assert_eq!(
+        dictations.transcription_finished(heard("hello world"), at_micros(2_392_500)),
+        Some(AfterTranscription::Type("hello world".to_string()))
+    );
+}
 
+#[test]
+fn a_dictation_finishes_once_its_text_has_been_typed() {
+    let mut dictations = held_and_released();
+    dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
+    dictations.transcription_finished(heard("hello world"), at_micros(2_392_500));
+
+    let finished = dictations
+        .typing_finished(Ok(()), at_micros(2_400_000))
+        .expect("typing the text should finish the dictation");
+
+    assert_eq!(finished.typing, Typing::Typed);
     assert_eq!(
         finished.transcription,
         Transcription::Succeeded(Transcript {
@@ -101,6 +123,47 @@ fn a_dictation_finishes_with_its_transcript_when_transcription_does() {
         finished.summary.transcription,
         Some(Duration::from_micros(412_500))
     );
+    assert_eq!(
+        finished.summary.key_up_to_text_typed,
+        Some(Duration::from_micros(443_635))
+    );
+}
+
+#[test]
+fn a_dictation_whose_text_could_not_be_typed_still_finishes_and_says_why() {
+    let mut dictations = held_and_released();
+    dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
+    dictations.transcription_finished(heard("hello world"), at_micros(2_392_500));
+
+    let finished = dictations
+        .typing_finished(Err(TypingFailure::NotPermitted), at_micros(2_400_000))
+        .expect("the failure should finish the dictation");
+
+    assert_eq!(finished.typing, Typing::Failed(TypingFailure::NotPermitted));
+    assert_eq!(finished.summary.key_up_to_text_typed, None);
+}
+
+#[test]
+fn a_blank_transcript_finishes_the_dictation_with_nothing_to_type() {
+    let mut dictations = held_and_released();
+    dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
+
+    let finished =
+        finished_without_typing(dictations.transcription_finished(heard(""), at_micros(2_392_500)));
+
+    assert_eq!(finished.typing, Typing::NotAttempted);
+}
+
+#[test]
+fn a_new_press_is_ignored_until_the_text_has_been_typed() {
+    let mut dictations = held_and_released();
+    dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
+    dictations.transcription_finished(heard("hello world"), at_micros(2_392_500));
+
+    assert_eq!(
+        dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(2_395_000)),
+        None
+    );
 }
 
 #[test]
@@ -108,9 +171,10 @@ fn a_finished_dictation_describes_its_capture() {
     let mut dictations = held_and_released();
     dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
 
-    let finished = dictations
-        .transcription_finished(Err(TranscriptionFailure::Unavailable), at_micros(2_000_000))
-        .expect("the outcome should finish the dictation");
+    let finished = finished_without_typing(
+        dictations
+            .transcription_finished(Err(TranscriptionFailure::Unavailable), at_micros(2_000_000)),
+    );
 
     assert_eq!(finished.summary.dictation_id, DictationId(1));
     assert_eq!(finished.stopped_because, StopReason::KeyReleased);
@@ -146,12 +210,10 @@ fn a_failed_transcription_still_finishes_the_dictation_and_says_why() {
     let mut dictations = held_and_released();
     dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
 
-    let finished = dictations
-        .transcription_finished(
-            Err(TranscriptionFailure::Unauthorized),
-            at_micros(2_100_000),
-        )
-        .expect("the failure should finish the dictation");
+    let finished = finished_without_typing(dictations.transcription_finished(
+        Err(TranscriptionFailure::Unauthorized),
+        at_micros(2_100_000),
+    ));
 
     assert_eq!(
         finished.transcription,

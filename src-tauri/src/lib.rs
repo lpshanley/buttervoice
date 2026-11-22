@@ -1,14 +1,17 @@
 mod key_tap;
 mod microphone;
+mod typing;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use buttervoice_core::capture::CapturedAudio;
 use buttervoice_core::hotkey::HotkeyKey;
-use buttervoice_core::key_dictation::{AfterCapture, CaptureCommand, KeyDictations};
+use buttervoice_core::key_dictation::{
+    AfterCapture, AfterTranscription, CaptureCommand, KeyDictations,
+};
 use buttervoice_core::recording::Mode;
-use buttervoice_core::transcription::{Transcription, TranscriptionFailure};
+use buttervoice_core::transcription::TranscriptionFailure;
 use buttervoice_grok::GrokTranscriber;
 use buttervoice_replay::recordings;
 use key_tap::TapEvent;
@@ -44,14 +47,21 @@ fn listen_for_the_dictation_key() -> std::io::Result<()> {
                         }
                         None => Err(TranscriptionFailure::NotConfigured),
                     };
-                    lock(&dictations).transcription_finished(outcome, key_tap::now())
+                    let after = lock(&dictations).transcription_finished(outcome, key_tap::now());
+                    match after {
+                        Some(AfterTranscription::Type(text)) => {
+                            let typed = typing::type_text(&text);
+                            lock(&dictations).typing_finished(typed, key_tap::now())
+                        }
+                        Some(AfterTranscription::Finished(finished)) => Some(finished),
+                        None => None,
+                    }
                 }
                 Some(AfterCapture::Finished(finished)) => Some(finished),
                 None => None,
             };
             if let Some(finished) = finished {
                 buttervoice_telemetry::record_dictation(&finished);
-                show_transcript_in_dev_builds(&finished.transcription);
             }
         }
     })?;
@@ -111,17 +121,6 @@ fn grok_transcriber() -> Option<GrokTranscriber> {
             tracing::error!(%error, "the transcription client could not be set up");
             None
         }
-    }
-}
-
-/// Until text is typed into the focused app, the terminal running a debug
-/// build is the only place a transcript can be seen. It never goes to the
-/// log file.
-fn show_transcript_in_dev_builds(transcription: &Transcription) {
-    if cfg!(debug_assertions)
-        && let Transcription::Succeeded(transcript) = transcription
-    {
-        eprintln!("transcript: {}", transcript.text);
     }
 }
 
