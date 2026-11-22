@@ -43,7 +43,7 @@ fn a_dictation_is_logged_as_one_line_with_its_id_and_latencies_in_milliseconds()
     timeline.mark(Mark::FirstSample, at_micros(1_180_250));
     timeline.mark(Mark::FirstSound, at_micros(1_250_500));
     timeline.mark(Mark::KeyUp, at_micros(4_000_000));
-    timeline.mark(Mark::TextLanded, at_micros(4_612_500));
+    timeline.mark(Mark::TextTyped, at_micros(4_612_500));
 
     let lines = lines_logged_for(&timeline.summary());
 
@@ -52,7 +52,7 @@ fn a_dictation_is_logged_as_one_line_with_its_id_and_latencies_in_milliseconds()
     assert_eq!(lines[0]["key_held_ms"], 3000.0);
     assert_eq!(lines[0]["key_down_to_first_sample_ms"], 180.25);
     assert_eq!(lines[0]["key_down_to_first_sound_ms"], 250.5);
-    assert_eq!(lines[0]["key_up_to_text_landed_ms"], 612.5);
+    assert_eq!(lines[0]["key_up_to_text_typed_ms"], 612.5);
 }
 
 #[test]
@@ -63,7 +63,7 @@ fn a_latency_that_was_never_measured_is_left_out_of_the_line() {
     let lines = lines_logged_for(&timeline.summary());
 
     assert_eq!(lines.len(), 1);
-    assert_eq!(lines[0].get("key_up_to_text_landed_ms"), None);
+    assert_eq!(lines[0].get("key_up_to_text_typed_ms"), None);
 }
 
 #[test]

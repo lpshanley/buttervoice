@@ -32,13 +32,13 @@ fn reports_no_wait_when_audio_was_already_being_captured_at_key_down() {
 }
 
 #[test]
-fn reports_time_from_key_up_to_text_landing() {
+fn reports_time_from_key_up_to_the_text_being_typed() {
     let mut timeline = Timeline::new(DictationId(1));
     timeline.mark(Mark::KeyUp, at_micros(4_000_000));
-    timeline.mark(Mark::TextLanded, at_micros(4_612_500));
+    timeline.mark(Mark::TextTyped, at_micros(4_612_500));
 
     assert_eq!(
-        timeline.summary().key_up_to_text_landed,
+        timeline.summary().key_up_to_text_typed,
         Some(Duration::from_micros(612_500))
     );
 }

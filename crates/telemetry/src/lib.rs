@@ -65,7 +65,7 @@ pub fn record_dictation(dictation: &FinishedDictation) {
         transcription_failure = transcription_failure(&dictation.transcription),
         transcription_ms = summary.transcription.map(millis),
         transcript_chars = transcript_chars(&dictation.transcription),
-        key_up_to_text_landed_ms = summary.key_up_to_text_landed.map(millis),
+        key_up_to_text_typed_ms = summary.key_up_to_text_typed.map(millis),
         "dictation"
     );
 }
