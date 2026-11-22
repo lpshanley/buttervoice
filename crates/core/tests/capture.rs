@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use buttervoice_core::capture::{
-    AudioFormat, CapturedAudio, InputKind, capture_channel, choose_input, input_kind,
+    AudioFormat, CapturedAudio, ConversionFailed, InputKind, capture_channel, choose_input,
+    input_kind,
 };
 use buttervoice_core::timeline::Timestamp;
 
@@ -181,4 +182,132 @@ fn audio_sent_for_transcription_peaks_three_decibels_below_full_scale() {
     let peak = boosted.stats().peak;
     assert!((peak - 0.707_946).abs() < 1e-4, "peak was {peak}");
     assert_eq!(boosted.samples[2], 0.0);
+}
+
+#[test]
+fn channels_are_averaged_into_one_for_speech_recognition() {
+    let stereo = CapturedAudio {
+        format: AudioFormat {
+            sample_rate: 16_000,
+            channels: 2,
+        },
+        samples: vec![0.25, 0.75, -0.5, 0.0],
+        dropped_samples: 0,
+    };
+
+    let converted = stereo.to_16khz_mono().unwrap();
+
+    assert_eq!(
+        converted.format,
+        AudioFormat {
+            sample_rate: 16_000,
+            channels: 1,
+        }
+    );
+    assert_eq!(converted.samples, vec![0.5, -0.25]);
+}
+
+/// A second of a pure tone, peaking at half of full scale.
+fn tone(frequency: f32, sample_rate: u32) -> CapturedAudio {
+    let samples = (0..sample_rate)
+        .map(|n| 0.5 * (std::f32::consts::TAU * frequency * n as f32 / sample_rate as f32).sin())
+        .collect();
+    CapturedAudio {
+        format: AudioFormat {
+            sample_rate,
+            channels: 1,
+        },
+        samples,
+        dropped_samples: 0,
+    }
+}
+
+/// The middle of the audio, clear of the edges where a filter is still
+/// filling up or running out.
+fn settled(audio: &CapturedAudio) -> &[f32] {
+    let tenth = audio.samples.len() / 10;
+    &audio.samples[tenth..audio.samples.len() - tenth]
+}
+
+#[test]
+fn a_tone_within_the_speech_band_comes_out_as_the_same_tone_at_16_khz() {
+    for device_rate in [48_000, 44_100, 24_000] {
+        let converted = tone(1_000.0, device_rate).to_16khz_mono().unwrap();
+
+        assert_eq!(
+            converted.format,
+            AudioFormat {
+                sample_rate: 16_000,
+                channels: 1,
+            }
+        );
+        assert_eq!(converted.samples.len(), 16_000, "from {device_rate} Hz");
+        let (level, largest_leftover) = tone_in(settled(&converted), 1_000.0, 16_000.0);
+        assert!(
+            (level - 0.5).abs() < 0.005,
+            "level of the 1 kHz tone, from {device_rate} Hz: {level}"
+        );
+        assert!(
+            largest_leftover < 0.005,
+            "largest sample that is not the 1 kHz tone, from {device_rate} Hz: {largest_leftover}"
+        );
+    }
+}
+
+/// How strongly `frequency` is present in `samples`, as a peak level, and
+/// the largest sample left once that tone is taken away. A shift in time
+/// changes neither.
+fn tone_in(samples: &[f32], frequency: f64, sample_rate: f64) -> (f64, f64) {
+    let angle = |n: usize| std::f64::consts::TAU * frequency * n as f64 / sample_rate;
+    let scale = 2.0 / samples.len() as f64;
+    let (mut sine, mut cosine) = (0.0, 0.0);
+    for (n, sample) in samples.iter().enumerate() {
+        sine += f64::from(*sample) * angle(n).sin() * scale;
+        cosine += f64::from(*sample) * angle(n).cos() * scale;
+    }
+    let largest_leftover = samples
+        .iter()
+        .enumerate()
+        .map(|(n, sample)| f64::from(*sample) - sine * angle(n).sin() - cosine * angle(n).cos())
+        .fold(0.0_f64, |largest, leftover| largest.max(leftover.abs()));
+    (sine.hypot(cosine), largest_leftover)
+}
+
+#[test]
+fn a_tone_above_the_speech_band_is_removed_rather_than_folded_into_it() {
+    let converted = tone(10_000.0, 48_000).to_16khz_mono().unwrap();
+
+    let loudest = settled(&converted)
+        .iter()
+        .fold(0.0_f32, |loudest, sample| loudest.max(sample.abs()));
+    assert!(loudest < 0.005, "loudest sample left over: {loudest}");
+}
+
+#[test]
+fn audio_already_at_16_khz_mono_is_left_exactly_as_it_is() {
+    let already = tone(1_000.0, 16_000);
+
+    assert_eq!(already.to_16khz_mono(), Ok(already));
+}
+
+#[test]
+fn audio_in_a_format_that_cannot_exist_is_refused() {
+    for format in [
+        AudioFormat {
+            sample_rate: 48_000,
+            channels: 0,
+        },
+        AudioFormat {
+            sample_rate: 0,
+            channels: 1,
+        },
+    ] {
+        let impossible = CapturedAudio {
+            format,
+            samples: vec![0.25; 8],
+            dropped_samples: 0,
+        };
+
+        assert_eq!(impossible.to_16khz_mono(), Err(ConversionFailed(format)));
+    }
 }

@@ -2,6 +2,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::time::Duration;
 
+use rubato::audioadapter_buffers::direct::InterleavedSlice;
+use rubato::{Fft, FixedSync, Resampler};
+
 use crate::timeline::Timestamp;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -71,6 +74,33 @@ pub struct AudioStats {
     pub rms: f32,
 }
 
+/// Audio in this format could not be converted to 16 kHz mono.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConversionFailed(pub AudioFormat);
+
+/// The only rate speech recognition models take.
+const SPEECH_SAMPLE_RATE: u32 = 16_000;
+
+fn resampled_for_speech(mono: Vec<f32>, sample_rate: u32) -> Option<Vec<f32>> {
+    if sample_rate == SPEECH_SAMPLE_RATE {
+        return Some(mono);
+    }
+    let frames = mono.len();
+    let mut resampler = Fft::<f32>::new(
+        sample_rate as usize,
+        SPEECH_SAMPLE_RATE as usize,
+        RESAMPLER_CHUNK_FRAMES,
+        1,
+        FixedSync::Both,
+    )
+    .ok()?;
+    let input = InterleavedSlice::new(&mono, 1, frames).ok()?;
+    let output = resampler.process_all(&input, frames, None).ok()?;
+    Some(output.take_data())
+}
+
+const RESAMPLER_CHUNK_FRAMES: usize = 1024;
+
 /// -3 dBFS, as a sample value.
 const TRANSCRIPTION_PEAK: f32 = 0.708;
 
@@ -128,6 +158,27 @@ impl CapturedAudio {
             samples: self.samples.iter().map(|sample| sample * gain).collect(),
             ..self.clone()
         }
+    }
+
+    pub fn to_16khz_mono(&self) -> Result<CapturedAudio, ConversionFailed> {
+        let failed = ConversionFailed(self.format);
+        let channels = usize::from(self.format.channels);
+        if channels == 0 || self.format.sample_rate == 0 {
+            return Err(failed);
+        }
+        let mono: Vec<f32> = self
+            .samples
+            .chunks_exact(channels)
+            .map(|frame| frame.iter().sum::<f32>() / channels as f32)
+            .collect();
+        Ok(CapturedAudio {
+            format: AudioFormat {
+                sample_rate: SPEECH_SAMPLE_RATE,
+                channels: 1,
+            },
+            samples: resampled_for_speech(mono, self.format.sample_rate).ok_or(failed)?,
+            dropped_samples: self.dropped_samples,
+        })
     }
 
     pub fn stats(&self) -> AudioStats {
