@@ -32,18 +32,20 @@ pub struct Session {
     prompts: Vec<Prompt>,
     position: usize,
     take: Option<Take>,
-    kept: Vec<Sample>,
+    /// One slot per prompt, so going back and recording again replaces a
+    /// sample instead of adding a second one.
+    kept: Vec<Option<Sample>>,
 }
 
 impl Session {
     pub fn new(recorded_with: RecordedWith, language: Language, prompts: Vec<Prompt>) -> Self {
         Self {
+            kept: vec![None; prompts.len()],
             recorded_with,
             language,
             prompts,
             position: 0,
             take: None,
-            kept: Vec::new(),
         }
     }
 
@@ -74,7 +76,7 @@ impl Session {
         let (Some(take), Some(prompt)) = (self.take.take(), self.prompts.get(self.position)) else {
             return false;
         };
-        self.kept.push(Sample {
+        self.kept[self.position] = Some(Sample {
             kind: prompt.kind,
             language: self.language,
             said: said.to_string(),
@@ -98,10 +100,26 @@ impl Session {
         }
     }
 
+    /// Returns to the previous prompt. A take not yet kept is discarded;
+    /// what was kept there stays until something replaces it.
+    pub fn back(&mut self) {
+        self.take = None;
+        self.position = self.position.saturating_sub(1);
+    }
+
+    /// The sample already kept for this prompt, from an earlier visit.
+    pub fn kept_here(&self) -> Option<&Sample> {
+        self.kept.get(self.position)?.as_ref()
+    }
+
+    pub fn kept_count(&self) -> usize {
+        self.kept.iter().flatten().count()
+    }
+
     pub fn finish(self) -> SampleSet {
         SampleSet {
             recorded_with: self.recorded_with,
-            samples: self.kept,
+            samples: self.kept.into_iter().flatten().collect(),
         }
     }
 }

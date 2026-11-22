@@ -149,3 +149,108 @@ fn after_the_last_prompt_there_is_none_and_a_stray_recording_is_ignored() {
     assert_eq!(session.progress(), (1, 1));
     assert_eq!(session.finish().samples.len(), 1);
 }
+
+#[test]
+fn going_back_returns_to_the_previous_prompt_and_what_was_kept_there() {
+    let mut session = a_session(vec![read("one"), read("two")]);
+    session.recorded(a_take(0.25));
+    session.keep("one");
+
+    session.back();
+
+    assert_eq!(session.prompt(), Some(&read("one")));
+    assert_eq!(session.progress(), (0, 2));
+    assert_eq!(
+        session.kept_here().map(|sample| sample.said.as_str()),
+        Some("one")
+    );
+    assert_eq!(session.take(), None);
+}
+
+#[test]
+fn keeping_a_new_take_on_a_revisited_prompt_replaces_its_sample() {
+    let mut session = a_session(vec![read("one"), read("two")]);
+    session.recorded(a_take(0.25));
+    session.keep("one, first try");
+    session.back();
+
+    session.recorded(a_take(0.5));
+    session.keep("one, second try");
+
+    assert_eq!(session.kept_count(), 1);
+    let set = session.finish();
+    assert_eq!(set.samples.len(), 1);
+    assert_eq!(set.samples[0].said, "one, second try");
+    assert_eq!(set.samples[0].audio, a_take(0.5).audio);
+}
+
+#[test]
+fn going_back_discards_a_take_not_yet_kept() {
+    let mut session = a_session(vec![read("one"), read("two")]);
+    session.skip();
+    session.recorded(a_take(0.25));
+
+    session.back();
+
+    assert_eq!(session.prompt(), Some(&read("one")));
+    assert_eq!(session.take(), None);
+    assert_eq!(session.kept_count(), 0);
+}
+
+#[test]
+fn going_back_from_the_first_prompt_stays_on_it() {
+    let mut session = a_session(vec![read("one"), read("two")]);
+
+    session.back();
+
+    assert_eq!(session.progress(), (0, 2));
+}
+
+#[test]
+fn moving_past_a_prompt_that_was_kept_before_keeps_its_sample() {
+    let mut session = a_session(vec![read("one"), read("two")]);
+    session.recorded(a_take(0.25));
+    session.keep("one");
+    session.back();
+
+    session.skip();
+
+    assert_eq!(session.prompt(), Some(&read("two")));
+    assert_eq!(session.kept_here(), None);
+    assert_eq!(session.finish().samples.len(), 1);
+}
+
+#[test]
+fn samples_come_out_in_prompt_order_however_they_were_recorded() {
+    let mut session = a_session(vec![read("one"), read("two"), read("three")]);
+    session.skip();
+    session.recorded(a_take(0.2));
+    session.keep("two");
+    session.back();
+    session.back();
+    session.recorded(a_take(0.1));
+    session.keep("one");
+    session.skip();
+    session.recorded(a_take(0.3));
+    session.keep("three");
+
+    let said: Vec<String> = session
+        .finish()
+        .samples
+        .into_iter()
+        .map(|sample| sample.said)
+        .collect();
+
+    assert_eq!(said, ["one", "two", "three"]);
+}
+
+#[test]
+fn going_back_from_the_end_reopens_the_last_prompt() {
+    let mut session = a_session(vec![read("one")]);
+    session.recorded(a_take(0.25));
+    session.keep("one");
+
+    session.back();
+
+    assert_eq!(session.prompt(), Some(&read("one")));
+}
