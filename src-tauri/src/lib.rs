@@ -157,6 +157,17 @@ fn forget_api_key(transcribers: tauri::State<'_, Arc<Transcribers>>) -> Result<(
     transcribers.forget_key()
 }
 
+/// Debug builds keep their key in an entry of their own. An unsigned build
+/// is a different program to macOS after every rebuild, so sharing one entry
+/// with the installed app makes each of them prompt for the other's.
+fn keychain_service(identifier: &str) -> String {
+    if cfg!(debug_assertions) {
+        format!("{identifier}.dev")
+    } else {
+        identifier.to_string()
+    }
+}
+
 fn add_menu_bar_item(app: &tauri::App) -> tauri::Result<()> {
     let settings = MenuItem::with_id(app, SETTINGS, "Settings\u{2026}", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, QUIT, "Quit ButterVoice", true, None::<&str>)?;
@@ -204,7 +215,7 @@ pub fn run() {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             add_menu_bar_item(app)?;
             let hud = Arc::new(Hud::set_up(app.handle())?);
-            let transcribers = Transcribers::start(app.config().identifier.clone());
+            let transcribers = Transcribers::start(keychain_service(&app.config().identifier));
             app.manage(transcribers.clone());
             listen_for_the_dictation_key(hud, transcribers)?;
             Ok(())
