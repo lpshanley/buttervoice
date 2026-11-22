@@ -74,3 +74,31 @@ fn a_late_release_of_an_earlier_press_cannot_stop_a_newer_dictation() {
         Decision::Stop(DictationId(2))
     );
 }
+
+#[test]
+fn in_toggle_mode_releasing_the_key_does_not_stop_the_dictation() {
+    let mut control = RecordingControl::new(Mode::Toggle);
+    control.key_pressed(PressId(1));
+
+    assert_eq!(control.key_released(PressId(1)), Decision::Ignore);
+}
+
+#[test]
+fn in_toggle_mode_the_next_press_stops_the_dictation() {
+    let mut control = RecordingControl::new(Mode::Toggle);
+    control.key_pressed(PressId(1));
+    control.key_released(PressId(1));
+
+    assert_eq!(
+        control.key_pressed(PressId(2)),
+        Decision::Stop(DictationId(1))
+    );
+}
+
+#[test]
+fn in_toggle_mode_a_repeat_of_the_starting_press_does_not_stop_the_dictation() {
+    let mut control = RecordingControl::new(Mode::Toggle);
+    control.key_pressed(PressId(1));
+
+    assert_eq!(control.key_pressed(PressId(1)), Decision::Ignore);
+}
