@@ -8,7 +8,7 @@ use buttervoice_core::key_dictation::FinishedDictation;
 use buttervoice_core::recording::StopReason;
 use buttervoice_core::timeline::{Mark, Summary, Timeline, Timestamp};
 use buttervoice_core::transcription::{Transcript, Transcription, TranscriptionFailure};
-use buttervoice_core::typing::Typing;
+use buttervoice_core::typing::{Typing, TypingFailure};
 use buttervoice_telemetry::{file_subscriber, record_dictation};
 use serde_json::Value;
 
@@ -170,4 +170,26 @@ fn audio_that_is_pure_silence_has_no_level_in_the_line() {
 
     assert_eq!(lines[0].get("audio_peak_dbfs"), None);
     assert_eq!(lines[0].get("audio_rms_dbfs"), None);
+}
+
+#[test]
+fn the_line_says_whether_the_text_was_typed() {
+    let dictation = |typing| FinishedDictation {
+        summary: Timeline::new(DictationId(14)).summary(),
+        stopped_because: StopReason::KeyReleased,
+        audio: None,
+        transcription: Transcription::NotAttempted,
+        typing,
+    };
+
+    let typed = lines_logged(&dictation(Typing::Typed));
+    assert_eq!(typed[0]["typing"], "typed");
+    assert_eq!(typed[0].get("typing_failure"), None);
+
+    let not_attempted = lines_logged(&dictation(Typing::NotAttempted));
+    assert_eq!(not_attempted[0]["typing"], "not_attempted");
+
+    let refused = lines_logged(&dictation(Typing::Failed(TypingFailure::NotPermitted)));
+    assert_eq!(refused[0]["typing"], "failed");
+    assert_eq!(refused[0]["typing_failure"], "not_permitted");
 }

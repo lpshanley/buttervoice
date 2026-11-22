@@ -4,6 +4,7 @@ use std::time::Duration;
 use buttervoice_core::key_dictation::FinishedDictation;
 use buttervoice_core::recording::StopReason;
 use buttervoice_core::transcription::{Transcription, TranscriptionFailure};
+use buttervoice_core::typing::{Typing, TypingFailure};
 use tracing::Subscriber;
 use tracing::subscriber::SetGlobalDefaultError;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -65,6 +66,8 @@ pub fn record_dictation(dictation: &FinishedDictation) {
         transcription_failure = transcription_failure(&dictation.transcription),
         transcription_ms = summary.transcription.map(millis),
         transcript_chars = transcript_chars(&dictation.transcription),
+        typing = typing_outcome(dictation.typing),
+        typing_failure = typing_failure(dictation.typing),
         key_up_to_text_typed_ms = summary.key_up_to_text_typed.map(millis),
         "dictation"
     );
@@ -98,6 +101,21 @@ fn transcription_failure(transcription: &Transcription) -> Option<&'static str> 
         TranscriptionFailure::Rejected => "rejected",
         TranscriptionFailure::Unreachable => "unreachable",
     })
+}
+
+fn typing_outcome(typing: Typing) -> &'static str {
+    match typing {
+        Typing::NotAttempted => "not_attempted",
+        Typing::Typed => "typed",
+        Typing::Failed(_) => "failed",
+    }
+}
+
+fn typing_failure(typing: Typing) -> Option<&'static str> {
+    match typing {
+        Typing::Failed(TypingFailure::NotPermitted) => Some("not_permitted"),
+        _ => None,
+    }
 }
 
 /// The length is logged; the words never are.
