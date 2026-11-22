@@ -2,7 +2,7 @@
 //! scores each against the sentence that was read.
 //!
 //!     cargo run --release -p buttervoice-replay -- replay/recordings replay/sentences.txt [model.gguf ...]
-//!     cargo run --release -p buttervoice-replay -- --set <set folder> <model.gguf ...>
+//!     cargo run --release -p buttervoice-replay -- --suite <set or suite folder> <model.gguf ...>
 //!     cargo run --release -p buttervoice-replay -- --import <package.zip> <suite folder>
 //!
 //! Each model file is run on this machine. The Grok variants run only when
@@ -15,13 +15,14 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use buttervoice_core::capture::CapturedAudio;
+use buttervoice_core::capture::InputKind;
 use buttervoice_core::language::Language;
 use buttervoice_core::transcription::{Transcript, TranscriptionFailure};
 use buttervoice_grok::{DEFAULT_BASE_URL, GrokTranscriber};
 use buttervoice_local::LocalTranscriber;
 use buttervoice_replay::recordings::{self, Recording};
 use buttervoice_replay::report::{Report, replay};
-use buttervoice_replay::summary::{Scored, summarise};
+use buttervoice_replay::summary::{Scored, Summary, by, by_kind, summarise};
 
 struct GrokVariant {
     name: &'static str,
@@ -127,12 +128,12 @@ fn run() -> Result<(), String> {
         );
         return Ok(());
     }
-    if args.peek().map(String::as_str) == Some("--set") {
+    if args.peek().map(String::as_str) == Some("--suite") {
         args.next();
         let folder = args
             .next()
-            .ok_or("usage: buttervoice-replay --set <set folder> <model.gguf ...>")?;
-        return run_set(Path::new(&folder), &args.collect::<Vec<_>>());
+            .ok_or("usage: buttervoice-replay --suite <set or suite folder> <model.gguf ...>")?;
+        return run_suite(Path::new(&folder), &args.collect::<Vec<_>>());
     }
     let (Some(recordings_dir), Some(sentences_file)) = (args.next(), args.next()) else {
         return Err(
@@ -237,91 +238,143 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
-/// Scores each model on a labelled set, kind by kind. Only local models:
-/// a set is never sent to a cloud service by this tool.
-fn run_set(folder: &Path, models: &[String]) -> Result<(), String> {
+/// Scores each model on every labelled set in a suite: over all of it,
+/// then by language, microphone and speaker where the suite has more than
+/// one, then kind by kind. Only local models: a suite is never sent to a
+/// cloud service by this tool.
+fn run_suite(folder: &Path, models: &[String]) -> Result<(), String> {
     buttervoice_local::silence_engine_log();
-    let set = buttervoice_samples::load(folder).map_err(|error| error.to_string())?;
+    let suite = buttervoice_samples::load_suite(folder)
+        .map_err(|error| format!("{}: {error}", folder.display()))?;
     if models.is_empty() {
-        return Err("give at least one model file to score the set with".into());
+        return Err("give at least one model file to score the suite with".into());
     }
-    let by = &set.recorded_with;
-    eprintln!(
-        "{} samples by {:?} on {} (macOS {}), app {} {}",
-        set.samples.len(),
-        by.speaker,
-        by.chip,
-        by.macos,
-        by.app_version,
-        by.app_commit
-    );
+    for set in &suite {
+        let by = &set.set.recorded_with;
+        eprintln!(
+            "{}: {} samples by {:?} on {} (macOS {}), app {} {}",
+            set.name,
+            set.set.samples.len(),
+            by.speaker,
+            by.chip,
+            by.macos,
+            by.app_version,
+            by.app_commit
+        );
+    }
     let report_path = folder.join("report.jsonl");
     let mut report_file = std::fs::File::create(&report_path)
         .map_err(|error| format!("could not create {}: {error}", report_path.display()))?;
     println!(
-        "{:<24} {:<16} {:>7} {:>10} {:>9} {:>9} {:>10}",
-        "model", "kind", "samples", "word errs", "invented", "failures", "median ms"
+        "{:<24} {:<36} {:>7} {:>10} {:>9} {:>9} {:>12} {:>10}",
+        "model",
+        "samples of",
+        "samples",
+        "word errs",
+        "invented",
+        "failures",
+        "x real time",
+        "median ms"
     );
     for model in models {
         let name = Path::new(model)
             .file_stem()
             .map(|stem| stem.to_string_lossy().into_owned())
             .unwrap_or_else(|| model.clone());
+        let started = Instant::now();
         let transcriber = LocalTranscriber::load(Path::new(model))
             .map_err(|error| format!("{model}: {error}"))?;
+        eprintln!(
+            "{name}: loaded in {:.0} ms",
+            started.elapsed().as_secs_f64() * 1000.0
+        );
         let mut scored = Vec::new();
-        let mut took: Vec<(buttervoice_samples::Kind, Duration)> = Vec::new();
-        for (index, sample) in set.samples.iter().enumerate() {
-            let started = Instant::now();
-            let heard = transcriber
-                .transcribe(&sample.audio, sample.language)
-                .map(|transcript| transcript.text)
-                .map_err(|error| {
-                    eprintln!("{name}: {error}");
-                    TranscriptionFailure::EngineFailed
+        for set in &suite {
+            for (index, sample) in set.set.samples.iter().enumerate() {
+                let started = Instant::now();
+                let heard = transcriber
+                    .transcribe(&sample.audio, sample.language)
+                    .map(|transcript| transcript.text)
+                    .map_err(|error| {
+                        eprintln!("{name}: {error}");
+                        TranscriptionFailure::EngineFailed
+                    });
+                let took = started.elapsed();
+                let line = serde_json::json!({
+                    "model": name,
+                    "set": set.name,
+                    "sample": index + 1,
+                    "speaker": set.set.recorded_with.speaker,
+                    "language": sample.language.tag(),
+                    "input": input_name(sample.input),
+                    "kind": sample.kind.name(),
+                    "conditions": sample.conditions,
+                    "said": sample.said,
+                    "prompt": sample.prompt,
+                    "heard": heard.as_ref().ok(),
+                    "seconds_of_audio": sample.audio.duration().as_secs_f64(),
+                    "took_ms": took.as_secs_f64() * 1000.0,
                 });
-            let elapsed = started.elapsed();
-            took.push((sample.kind, elapsed));
-            let line = serde_json::json!({
-                "model": name,
-                "sample": index + 1,
-                "kind": sample.kind.name(),
-                "conditions": sample.conditions,
-                "said": sample.said,
-                "prompt": sample.prompt,
-                "heard": heard.as_ref().ok(),
-                "seconds_of_audio": sample.audio.duration().as_secs_f64(),
-                "took_ms": elapsed.as_secs_f64() * 1000.0,
-            });
-            writeln!(report_file, "{line}").map_err(|error| error.to_string())?;
-            scored.push(Scored {
-                kind: sample.kind,
-                language: sample.language,
-                said: sample.said.clone(),
-                heard,
-            });
+                writeln!(report_file, "{line}").map_err(|error| error.to_string())?;
+                scored.push(Scored {
+                    kind: sample.kind,
+                    language: sample.language,
+                    speaker: set.set.recorded_with.speaker.clone(),
+                    input: sample.input,
+                    said: sample.said.clone(),
+                    heard,
+                    audio: sample.audio.duration(),
+                    took,
+                });
+            }
         }
-        for kind in summarise(&scored) {
-            let times = took
-                .iter()
-                .filter(|(of, _)| *of == kind.kind)
-                .map(|(_, time)| *time)
-                .collect();
-            println!(
-                "{:<24} {:<16} {:>7} {:>10} {:>9} {:>9} {:>10.0}",
-                name.trim_end_matches("-Q8_0"),
-                kind.kind.name(),
-                kind.samples,
-                kind.word_error_rate
-                    .map_or("-".to_string(), |rate| format!("{:.1}%", rate * 100.0)),
-                kind.invented_text,
-                kind.failures,
-                median(times).as_secs_f64() * 1000.0
-            );
+        let name = name.trim_end_matches("-Q8_0");
+        print_summary(name, "everything", &summarise(&scored));
+        let groups = [
+            by(&scored, |sample| {
+                format!("language {}", sample.language.tag())
+            }),
+            by(&scored, |sample| {
+                format!("mic {}", input_name(sample.input))
+            }),
+            by(&scored, |sample| format!("speaker {}", sample.speaker)),
+        ];
+        for group in groups.iter().filter(|group| group.len() > 1) {
+            for (label, summary) in group {
+                print_summary(name, label, summary);
+            }
+        }
+        for (kind, summary) in by_kind(&scored) {
+            print_summary(name, kind.name(), &summary);
         }
     }
     eprintln!("Details written to {}", report_path.display());
     Ok(())
+}
+
+fn input_name(input: InputKind) -> &'static str {
+    match input {
+        InputKind::BuiltIn => "built-in",
+        InputKind::Other => "other",
+    }
+}
+
+fn print_summary(model: &str, label: &str, summary: &Summary) {
+    println!(
+        "{:<24} {:<36} {:>7} {:>10} {:>9} {:>9} {:>12} {:>10.0}",
+        model,
+        label,
+        summary.samples,
+        summary
+            .word_error_rate
+            .map_or("-".to_string(), |rate| format!("{:.1}%", rate * 100.0)),
+        summary.invented_text,
+        summary.failures,
+        summary
+            .times_real_time
+            .map_or("-".to_string(), |times| format!("{times:.0}x")),
+        summary.median_took.as_secs_f64() * 1000.0
+    );
 }
 
 fn write_lines(file: &mut std::fs::File, variant: &str, report: &Report) -> std::io::Result<()> {
