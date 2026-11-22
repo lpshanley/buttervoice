@@ -1,13 +1,16 @@
 mod key_tap;
 mod microphone;
 
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use buttervoice_core::capture::CapturedAudio;
 use buttervoice_core::hotkey::HotkeyKey;
 use buttervoice_core::key_dictation::{AfterCapture, CaptureCommand, KeyDictations};
 use buttervoice_core::recording::Mode;
 use buttervoice_core::transcription::{Transcription, TranscriptionFailure};
 use buttervoice_grok::GrokTranscriber;
+use buttervoice_replay::recordings;
 use key_tap::TapEvent;
 use tauri::Manager;
 
@@ -23,12 +26,16 @@ fn listen_for_the_dictation_key() -> std::io::Result<()> {
         Mode::PushToTalk,
     )));
     let transcriber = grok_transcriber();
+    let recordings_dir = std::env::var_os(RECORDINGS_VARIABLE).map(PathBuf::from);
     let microphone = microphone::spawn({
         let dictations = dictations.clone();
         move |captured| {
             let after = lock(&dictations).capture_stopped(captured, key_tap::now());
             let finished = match after {
                 Some(AfterCapture::Transcribe(audio)) => {
+                    if let Some(dir) = &recordings_dir {
+                        save_for_replay(dir, &audio);
+                    }
                     // The network call happens outside the lock, so key
                     // events are still handled while it runs.
                     let outcome = match &transcriber {
@@ -73,6 +80,17 @@ fn listen_for_the_dictation_key() -> std::io::Result<()> {
 }
 
 const API_KEY_VARIABLE: &str = "XAI_API_KEY";
+/// When set, every dictation's audio is saved into this folder for the
+/// replay tool. Meant for development: it writes a real voice to disk.
+const RECORDINGS_VARIABLE: &str = "BUTTERVOICE_RECORDINGS_DIR";
+
+fn save_for_replay(dir: &Path, audio: &CapturedAudio) {
+    let number = recordings::next_number(dir);
+    match recordings::save(dir, number, audio) {
+        Ok(_) => tracing::info!(number, "recording saved for replay"),
+        Err(error) => tracing::warn!(%error, "recording could not be saved for replay"),
+    }
+}
 
 fn grok_transcriber() -> Option<GrokTranscriber> {
     let Some(api_key) = std::env::var(API_KEY_VARIABLE)
