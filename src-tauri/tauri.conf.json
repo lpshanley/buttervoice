@@ -68,6 +68,16 @@
       "entitlements": "Entitlements.plist",
       "hardenedRuntime": true,
       "minimumSystemVersion": "14.0"
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNEQzMyNjFFODFCRTIyNEYKUldSUElyNkJIaWJEUFdySnhDNUNUS3RWQnBmOGZyaUY0ZFRLQ1FPRnYzNDBBMll5KzU2clQwVzUK",
+      "endpoints": [
+        "https://github.com/lpshanley/buttervoice/releases/latest/download/latest.json"
+      ],
+      "requireSignedVersion": true
     }
   }
 }
