@@ -120,6 +120,14 @@ impl Session {
         self.kept.iter().flatten().count()
     }
 
+    /// What has been kept so far, as a set, while the session goes on.
+    pub fn so_far(&self) -> SampleSet {
+        SampleSet {
+            recorded_with: self.recorded_with.clone(),
+            samples: self.kept.iter().flatten().cloned().collect(),
+        }
+    }
+
     pub fn finish(self) -> SampleSet {
         SampleSet {
             recorded_with: self.recorded_with,

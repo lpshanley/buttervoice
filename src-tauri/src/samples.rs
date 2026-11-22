@@ -65,7 +65,8 @@ pub struct State {
 
 pub struct Recorder {
     sets_folder: PathBuf,
-    session: Mutex<Option<Session>>,
+    /// The session and the folder it is saved to as it goes.
+    session: Mutex<Option<(Session, PathBuf)>>,
     last_saved: Mutex<Option<PathBuf>>,
 }
 
@@ -82,30 +83,45 @@ impl Recorder {
         self.session().is_some()
     }
 
-    pub fn start(&self, recorded_with: RecordedWith, language: Language) {
-        *self.session() = Some(Session::new(recorded_with, language, script(language)));
+    /// `seconds_since_1970` only makes the folder's name unique.
+    pub fn start(&self, recorded_with: RecordedWith, language: Language, seconds_since_1970: u64) {
+        let folder = self
+            .sets_folder
+            .join(folder_name(&recorded_with.speaker, seconds_since_1970));
+        *self.session() = Some((
+            Session::new(recorded_with, language, script(language)),
+            folder,
+        ));
     }
 
     pub fn recorded(&self, take: Take) {
-        if let Some(session) = self.session().as_mut() {
+        if let Some((session, _)) = self.session().as_mut() {
             session.recorded(take);
         }
     }
 
+    /// Every kept take is saved straight away, so quitting part-way loses
+    /// nothing that was kept.
     pub fn next(&self, said: &str) {
-        if let Some(session) = self.session().as_mut() {
+        if let Some((session, folder)) = self.session().as_mut() {
             session.next(said);
+            let so_far = session.so_far();
+            if !so_far.samples.is_empty()
+                && let Err(error) = buttervoice_samples::save(folder, &so_far)
+            {
+                tracing::warn!(%error, "the samples kept so far could not be saved");
+            }
         }
     }
 
     pub fn skip(&self) {
-        if let Some(session) = self.session().as_mut() {
+        if let Some((session, _)) = self.session().as_mut() {
             session.skip();
         }
     }
 
     pub fn back(&self) {
-        if let Some(session) = self.session().as_mut() {
+        if let Some((session, _)) = self.session().as_mut() {
             session.back();
         }
     }
@@ -114,7 +130,7 @@ impl Recorder {
     /// as a WAV file to play back.
     pub fn audio(&self) -> Option<Vec<u8>> {
         let session = self.session();
-        let session = session.as_ref()?;
+        let (session, _) = session.as_ref()?;
         let audio = match session.take() {
             Some(take) => &take.audio,
             None => &session.kept_here()?.audio,
@@ -122,21 +138,19 @@ impl Recorder {
         Some(audio.to_wav())
     }
 
+    /// Stops and removes what this session saved.
     pub fn cancel(&self) {
-        *self.session() = None;
+        if let Some((_, folder)) = self.session().take() {
+            let _ = std::fs::remove_dir_all(folder);
+        }
     }
 
-    /// Ends the session and writes what was kept as a set in a folder of its
-    /// own. `seconds_since_1970` only makes the folder's name unique.
-    pub fn finish(&self, seconds_since_1970: u64) -> Result<PathBuf, String> {
-        let Some(session) = self.session().take() else {
+    /// Ends the session, writes what was kept, and returns its folder.
+    pub fn finish(&self) -> Result<PathBuf, String> {
+        let Some((session, folder)) = self.session().take() else {
             return Err("no session".to_string());
         };
-        let set = session.finish();
-        let folder = self
-            .sets_folder
-            .join(folder_name(&set.recorded_with.speaker, seconds_since_1970));
-        buttervoice_samples::save(&folder, &set).map_err(|error| error.to_string())?;
+        buttervoice_samples::save(&folder, &session.finish()).map_err(|error| error.to_string())?;
         *self
             .last_saved
             .lock()
@@ -164,7 +178,7 @@ impl Recorder {
 
     pub fn state(&self) -> State {
         let session = self.session();
-        let Some(session) = session.as_ref() else {
+        let Some((session, _)) = session.as_ref() else {
             return State {
                 active: false,
                 position: 0,
@@ -208,7 +222,7 @@ impl Recorder {
         }
     }
 
-    fn session(&self) -> MutexGuard<'_, Option<Session>> {
+    fn session(&self) -> MutexGuard<'_, Option<(Session, PathBuf)>> {
         self.session.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }

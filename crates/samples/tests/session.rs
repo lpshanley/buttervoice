@@ -272,3 +272,28 @@ fn next_with_no_take_waiting_moves_on_and_keeps_what_was_there() {
     assert_eq!(set.samples.len(), 1);
     assert_eq!(set.samples[0].said, "one");
 }
+
+#[test]
+fn what_has_been_kept_so_far_can_be_had_without_ending_the_session() {
+    let mut session = a_session(vec![read("one"), read("two"), read("three")]);
+    session.recorded(a_take(0.25));
+    session.next("one");
+    session.skip();
+    session.recorded(a_take(0.5));
+    session.next("three");
+
+    let so_far = session.so_far();
+
+    assert_eq!(so_far.recorded_with.speaker, "speaker-a");
+    let said: Vec<&str> = so_far
+        .samples
+        .iter()
+        .map(|sample| sample.said.as_str())
+        .collect();
+    assert_eq!(said, ["one", "three"]);
+    session.back();
+    assert_eq!(
+        session.kept_here().map(|sample| sample.said.as_str()),
+        Some("three")
+    );
+}

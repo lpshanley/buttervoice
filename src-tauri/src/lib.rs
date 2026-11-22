@@ -305,7 +305,11 @@ fn samples_start(
         chip: what_the_system_says("machdep.cpu.brand_string"),
         macos: what_the_system_says("kern.osproductversion"),
     };
-    recorder.start(recorded_with, transcribers.dictation_language());
+    recorder.start(
+        recorded_with,
+        transcribers.dictation_language(),
+        seconds_since_1970(),
+    );
 }
 
 fn what_the_system_says(name: &str) -> String {
@@ -351,12 +355,8 @@ fn samples_finish(
     recorder: tauri::State<'_, Arc<Recorder>>,
     transcribers: tauri::State<'_, Arc<Transcribers>>,
 ) -> Result<String, String> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|since| since.as_secs())
-        .unwrap_or_default();
     recorder
-        .finish(now)
+        .finish()
         .map(|folder| folder.display().to_string())
         .map_err(|error| {
             tracing::error!(%error, "the sample set could not be saved");
