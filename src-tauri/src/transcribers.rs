@@ -16,12 +16,18 @@ pub struct Transcribers {
 }
 
 impl Transcribers {
-    pub fn new(keychain_service: String) -> Self {
-        let transcribers = Self {
+    /// Returns at once and loads the key in the background: reading the
+    /// Keychain can wait on a system prompt, and nothing else should wait
+    /// with it.
+    pub fn start(keychain_service: String) -> Arc<Self> {
+        let transcribers = Arc::new(Self {
             keychain_service,
             current: RwLock::new(None),
-        };
-        transcribers.reload();
+        });
+        std::thread::spawn({
+            let transcribers = transcribers.clone();
+            move || transcribers.reload()
+        });
         transcribers
     }
 

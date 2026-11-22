@@ -142,7 +142,9 @@ fn api_key_source(transcribers: tauri::State<'_, Arc<Transcribers>>) -> &'static
     }
 }
 
-#[tauri::command]
+// `async` keeps the Keychain call, which can wait on a system prompt, off
+// the main thread.
+#[tauri::command(async)]
 fn save_api_key(
     key: String,
     transcribers: tauri::State<'_, Arc<Transcribers>>,
@@ -150,7 +152,7 @@ fn save_api_key(
     transcribers.save_key(&key)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn forget_api_key(transcribers: tauri::State<'_, Arc<Transcribers>>) -> Result<(), String> {
     transcribers.forget_key()
 }
@@ -201,7 +203,7 @@ pub fn run() {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             add_menu_bar_item(app)?;
             let hud = Arc::new(Hud::set_up(app.handle())?);
-            let transcribers = Arc::new(Transcribers::new(app.config().identifier.clone()));
+            let transcribers = Transcribers::start(app.config().identifier.clone());
             app.manage(transcribers.clone());
             listen_for_the_dictation_key(hud, transcribers)?;
             Ok(())
