@@ -633,7 +633,6 @@ struct RunningTelemetry(Mutex<Option<Telemetry>>);
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_macos_permissions::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Updates::default())

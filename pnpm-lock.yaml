@@ -118,9 +118,6 @@ importers:
       '@tauri-apps/api':
         specifier: ^2
         version: 2.12.5
-      '@tauri-apps/plugin-opener':
-        specifier: ^2
-        version: 2.7.3
       solid-js:
         specifier: ^2.0.3
         version: 2.0.3
@@ -582,9 +579,6 @@ packages:
     resolution: {integrity: sha512-/cOeQgqq8PBDPODOjjT0YHs4qxKCHcQMWMiBm4rLM3JNr9mZE+PHNKOK4zAkhIUtYMNL/0fweW48VNvzD1AbqA==}
     engines: {node: '>= 10'}
     hasBin: true
-
-  '@tauri-apps/plugin-opener@2.7.3':
-    resolution: {integrity: sha512-Nm+v7vLBCDzYZxrmCJhpMgtPsPsKt5myMs7SMU/aBjPOmAFI1RrHfhMz7t5KlxjMOzRcelyNq1/j0pmC9SmBVA==}
 
   '@tybys/wasm-util@0.10.5':
     resolution: {integrity: sha512-dOGOPxlaNV+G046mZzN+9C0dAcQZeSKcXiVaM0TYy/LM4ttTmgSBDxYfovcYI8Em3+eAbiAYpvWLOv8+ZVRJKA==}
@@ -1270,10 +1264,6 @@ snapshots:
       '@tauri-apps/cli-win32-arm64-msvc': 2.12.6
       '@tauri-apps/cli-win32-ia32-msvc': 2.12.6
       '@tauri-apps/cli-win32-x64-msvc': 2.12.6
-
-  '@tauri-apps/plugin-opener@2.7.3':
-    dependencies:
-      '@tauri-apps/api': 2.12.5
 
   '@tybys/wasm-util@0.10.5':
     dependencies:
