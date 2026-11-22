@@ -13,7 +13,7 @@ pub struct CaptureReport {
 /// Written from the real-time audio thread, so it only ever touches atomics:
 /// no locks, no allocation.
 #[derive(Debug, Default)]
-pub struct CaptureMarks {
+struct CaptureMarks {
     first_sample_nanos: AtomicU64,
     first_sound_nanos: AtomicU64,
 }
@@ -21,18 +21,14 @@ pub struct CaptureMarks {
 const UNSET: u64 = 0;
 
 impl CaptureMarks {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn buffer_captured(&self, samples: &[f32], captured_at: Timestamp) {
+    fn buffer_captured(&self, samples: &[f32], captured_at: Timestamp) {
         set_once(&self.first_sample_nanos, captured_at);
         if samples.iter().any(|sample| *sample != 0.0) {
             set_once(&self.first_sound_nanos, captured_at);
         }
     }
 
-    pub fn report(&self) -> CaptureReport {
+    fn report(&self) -> CaptureReport {
         CaptureReport {
             first_sample_at: read(&self.first_sample_nanos),
             first_sound_at: read(&self.first_sound_nanos),
@@ -63,6 +59,12 @@ pub struct CapturedAudio {
     pub format: AudioFormat,
     pub samples: Vec<f32>,
     pub dropped_samples: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Captured {
+    pub audio: CapturedAudio,
+    pub report: CaptureReport,
 }
 
 impl CapturedAudio {
@@ -134,16 +136,16 @@ impl CaptureReader {
         }
     }
 
-    pub fn finish(mut self) -> (CapturedAudio, CaptureReport) {
+    pub fn finish(mut self) -> Captured {
         self.collect();
-        (
-            CapturedAudio {
+        Captured {
+            audio: CapturedAudio {
                 format: self.format,
                 samples: self.collected,
                 dropped_samples: self.shared.dropped_samples.load(Relaxed),
             },
-            self.shared.marks.report(),
-        )
+            report: self.shared.marks.report(),
+        }
     }
 }
 

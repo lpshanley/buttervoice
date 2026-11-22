@@ -1,4 +1,4 @@
-use crate::capture::CaptureReport;
+use crate::capture::{CaptureReport, Captured, CapturedAudio};
 use crate::hotkey::{HotkeyDecoder, HotkeyKey, KeyEdge};
 use crate::recording::{Decision, Mode, RecordingControl, StopReason};
 use crate::timeline::{Mark, Summary, Timeline, Timestamp};
@@ -9,10 +9,12 @@ pub enum CaptureCommand {
     Stop,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// `audio` is `None` when the microphone could not be started.
+#[derive(Debug, Clone, PartialEq)]
 pub struct FinishedDictation {
     pub summary: Summary,
     pub stopped_because: StopReason,
+    pub audio: Option<CapturedAudio>,
 }
 
 #[derive(Debug)]
@@ -55,11 +57,15 @@ impl KeyDictations {
         self.apply(decision, at)
     }
 
-    pub fn capture_stopped(&mut self, report: CaptureReport) -> Option<FinishedDictation> {
+    pub fn capture_stopped(&mut self, captured: Option<Captured>) -> Option<FinishedDictation> {
         let Phase::StoppingCapture(mut timeline, stopped_because) =
             std::mem::replace(&mut self.phase, Phase::Idle)
         else {
             return None;
+        };
+        let (audio, report) = match captured {
+            Some(captured) => (Some(captured.audio), captured.report),
+            None => (None, CaptureReport::default()),
         };
         if let Some(at) = report.first_sample_at {
             timeline.mark(Mark::FirstSample, at);
@@ -73,6 +79,7 @@ impl KeyDictations {
         Some(FinishedDictation {
             summary: timeline.summary(),
             stopped_because,
+            audio,
         })
     }
 

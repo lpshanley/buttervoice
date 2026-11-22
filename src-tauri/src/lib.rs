@@ -22,8 +22,8 @@ fn listen_for_the_dictation_key() -> std::io::Result<()> {
     )));
     let microphone = microphone::spawn({
         let dictations = dictations.clone();
-        move |report| {
-            let finished = lock(&dictations).capture_stopped(report);
+        move |captured| {
+            let finished = lock(&dictations).capture_stopped(captured);
             if let Some(finished) = finished {
                 buttervoice_telemetry::record_dictation(
                     &finished.summary,

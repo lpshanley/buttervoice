@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use buttervoice_core::DictationId;
-use buttervoice_core::capture::CaptureReport;
+use buttervoice_core::capture::{AudioFormat, CaptureReport, Captured, CapturedAudio};
 use buttervoice_core::hotkey::HotkeyKey;
 use buttervoice_core::key_dictation::{CaptureCommand, KeyDictations};
 use buttervoice_core::recording::{Mode, StopReason};
@@ -12,6 +12,17 @@ const NO_MODIFIERS: u64 = 0x100;
 
 fn at_micros(micros: u64) -> Timestamp {
     Timestamp::from_nanos(micros * 1_000)
+}
+
+fn two_samples() -> CapturedAudio {
+    CapturedAudio {
+        format: AudioFormat {
+            sample_rate: 48_000,
+            channels: 1,
+        },
+        samples: vec![0.25, -0.5],
+        dropped_samples: 0,
+    }
 }
 
 fn push_to_talk() -> KeyDictations {
@@ -39,10 +50,13 @@ fn a_dictation_finishes_once_capture_has_stopped() {
     dictations.flags_changed(NO_MODIFIERS, at_micros(1_956_365));
 
     let finished = dictations
-        .capture_stopped(CaptureReport {
-            first_sample_at: Some(at_micros(1_084_000)),
-            first_sound_at: Some(at_micros(1_095_000)),
-        })
+        .capture_stopped(Some(Captured {
+            audio: two_samples(),
+            report: CaptureReport {
+                first_sample_at: Some(at_micros(1_084_000)),
+                first_sound_at: Some(at_micros(1_095_000)),
+            },
+        }))
         .expect("stopping capture should finish the dictation");
 
     assert_eq!(finished.summary.dictation_id, DictationId(1));
@@ -59,6 +73,7 @@ fn a_dictation_finishes_once_capture_has_stopped() {
         finished.summary.key_down_to_first_sound,
         Some(Duration::from_micros(95_000))
     );
+    assert_eq!(finished.audio, Some(two_samples()));
 }
 
 #[test]
@@ -83,7 +98,7 @@ fn a_release_missed_by_the_listener_stops_capture_on_resync() {
         Some(CaptureCommand::Stop)
     );
     let finished = dictations
-        .capture_stopped(CaptureReport::default())
+        .capture_stopped(None)
         .expect("stopping capture should finish the dictation");
     assert_eq!(
         finished.summary.key_held,
@@ -102,7 +117,7 @@ fn losing_the_key_listener_stops_capture_and_the_dictation_says_why() {
         Some(CaptureCommand::Stop)
     );
     let finished = dictations
-        .capture_stopped(CaptureReport::default())
+        .capture_stopped(None)
         .expect("stopping capture should finish the dictation");
     assert_eq!(finished.stopped_because, StopReason::KeyListenerLost);
 }
