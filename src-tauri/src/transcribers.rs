@@ -98,6 +98,20 @@ impl Transcribers {
         (provider, language, outcome)
     }
 
+    /// What a transcriber on this Mac makes of a recording, or `None` when
+    /// there is none for the person's language. A sample is never sent to a
+    /// cloud service just to suggest its text.
+    pub fn heard_on_this_mac(
+        &self,
+        audio: &CapturedAudio,
+    ) -> Option<(Provider, Language, Result<Transcript, TranscriptionFailure>)> {
+        let language = self.dictation_language();
+        match self.ready() {
+            Ready::Local(local) if local.speaks(language) => Some(self.transcribe(audio)),
+            _ => None,
+        }
+    }
+
     pub fn setup(&self) -> Setup {
         let state = match self.ready() {
             Ready::Starting => "starting",

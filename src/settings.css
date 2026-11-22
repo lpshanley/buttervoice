@@ -1,4 +1,4 @@
-:root[data-view="settings"] {
+:root:is([data-view="settings"], [data-view="samples"]) {
   --surface: #fbf7ee;
   --text: #1c1a16;
   --muted: #6b6558;
@@ -15,7 +15,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root[data-view="settings"] {
+  :root:is([data-view="settings"], [data-view="samples"]) {
     --surface: #1c1a16;
     --text: #f6efdf;
     --muted: #a59d8b;
@@ -26,7 +26,7 @@
   }
 }
 
-:root[data-view="settings"] body {
+:root:is([data-view="settings"], [data-view="samples"]) body {
   margin: 0;
   background: var(--surface);
 }
@@ -164,4 +164,30 @@
 
 .settings .permissions .allowed {
   color: var(--muted);
+}
+
+.samples .say {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.samples textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  resize: vertical;
+}
+
+.samples code {
+  font-size: 12px;
+  word-break: break-all;
 }

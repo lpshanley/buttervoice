@@ -36,6 +36,15 @@
         "resizable": false,
         "visible": false,
         "center": true
+      },
+      {
+        "label": "samples",
+        "title": "ButterVoice Samples",
+        "width": 520,
+        "height": 620,
+        "resizable": true,
+        "visible": false,
+        "center": true
       }
     ],
     "security": {

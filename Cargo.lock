@@ -457,6 +457,7 @@ dependencies = [
  "buttervoice-grok",
  "buttervoice-local",
  "buttervoice-replay",
+ "buttervoice-samples",
  "buttervoice-telemetry",
  "cpal",
  "rust-i18n",

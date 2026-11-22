@@ -6,20 +6,24 @@ use buttervoice_core::language::Language;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Message {
     MarkLastDictationAsBad,
+    RecordSamples,
     OpenSettings,
     Quit,
     EnterAKeyFirst,
     ChoiceNotSaved,
+    SamplesNotSaved,
 }
 
 impl Message {
     fn key(self) -> &'static str {
         match self {
             Message::MarkLastDictationAsBad => "tray.mark_bad",
+            Message::RecordSamples => "tray.record_samples",
             Message::OpenSettings => "tray.settings",
             Message::Quit => "tray.quit",
             Message::EnterAKeyFirst => "error.enter_a_key",
             Message::ChoiceNotSaved => "error.choice_not_saved",
+            Message::SamplesNotSaved => "error.samples_not_saved",
         }
     }
 
@@ -32,7 +36,9 @@ impl Message {
 mod tests {
     use super::*;
 
-    const EVERY_MESSAGE: [Message; 5] = [
+    const EVERY_MESSAGE: [Message; 7] = [
+        Message::RecordSamples,
+        Message::SamplesNotSaved,
         Message::MarkLastDictationAsBad,
         Message::OpenSettings,
         Message::Quit,

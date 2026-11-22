@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { translator } from "@solid-primitives/i18n";
+import { resolveTemplate, translator } from "@solid-primitives/i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import english from "../locales/en.json";
@@ -32,4 +32,4 @@ export async function followTheApp() {
   setLocale(now.language);
 }
 
-export const t = translator(() => dictionaries[locale()]);
+export const t = translator(() => dictionaries[locale()], resolveTemplate);

@@ -3,6 +3,7 @@ mod key_tap;
 mod messages;
 mod microphone;
 mod preferences;
+mod samples;
 mod saved_key;
 mod transcribers;
 mod typing;
@@ -12,6 +13,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use buttervoice_core::capture::CapturedAudio;
+use buttervoice_core::capture::InputKind;
 use buttervoice_core::hotkey::HotkeyKey;
 use buttervoice_core::key_dictation::{
     AfterCapture, AfterTranscription, CaptureCommand, KeyDictations,
@@ -20,10 +22,13 @@ use buttervoice_core::language::Language;
 use buttervoice_core::recording::Mode;
 use buttervoice_core::transcription::Provider;
 use buttervoice_replay::recordings;
+use buttervoice_samples::RecordedWith;
+use buttervoice_samples::session::Take;
 use buttervoice_telemetry::{Build, BuildKind, Telemetry};
 use hud::Hud;
 use key_tap::{TapEnded, TapEvent};
 use messages::Message;
+use samples::Recorder;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager};
@@ -39,14 +44,37 @@ fn listen_for_the_dictation_key(
     dictations: Dictations,
     hud: Arc<Hud>,
     transcribers: Arc<Transcribers>,
+    recorder: Arc<Recorder>,
+    app: tauri::AppHandle,
 ) -> std::io::Result<()> {
     let recordings_dir = std::env::var_os(RECORDINGS_VARIABLE).map(PathBuf::from);
     let microphone = microphone::spawn({
         let dictations = dictations.clone();
         let hud = hud.clone();
         move |captured| {
+            let input = captured.as_ref().map(|captured| captured.input);
             let after = lock(&dictations).capture_stopped(captured, key_tap::now());
             let finished = match after {
+                // While samples are being recorded, a dictation is a take
+                // for the session and is never typed anywhere.
+                Some(AfterCapture::Transcribe(audio)) if taking_samples(&recorder, &app) => {
+                    let hint = transcribers.heard_on_this_mac(&audio);
+                    let heard = match &hint {
+                        Some((_, _, Ok(transcript))) => Some(transcript.text.clone()),
+                        _ => None,
+                    };
+                    recorder.recorded(Take {
+                        audio,
+                        input: input.unwrap_or(InputKind::Other),
+                        heard,
+                    });
+                    let _ = app.emit_to(SAMPLES, SAMPLES_CHANGED, ());
+                    match hint {
+                        Some((provider, language, outcome)) => lock(&dictations)
+                            .transcription_kept(provider, language, outcome, key_tap::now()),
+                        None => lock(&dictations).kept_untranscribed(),
+                    }
+                }
                 Some(AfterCapture::Transcribe(audio)) => {
                     if let Some(dir) = &recordings_dir {
                         save_for_replay(dir, &audio);
@@ -228,6 +256,77 @@ fn save_api_key(
     transcribers.save_key(&key)
 }
 
+#[tauri::command]
+fn samples_state(recorder: tauri::State<'_, Arc<Recorder>>) -> samples::State {
+    recorder.state()
+}
+
+#[tauri::command]
+fn samples_start(
+    speaker: String,
+    recorder: tauri::State<'_, Arc<Recorder>>,
+    transcribers: tauri::State<'_, Arc<Transcribers>>,
+) {
+    let recorded_with = RecordedWith {
+        speaker,
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        app_commit: env!("BUTTERVOICE_COMMIT").to_string(),
+        chip: what_the_system_says("machdep.cpu.brand_string"),
+        macos: what_the_system_says("kern.osproductversion"),
+    };
+    recorder.start(recorded_with, transcribers.dictation_language());
+}
+
+fn what_the_system_says(name: &str) -> String {
+    std::process::Command::new("/usr/sbin/sysctl")
+        .args(["-n", name])
+        .output()
+        .ok()
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+#[tauri::command]
+fn samples_keep(said: String, recorder: tauri::State<'_, Arc<Recorder>>) -> bool {
+    recorder.keep(&said)
+}
+
+#[tauri::command]
+fn samples_redo(recorder: tauri::State<'_, Arc<Recorder>>) {
+    recorder.redo();
+}
+
+#[tauri::command]
+fn samples_skip(recorder: tauri::State<'_, Arc<Recorder>>) {
+    recorder.skip();
+}
+
+#[tauri::command]
+fn samples_cancel(recorder: tauri::State<'_, Arc<Recorder>>) {
+    recorder.cancel();
+}
+
+/// Returns the folder the set was written to.
+#[tauri::command(async)]
+fn samples_finish(
+    recorder: tauri::State<'_, Arc<Recorder>>,
+    transcribers: tauri::State<'_, Arc<Transcribers>>,
+) -> Result<String, String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_secs())
+        .unwrap_or_default();
+    recorder
+        .finish(now)
+        .map(|folder| folder.display().to_string())
+        .map_err(|error| {
+            tracing::error!(%error, "the sample set could not be saved");
+            Message::SamplesNotSaved.text(transcribers.display_language())
+        })
+}
+
 #[tauri::command(async)]
 fn forget_api_key(transcribers: tauri::State<'_, Arc<Transcribers>>) -> Result<(), String> {
     transcribers.forget_key()
@@ -252,9 +351,10 @@ fn menu_in<R: tauri::Runtime, M: Manager<R>>(
         MenuItem::with_id(app, id, message.text(language), true, None::<&str>)
     };
     let mark_bad = item(MARK_BAD, Message::MarkLastDictationAsBad)?;
+    let record_samples = item(SAMPLES, Message::RecordSamples)?;
     let settings = item(SETTINGS, Message::OpenSettings)?;
     let quit = item(QUIT, Message::Quit)?;
-    Menu::with_items(app, &[&mark_bad, &settings, &quit])
+    Menu::with_items(app, &[&mark_bad, &record_samples, &settings, &quit])
 }
 
 const MENU_BAR_ITEM: &str = "menu-bar";
@@ -270,8 +370,8 @@ fn add_menu_bar_item(app: &tauri::App, language: Language) -> tauri::Result<()> 
             } else if event.id() == MARK_BAD {
                 let latest = lock(&app.state::<Dictations>()).latest_dictation();
                 buttervoice_telemetry::record_marked_bad(latest);
-            } else if event.id() == SETTINGS
-                && let Some(window) = app.get_webview_window(SETTINGS)
+            } else if (event.id() == SETTINGS || event.id() == SAMPLES)
+                && let Some(window) = app.get_webview_window(event.id().as_ref())
             {
                 let _ = window.show();
                 let _ = window.set_focus();
@@ -290,6 +390,21 @@ const PREFERENCES_FILE: &str = "preferences.json";
 
 /// The model the local provider runs, chosen by benchmark on real dictations.
 const LOCAL_MODEL: &str = "parakeet-tdt-0.6b-v2-Q8_0.gguf";
+
+/// A session only takes dictations while its window is showing. With the
+/// window closed part-way through, dictation goes back to typing and the
+/// session waits.
+fn taking_samples(recorder: &Recorder, app: &tauri::AppHandle) -> bool {
+    recorder.active()
+        && app
+            .get_webview_window(SAMPLES)
+            .and_then(|window| window.is_visible().ok())
+            .unwrap_or(false)
+}
+
+/// Both the menu item and the window it opens.
+const SAMPLES: &str = "samples";
+const SAMPLES_CHANGED: &str = "samples-changed";
 
 const QUIT: &str = "quit";
 const MARK_BAD: &str = "mark-bad";
@@ -342,13 +457,21 @@ pub fn run() {
                 Mode::PushToTalk,
             )));
             app.manage(dictations.clone());
-            listen_for_the_dictation_key(dictations, hud, transcribers)?;
+            let recorder = Arc::new(Recorder::new(app.path().app_data_dir()?.join("samples")));
+            app.manage(recorder.clone());
+            listen_for_the_dictation_key(
+                dictations,
+                hud,
+                transcribers,
+                recorder,
+                app.handle().clone(),
+            )?;
             Ok(())
         })
         // Closing the settings window only hides it, so it can be opened again.
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event
-                && window.label() == SETTINGS
+                && (window.label() == SETTINGS || window.label() == SAMPLES)
             {
                 api.prevent_close();
                 let _ = window.hide();
@@ -357,6 +480,13 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             transcription_setup,
             language_setup,
+            samples_state,
+            samples_start,
+            samples_keep,
+            samples_redo,
+            samples_skip,
+            samples_cancel,
+            samples_finish,
             choose_language,
             choose_provider,
             save_api_key,
