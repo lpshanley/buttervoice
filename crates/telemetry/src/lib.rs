@@ -8,6 +8,8 @@ use tracing::Subscriber;
 use tracing::subscriber::SetGlobalDefaultError;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{InitError, RollingFileAppender, Rotation};
+use tracing_subscriber::Layer;
+use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
 
 /// Dropping the guard flushes pending lines and stops the writer, so hold it
@@ -25,7 +27,10 @@ pub fn file_subscriber(
     let file_layer = tracing_subscriber::fmt::layer()
         .json()
         .flatten_event(true)
-        .with_writer(writer);
+        .with_writer(writer)
+        // Libraries are chatty below this level, and their detail can name
+        // hosts and addresses.
+        .with_filter(LevelFilter::INFO);
     Ok((tracing_subscriber::registry().with(file_layer), guard))
 }
 
