@@ -61,10 +61,13 @@ pub struct CapturedAudio {
     pub dropped_samples: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// `peak` and `rms` are on the sample scale, where 1.0 is full scale.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AudioStats {
     pub duration: Duration,
     pub dropped_samples: u64,
+    pub peak: f32,
+    pub rms: f32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -106,7 +109,24 @@ impl CapturedAudio {
         AudioStats {
             duration: self.duration(),
             dropped_samples: self.dropped_samples,
+            peak: self
+                .samples
+                .iter()
+                .fold(0.0, |peak, sample| peak.max(sample.abs())),
+            rms: self.rms(),
         }
+    }
+
+    fn rms(&self) -> f32 {
+        if self.samples.is_empty() {
+            return 0.0;
+        }
+        let sum_of_squares: f64 = self
+            .samples
+            .iter()
+            .map(|sample| f64::from(*sample).powi(2))
+            .sum();
+        (sum_of_squares / self.samples.len() as f64).sqrt() as f32
     }
 
     pub fn duration(&self) -> Duration {

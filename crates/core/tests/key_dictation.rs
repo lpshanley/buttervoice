@@ -135,6 +135,8 @@ fn a_finished_dictation_describes_its_capture() {
         Some(AudioStats {
             duration: Duration::from_millis(500),
             dropped_samples: 3,
+            peak: 0.25,
+            rms: 0.25,
         })
     );
 }

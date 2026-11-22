@@ -91,3 +91,35 @@ fn captured_audio_knows_how_long_it_lasts() {
 
     assert_eq!(stereo.duration(), Duration::from_millis(500));
 }
+
+fn mono(samples: &[f32]) -> CapturedAudio {
+    CapturedAudio {
+        format: AudioFormat {
+            sample_rate: 48_000,
+            channels: 1,
+        },
+        samples: samples.to_vec(),
+        dropped_samples: 0,
+    }
+}
+
+#[test]
+fn the_peak_is_the_loudest_sample_whichever_way_it_swings() {
+    assert_eq!(mono(&[0.25, -0.75, 0.5]).stats().peak, 0.75);
+}
+
+#[test]
+fn the_rms_level_is_the_root_of_the_mean_square() {
+    // sqrt((0.25 + 0.25 + 0 + 0) / 4) = sqrt(1/8)
+    let rms = mono(&[0.5, -0.5, 0.0, 0.0]).stats().rms;
+
+    assert!((rms - 0.353_553_4).abs() < 1e-6, "rms was {rms}");
+}
+
+#[test]
+fn audio_with_no_samples_has_a_level_of_zero() {
+    let stats = mono(&[]).stats();
+
+    assert_eq!(stats.peak, 0.0);
+    assert_eq!(stats.rms, 0.0);
+}

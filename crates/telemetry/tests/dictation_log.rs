@@ -90,6 +90,8 @@ fn the_line_says_how_much_audio_was_captured_and_how_much_was_dropped() {
         audio: Some(AudioStats {
             duration: Duration::from_millis(500),
             dropped_samples: 7,
+            peak: 1.0,
+            rms: 0.1,
         }),
         transcription: Transcription::NotAttempted,
     });
