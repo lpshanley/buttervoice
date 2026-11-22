@@ -42,6 +42,7 @@
   "samples.intro": "You'll be shown one prompt at a time. Hold the dictation key, speak, and release. Nothing is typed and nothing is sent anywhere: the recordings stay on this Mac until you choose to share them.",
   "samples.speaker_label": "A label for you",
   "samples.speaker_placeholder": "For example, your initials",
+  "samples.speaker_hint": "The microphone and this Mac are recorded with every sample, so there is no need to add them here.",
   "samples.start": "Start",
   "samples.progress": "Prompt {{ position }} of {{ total }}",
   "samples.hold": "Hold the dictation key and speak.",

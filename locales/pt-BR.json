@@ -42,6 +42,7 @@
   "samples.intro": "Você verá uma solicitação por vez. Segure a tecla de ditado, fale e solte. Nada é digitado e nada é enviado: as gravações ficam neste Mac até você decidir compartilhá-las.",
   "samples.speaker_label": "Um rótulo para você",
   "samples.speaker_placeholder": "Por exemplo, suas iniciais",
+  "samples.speaker_hint": "O microfone e este Mac são registrados em cada amostra, então não é preciso colocá-los aqui.",
   "samples.start": "Começar",
   "samples.progress": "Solicitação {{ position }} de {{ total }}",
   "samples.hold": "Segure a tecla de ditado e fale.",

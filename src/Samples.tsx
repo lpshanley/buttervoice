@@ -173,6 +173,7 @@ function Samples() {
             />
             <button type="submit">{t("samples.start")}</button>
           </div>
+          <p class="status">{t("samples.speaker_hint")}</p>
         </form>
       </Show>
       <Show when={state().active && state().prompt}>
