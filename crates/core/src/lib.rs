@@ -2,6 +2,7 @@
 //! run in tests and in fixture replays.
 
 pub mod hotkey;
+pub mod key_dictation;
 pub mod recording;
 pub mod timeline;
 
