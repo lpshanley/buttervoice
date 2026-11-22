@@ -2,6 +2,7 @@
 //! API key changes, so either takes effect without restarting the app.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, PoisonError, RwLock};
 
 use buttervoice_core::api_key::{self, KeySource};
@@ -10,6 +11,7 @@ use buttervoice_core::capture::CapturedAudio;
 use buttervoice_core::language::Language;
 use buttervoice_core::transcription::{Provider, Transcript, TranscriptionFailure};
 use buttervoice_grok::GrokTranscriber;
+use buttervoice_local::fetch::{Expected, FetchError, fetch};
 use buttervoice_local::{LoadError, LocalTranscriber};
 
 use crate::preferences::{self, Preferences};
@@ -31,6 +33,8 @@ enum Ready {
 
 pub struct Setup {
     pub provider: Provider,
+    /// The size of the model the person's language needs, for a download.
+    pub model_bytes: Option<u64>,
     /// What the settings window says about the provider in use.
     pub state: &'static str,
 }
@@ -42,6 +46,8 @@ pub struct Transcribers {
     /// Stands in for a language the person has not chosen yet.
     system_language: Language,
     ready: RwLock<Ready>,
+    downloading: AtomicBool,
+    cancel_download: AtomicBool,
 }
 
 impl Transcribers {
@@ -60,6 +66,8 @@ impl Transcribers {
             system_language,
             models_folder,
             ready: RwLock::new(Ready::Starting),
+            downloading: AtomicBool::new(false),
+            cancel_download: AtomicBool::new(false),
         });
         std::thread::spawn({
             let transcribers = transcribers.clone();
@@ -132,6 +140,7 @@ impl Transcribers {
                 "ready_untested"
             }
             Ready::Local(..) => "ready",
+            Ready::LocalModelMissing if self.downloading.load(Ordering::Relaxed) => "downloading",
             Ready::LocalModelMissing => "model_missing",
             Ready::LocalModelUnusable => "model_unusable",
             Ready::Grok(_, KeySource::Environment) => "key_from_environment",
@@ -140,6 +149,10 @@ impl Transcribers {
         };
         Setup {
             provider: self.provider(),
+            model_bytes: self
+                .wanted_backend()
+                .and_then(|backend| backend.model)
+                .map(|model| model.bytes),
             state,
         }
     }
@@ -163,6 +176,44 @@ impl Transcribers {
             self.set_up();
         }
         Ok(())
+    }
+
+    /// Fetches the model the person's language needs, then loads it. Only
+    /// ever run because the person asked: it is a network call.
+    pub fn download_model(&self, on_progress: impl FnMut(u64)) -> Result<(), FetchError> {
+        let Some(model) = self.wanted_backend().and_then(|backend| backend.model) else {
+            return Ok(());
+        };
+        if self.downloading.swap(true, Ordering::Relaxed) {
+            return Ok(());
+        }
+        self.cancel_download.store(false, Ordering::Relaxed);
+        let expected = Expected {
+            sha256: model.sha256,
+            bytes: model.bytes,
+        };
+        let outcome = fetch(
+            model.source,
+            expected,
+            &self.models_folder.join(model.file),
+            on_progress,
+            &self.cancel_download,
+        );
+        self.downloading.store(false, Ordering::Relaxed);
+        match &outcome {
+            Ok(()) => {
+                tracing::info!(file = model.file, "the speech model was downloaded");
+                self.set_up();
+            }
+            Err(error) => {
+                tracing::warn!(%error, file = model.file, "the speech model was not downloaded")
+            }
+        }
+        outcome
+    }
+
+    pub fn cancel_download(&self) {
+        self.cancel_download.store(true, Ordering::Relaxed);
     }
 
     fn wanted_backend(&self) -> Option<&'static Backend> {

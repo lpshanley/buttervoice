@@ -78,5 +78,15 @@
   "samples.no_difference": "The model heard exactly the words on screen.",
   "samples.save_now": "Save what you have",
   "samples.record_over": "Not right? Hold the key again to record over it.",
-  "status.ready_untested": "The speech model is loaded. It has not been tested with your language yet, so mistakes are more likely."
+  "status.ready_untested": "The speech model is loaded. It has not been tested with your language yet, so mistakes are more likely.",
+  "download.cancelled": "The download was cancelled. Start it again to carry on where it stopped.",
+  "download.interrupted": "The download stopped part-way. Try again to carry on where it stopped.",
+  "download.damaged": "The downloaded file was damaged and has been removed. Try again.",
+  "download.not_saved": "The model could not be saved on this Mac. Check there is enough free space.",
+  "download.unreachable": "The download could not be reached. Check your connection and try again.",
+  "download.button": "Download the speech model ({{ size }})",
+  "download.what": "It comes from Hugging Face and is checked before use. Nothing about you or your dictations is sent.",
+  "download.progress": "Downloading… {{ done }} of {{ size }}",
+  "download.cancel": "Cancel",
+  "status.downloading": "Downloading the speech model…"
 }

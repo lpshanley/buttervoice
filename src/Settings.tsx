@@ -1,5 +1,6 @@
 import { createSignal, For, onSettled, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   checkAccessibilityPermission,
@@ -18,6 +19,7 @@ type State =
   | "starting"
   | "ready"
   | "model_missing"
+  | "downloading"
   | "model_unusable"
   | "language_not_supported"
   | "ready_untested"
@@ -25,7 +27,11 @@ type State =
   | "key_saved"
   | "no_key";
 
-type Setup = { provider: Provider; state: State };
+type Setup = { provider: Provider; state: State; model_bytes: number | null };
+
+function megabytes(bytes: number) {
+  return `${Math.round(bytes / 1_000_000)} MB`;
+}
 
 const PROVIDERS: Provider[] = ["local", "grok"];
 
@@ -87,7 +93,20 @@ function Settings() {
     }
   }
 
-  const [setup, setSetup] = createSignal<Setup>({ provider: "local", state: "starting" });
+  const [setup, setSetup] = createSignal<Setup>({
+    provider: "local",
+    state: "starting",
+    model_bytes: null,
+  });
+  const [downloaded, setDownloaded] = createSignal(0);
+
+  async function download() {
+    setDownloaded(0);
+    const settled = attempt("download_model");
+    // Show the download as started without waiting for it to finish.
+    await refresh();
+    await settled;
+  }
   const [draft, setDraft] = createSignal("");
   const [problem, setProblem] = createSignal("");
 
@@ -170,8 +189,10 @@ function Settings() {
         void refreshMicrophones();
       }
     });
+    const progress = listen<number>("model-download", (event) => setDownloaded(event.payload));
     return () => {
       void watching.then((stop) => stop());
+      void progress.then((stop) => stop());
     };
   });
 
@@ -224,6 +245,28 @@ function Settings() {
       <p class="status" role="status">
         {t(`status.${setup().state}`)}
       </p>
+      <Show when={setup().state === "model_missing" && setup().model_bytes}>
+        <button type="button" onClick={() => void download()}>
+          {t("download.button", { size: megabytes(setup().model_bytes ?? 0) })}
+        </button>
+        <p class="status">{t("download.what")}</p>
+      </Show>
+      <Show when={setup().state === "downloading"}>
+        <progress max={setup().model_bytes ?? 1} value={downloaded()} />
+        <p class="status">
+          {t("download.progress", {
+            done: megabytes(downloaded()),
+            size: megabytes(setup().model_bytes ?? 0),
+          })}
+        </p>
+        <button
+          type="button"
+          class="quiet"
+          onClick={() => void invoke("cancel_model_download")}
+        >
+          {t("download.cancel")}
+        </button>
+      </Show>
       <Show when={setup().provider === "grok"}>
         <form
           onSubmit={(event) => {

@@ -78,5 +78,15 @@
   "samples.no_difference": "O modelo ouviu exatamente as palavras na tela.",
   "samples.save_now": "Salvar o que você tem",
   "samples.record_over": "Não ficou bom? Segure a tecla de novo para gravar por cima.",
-  "status.ready_untested": "O modelo de fala está carregado. Ele ainda não foi testado com o seu idioma, então erros são mais prováveis."
+  "status.ready_untested": "O modelo de fala está carregado. Ele ainda não foi testado com o seu idioma, então erros são mais prováveis.",
+  "download.cancelled": "O download foi cancelado. Comece de novo para continuar de onde parou.",
+  "download.interrupted": "O download parou no meio. Tente de novo para continuar de onde parou.",
+  "download.damaged": "O arquivo baixado estava danificado e foi removido. Tente de novo.",
+  "download.not_saved": "Não foi possível salvar o modelo neste Mac. Verifique se há espaço livre suficiente.",
+  "download.unreachable": "Não foi possível acessar o download. Verifique sua conexão e tente de novo.",
+  "download.button": "Baixar o modelo de fala ({{ size }})",
+  "download.what": "Ele vem do Hugging Face e é verificado antes do uso. Nada sobre você ou seus ditados é enviado.",
+  "download.progress": "Baixando… {{ done }} de {{ size }}",
+  "download.cancel": "Cancelar",
+  "status.downloading": "Baixando o modelo de fala…"
 }

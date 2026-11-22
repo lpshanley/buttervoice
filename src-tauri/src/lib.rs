@@ -21,6 +21,7 @@ use buttervoice_core::key_dictation::{
 use buttervoice_core::language::Language;
 use buttervoice_core::recording::Mode;
 use buttervoice_core::transcription::Provider;
+use buttervoice_local::fetch::FetchError;
 use buttervoice_replay::recordings;
 use buttervoice_samples::RecordedWith;
 use buttervoice_samples::session::Take;
@@ -183,6 +184,7 @@ fn save_for_replay(dir: &Path, audio: &CapturedAudio) {
 struct TranscriptionSetup {
     provider: &'static str,
     state: &'static str,
+    model_bytes: Option<u64>,
 }
 
 #[tauri::command]
@@ -191,6 +193,7 @@ fn transcription_setup(transcribers: tauri::State<'_, Arc<Transcribers>>) -> Tra
     TranscriptionSetup {
         provider: setup.provider.name(),
         state: setup.state,
+        model_bytes: setup.model_bytes,
     }
 }
 
@@ -339,6 +342,44 @@ fn samples_finish(
             tracing::error!(%error, "the sample set could not be saved");
             Message::SamplesNotSaved.text(transcribers.display_language())
         })
+}
+
+/// How far a model download has got, sent to the settings window.
+const MODEL_DOWNLOAD: &str = "model-download";
+
+/// Progress events are sent at most this often: a model arrives in tens of
+/// thousands of reads.
+const PROGRESS_EVERY: std::time::Duration = std::time::Duration::from_millis(200);
+
+// `async`: the download takes minutes and must not hold the main thread.
+#[tauri::command(async)]
+fn download_model(
+    app: tauri::AppHandle,
+    transcribers: tauri::State<'_, Arc<Transcribers>>,
+) -> Result<(), String> {
+    let mut last_sent = std::time::Instant::now() - PROGRESS_EVERY;
+    let outcome = transcribers.download_model(|bytes| {
+        if last_sent.elapsed() >= PROGRESS_EVERY {
+            last_sent = std::time::Instant::now();
+            let _ = app.emit_to(SETTINGS, MODEL_DOWNLOAD, bytes);
+        }
+    });
+    let language = transcribers.display_language();
+    outcome.map_err(|error| {
+        match error {
+            FetchError::Cancelled => Message::DownloadCancelled,
+            FetchError::Interrupted => Message::DownloadInterrupted,
+            FetchError::ChecksumMismatch => Message::DownloadDamaged,
+            FetchError::Disk(_) => Message::DownloadNotSaved,
+            FetchError::Unreachable | FetchError::Refused(_) => Message::DownloadUnreachable,
+        }
+        .text(language)
+    })
+}
+
+#[tauri::command]
+fn cancel_model_download(transcribers: tauri::State<'_, Arc<Transcribers>>) {
+    transcribers.cancel_download();
 }
 
 #[derive(serde::Serialize)]
@@ -524,6 +565,8 @@ pub fn run() {
             transcription_setup,
             language_setup,
             microphone_setup,
+            download_model,
+            cancel_model_download,
             choose_microphone,
             samples_state,
             samples_start,

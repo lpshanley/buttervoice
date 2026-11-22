@@ -12,6 +12,11 @@ pub enum Message {
     EnterAKeyFirst,
     ChoiceNotSaved,
     SamplesNotSaved,
+    DownloadCancelled,
+    DownloadInterrupted,
+    DownloadDamaged,
+    DownloadNotSaved,
+    DownloadUnreachable,
 }
 
 impl Message {
@@ -24,6 +29,11 @@ impl Message {
             Message::EnterAKeyFirst => "error.enter_a_key",
             Message::ChoiceNotSaved => "error.choice_not_saved",
             Message::SamplesNotSaved => "error.samples_not_saved",
+            Message::DownloadCancelled => "download.cancelled",
+            Message::DownloadInterrupted => "download.interrupted",
+            Message::DownloadDamaged => "download.damaged",
+            Message::DownloadNotSaved => "download.not_saved",
+            Message::DownloadUnreachable => "download.unreachable",
         }
     }
 
@@ -36,7 +46,12 @@ impl Message {
 mod tests {
     use super::*;
 
-    const EVERY_MESSAGE: [Message; 7] = [
+    const EVERY_MESSAGE: [Message; 12] = [
+        Message::DownloadCancelled,
+        Message::DownloadInterrupted,
+        Message::DownloadDamaged,
+        Message::DownloadNotSaved,
+        Message::DownloadUnreachable,
         Message::RecordSamples,
         Message::SamplesNotSaved,
         Message::MarkLastDictationAsBad,
