@@ -324,6 +324,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-macos-permissions",
  "tauri-plugin-updater",
+ "tempfile",
  "thiserror 2.0.21",
  "tracing",
 ]

@@ -4,7 +4,11 @@
 use buttervoice_core::capture::{CapturedAudio, InputKind};
 use buttervoice_core::language::Language;
 
-use crate::{Kind, RecordedWith, Sample, SampleSet};
+use std::path::Path;
+
+use crate::{
+    Kind, RecordedWith, Sample, SampleSet, SaveError, replace, write_description, write_wav,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prompt {
@@ -35,6 +39,12 @@ pub struct Session {
     /// One slot per prompt, so going back and recording again replaces a
     /// sample instead of adding a second one.
     kept: Vec<Option<Sample>>,
+}
+
+/// Each prompt's take is saved under the prompt's own number, so skipping
+/// one or recording one again never renames the others.
+fn slot_audio(slot: usize) -> String {
+    format!("{:04}.wav", slot + 1)
 }
 
 impl Session {
@@ -73,20 +83,25 @@ impl Session {
     /// Keeps the take as a sample of what the person says they said.
     /// Returns false when there is no take to keep.
     pub fn keep(&mut self, said: &str) -> bool {
-        let (Some(take), Some(prompt)) = (self.take.take(), self.prompts.get(self.position)) else {
+        let (Some(take), Some(prompt)) = (&self.take, self.prompts.get(self.position)) else {
             return false;
         };
-        self.kept[self.position] = Some(Sample {
+        self.kept[self.position] = Some(self.sample_from(take, prompt, said));
+        self.take = None;
+        self.position += 1;
+        true
+    }
+
+    fn sample_from(&self, take: &Take, prompt: &Prompt, said: &str) -> Sample {
+        Sample {
             kind: prompt.kind,
             language: self.language,
             said: said.to_string(),
             prompt: prompt.say.clone(),
             conditions: prompt.conditions.clone(),
             input: take.input,
-            audio: take.audio,
-        });
-        self.position += 1;
-        true
+            audio: take.audio.clone(),
+        }
     }
 
     /// Moves on, keeping a take that is waiting as what the person says
@@ -95,6 +110,52 @@ impl Session {
         if !self.keep(said) {
             self.skip();
         }
+    }
+
+    /// Keeps the take waiting as what the person says they said, saving it
+    /// into `folder` first. Nothing changes unless it was saved. Returns
+    /// false when there is no take to keep.
+    pub fn keep_into(&mut self, said: &str, folder: &Path) -> Result<bool, SaveError> {
+        let (Some(take), Some(prompt)) = (&self.take, self.prompts.get(self.position)) else {
+            return Ok(false);
+        };
+        let sample = self.sample_from(take, prompt, said);
+        std::fs::create_dir_all(folder)?;
+        let audio = folder.join(slot_audio(self.position));
+        replace(&audio, |partial| write_wav(partial, &sample.audio))?;
+        let listing = self.kept.iter().enumerate().filter_map(|(slot, kept)| {
+            let sample = if slot == self.position {
+                Some(&sample)
+            } else {
+                kept.as_ref()
+            };
+            sample.map(|sample| (slot_audio(slot), sample))
+        });
+        write_description(folder, &self.recorded_with, listing)?;
+        self.kept[self.position] = Some(sample);
+        self.take = None;
+        self.position += 1;
+        Ok(true)
+    }
+
+    /// Saves everything kept so far into `folder`, writing whatever it is
+    /// missing.
+    pub fn save_into(&self, folder: &Path) -> Result<(), SaveError> {
+        std::fs::create_dir_all(folder)?;
+        let kept: Vec<(String, &Sample)> = self
+            .kept
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, kept)| Some((slot_audio(slot), kept.as_ref()?)))
+            .collect();
+        for (audio, sample) in &kept {
+            let path = folder.join(audio);
+            if !path.exists() {
+                replace(&path, |partial| write_wav(partial, &sample.audio))?;
+            }
+        }
+        write_description(folder, &self.recorded_with, kept)?;
+        Ok(())
     }
 
     pub fn skip(&mut self) {
@@ -118,14 +179,6 @@ impl Session {
 
     pub fn kept_count(&self) -> usize {
         self.kept.iter().flatten().count()
-    }
-
-    /// What has been kept so far, as a set, while the session goes on.
-    pub fn so_far(&self) -> SampleSet {
-        SampleSet {
-            recorded_with: self.recorded_with.clone(),
-            samples: self.kept.iter().flatten().cloned().collect(),
-        }
     }
 
     pub fn finish(self) -> SampleSet {

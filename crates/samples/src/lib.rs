@@ -3,7 +3,7 @@ pub mod package;
 pub mod script;
 pub mod session;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use buttervoice_core::capture::{AudioFormat, CapturedAudio, InputKind};
 use buttervoice_core::language::Language;
@@ -141,11 +141,26 @@ fn unknown(what: &str, name: &str) -> LoadError {
 
 pub fn save(folder: &Path, set: &SampleSet) -> Result<(), SaveError> {
     std::fs::create_dir_all(folder)?;
-    let mut samples = Vec::with_capacity(set.samples.len());
+    let mut listing = Vec::with_capacity(set.samples.len());
     for (index, sample) in set.samples.iter().enumerate() {
         let audio = format!("{:04}.wav", index + 1);
         write_wav(&folder.join(&audio), &sample.audio)?;
-        samples.push(SampleFile {
+        listing.push((audio, sample));
+    }
+    write_description(folder, &set.recorded_with, listing)?;
+    Ok(())
+}
+
+/// Writes the set's description, replacing the one there only once the
+/// new one is whole.
+pub(crate) fn write_description<'a>(
+    folder: &Path,
+    recorded: &RecordedWith,
+    samples: impl IntoIterator<Item = (String, &'a Sample)>,
+) -> std::io::Result<()> {
+    let samples = samples
+        .into_iter()
+        .map(|(audio, sample)| SampleFile {
             audio,
             kind: sample.kind.name().to_string(),
             language: sample.language.tag().to_string(),
@@ -154,9 +169,8 @@ pub fn save(folder: &Path, set: &SampleSet) -> Result<(), SaveError> {
             conditions: sample.conditions.clone(),
             input: input_name(sample.input).to_string(),
             dropped_samples: sample.audio.dropped_samples,
-        });
-    }
-    let recorded = &set.recorded_with;
+        })
+        .collect();
     let file = SetFile {
         format_version: FORMAT_VERSION,
         recorded_with: RecordedWithFile {
@@ -169,8 +183,22 @@ pub fn save(folder: &Path, set: &SampleSet) -> Result<(), SaveError> {
         samples,
     };
     let description = serde_json::to_string(&file).map_err(std::io::Error::other)?;
-    std::fs::write(folder.join(DESCRIPTION), description)?;
-    Ok(())
+    replace(&folder.join(DESCRIPTION), |partial| {
+        std::fs::write(partial, &description)
+    })
+}
+
+/// Writes `path` by way of a file beside it, so a write cut short never
+/// leaves half a file where a whole one was.
+pub(crate) fn replace(
+    path: &Path,
+    write: impl FnOnce(&Path) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let mut partial = path.as_os_str().to_owned();
+    partial.push(".partial");
+    let partial = PathBuf::from(partial);
+    write(&partial)?;
+    std::fs::rename(&partial, path)
 }
 
 /// A set in a suite, by the name of its folder.
@@ -280,7 +308,7 @@ pub fn load(folder: &Path) -> Result<SampleSet, LoadError> {
 
 /// 32-bit float, exactly as captured: converting to 16-bit would throw away
 /// the quiet detail that separates one microphone from another.
-fn write_wav(path: &Path, audio: &CapturedAudio) -> std::io::Result<()> {
+pub(crate) fn write_wav(path: &Path, audio: &CapturedAudio) -> std::io::Result<()> {
     let spec = hound::WavSpec {
         channels: audio.format.channels,
         sample_rate: audio.format.sample_rate,

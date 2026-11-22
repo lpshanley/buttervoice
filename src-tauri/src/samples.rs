@@ -10,7 +10,7 @@ use buttervoice_core::language::Language;
 use buttervoice_core::transcription::Provider;
 use buttervoice_samples::diff::{Part, word_diff};
 use buttervoice_samples::session::{Session, Take};
-use buttervoice_samples::{RecordedWith, script::script};
+use buttervoice_samples::{RecordedWith, SaveError, script::script};
 
 #[derive(serde::Serialize)]
 pub struct PromptState {
@@ -121,18 +121,17 @@ impl Recorder {
         }
     }
 
-    /// Every kept take is saved straight away, so quitting part-way loses
-    /// nothing that was kept.
-    pub fn next(&self, said: &str) {
-        if let Some((session, folder)) = self.session().as_mut() {
-            session.next(said);
-            let so_far = session.so_far();
-            if !so_far.samples.is_empty()
-                && let Err(error) = buttervoice_samples::save(folder, &so_far)
-            {
-                tracing::warn!(%error, "the samples kept so far could not be saved");
-            }
+    /// Keeps the take waiting, saving it before the session moves on, or
+    /// moves on when there is none. A take that cannot be saved stays.
+    pub fn next(&self, said: &str) -> Result<(), SaveError> {
+        let mut session = self.session();
+        let Some((session, folder)) = session.as_mut() else {
+            return Ok(());
+        };
+        if !session.keep_into(said, folder)? {
+            session.skip();
         }
+        Ok(())
     }
 
     pub fn skip(&self) {
@@ -167,11 +166,17 @@ impl Recorder {
     }
 
     /// Ends the session, writes what was kept, and returns its folder.
+    /// The session stays as it was when the set cannot be saved, so
+    /// finishing can be tried again.
     pub fn finish(&self) -> Result<PathBuf, String> {
-        let Some((session, folder)) = self.session().take() else {
+        let mut session = self.session();
+        let Some((kept, folder)) = session.as_ref() else {
             return Err("no session".to_string());
         };
-        buttervoice_samples::save(&folder, &session.finish()).map_err(|error| error.to_string())?;
+        kept.save_into(folder).map_err(|error| error.to_string())?;
+        let folder = folder.clone();
+        *session = None;
+        drop(session);
         *self
             .last_saved
             .lock()
@@ -283,6 +288,22 @@ mod tests {
             macos: "27.2".to_string(),
         };
         recorder.start(recorded_with, Language::English, 17);
+    }
+
+    #[test]
+    fn a_set_that_cannot_be_saved_leaves_the_session_to_try_again() {
+        let parent = tempfile::tempdir().unwrap();
+        let not_a_folder = parent.path().join("samples");
+        std::fs::write(&not_a_folder, "a file where the folder should be").unwrap();
+        let recorder = Recorder::new(not_a_folder.clone());
+        a_session_started(&recorder);
+
+        assert!(recorder.finish().is_err());
+        assert!(recorder.active());
+
+        std::fs::remove_file(&not_a_folder).unwrap();
+        assert!(recorder.finish().is_ok());
+        assert!(!recorder.active());
     }
 
     #[test]

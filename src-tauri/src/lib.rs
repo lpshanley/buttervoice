@@ -309,8 +309,15 @@ fn what_the_system_says(name: &str) -> String {
 }
 
 #[tauri::command]
-fn samples_next(said: String, recorder: tauri::State<'_, Arc<Recorder>>) {
-    recorder.next(&said);
+fn samples_next(
+    said: String,
+    recorder: tauri::State<'_, Arc<Recorder>>,
+    transcribers: tauri::State<'_, Arc<Transcribers>>,
+) -> Result<(), String> {
+    recorder.next(&said).map_err(|error| {
+        tracing::error!(%error, "a take could not be saved");
+        Message::TakeNotSaved.text(transcribers.display_language())
+    })
 }
 
 #[tauri::command]
