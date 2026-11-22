@@ -17,7 +17,8 @@ env:
 
 jobs:
   # Runs on Linux on purpose: it is cheap, and it proves these crates stay
-  # free of macOS-only code.
+  # free of macOS-only code. The local engine and the replay tool build a
+  # C++ speech engine and are left to the macOS job.
   core:
     name: Core crates
     runs-on: ubuntu-latest
@@ -32,9 +33,9 @@ jobs:
       - name: Format
         run: cargo fmt --all --check
       - name: Lint
-        run: cargo clippy -p buttervoice-core -p buttervoice-telemetry --all-targets --locked -- -D warnings
+        run: cargo clippy -p buttervoice-core -p buttervoice-telemetry -p buttervoice-samples -p buttervoice-grok --all-targets --locked -- -D warnings
       - name: Test
-        run: cargo test -p buttervoice-core -p buttervoice-telemetry --locked
+        run: cargo test -p buttervoice-core -p buttervoice-telemetry -p buttervoice-samples -p buttervoice-grok --locked
 
   frontend:
     name: Frontend
@@ -60,7 +61,8 @@ jobs:
   app:
     name: App (macOS)
     runs-on: macos-latest
-    timeout-minutes: 30
+    # The first build compiles the local speech engine from C++.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install the pinned Rust toolchain
