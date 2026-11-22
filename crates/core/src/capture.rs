@@ -68,6 +68,34 @@ pub struct Captured {
 }
 
 impl CapturedAudio {
+    /// A 16-bit PCM WAV file, held in memory.
+    pub fn to_wav(&self) -> Vec<u8> {
+        const BYTES_PER_SAMPLE: u32 = 2;
+        const HEADER_BYTES_AFTER_RIFF_SIZE: u32 = 36;
+        let channels = self.format.channels;
+        let bytes_per_frame = u32::from(channels) * BYTES_PER_SAMPLE;
+        let data_bytes = self.samples.len() as u32 * BYTES_PER_SAMPLE;
+
+        let mut wav = Vec::with_capacity(44 + data_bytes as usize);
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(HEADER_BYTES_AFTER_RIFF_SIZE + data_bytes).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16_u32.to_le_bytes());
+        wav.extend_from_slice(&1_u16.to_le_bytes());
+        wav.extend_from_slice(&channels.to_le_bytes());
+        wav.extend_from_slice(&self.format.sample_rate.to_le_bytes());
+        wav.extend_from_slice(&(self.format.sample_rate * bytes_per_frame).to_le_bytes());
+        wav.extend_from_slice(&(bytes_per_frame as u16).to_le_bytes());
+        wav.extend_from_slice(&16_u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&data_bytes.to_le_bytes());
+        for sample in &self.samples {
+            let pcm = (sample.clamp(-1.0, 1.0) * f32::from(i16::MAX)).round() as i16;
+            wav.extend_from_slice(&pcm.to_le_bytes());
+        }
+        wav
+    }
+
     pub fn duration(&self) -> Duration {
         let frames = self.samples.len() as u64 / u64::from(self.format.channels);
         Duration::from_nanos(frames * 1_000_000_000 / u64::from(self.format.sample_rate))
