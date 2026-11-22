@@ -66,6 +66,7 @@ pub struct State {
 pub struct Recorder {
     sets_folder: PathBuf,
     session: Mutex<Option<Session>>,
+    last_saved: Mutex<Option<PathBuf>>,
 }
 
 impl Recorder {
@@ -73,6 +74,7 @@ impl Recorder {
         Self {
             sets_folder,
             session: Mutex::new(None),
+            last_saved: Mutex::new(None),
         }
     }
 
@@ -135,7 +137,29 @@ impl Recorder {
             .sets_folder
             .join(folder_name(&set.recorded_with.speaker, seconds_since_1970));
         buttervoice_samples::save(&folder, &set).map_err(|error| error.to_string())?;
+        *self
+            .last_saved
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(folder.clone());
         Ok(folder)
+    }
+
+    /// Packs the set saved last into one file in `into` and returns it.
+    /// Only that set can be packed: the window cannot name another folder.
+    pub fn package_last_saved(&self, into: &std::path::Path) -> Result<PathBuf, String> {
+        let saved = self
+            .last_saved
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+            .ok_or("no set has been saved")?;
+        let name = saved
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let package = into.join(format!("ButterVoice samples {name}.zip"));
+        buttervoice_samples::package::pack(&saved, &package).map_err(|error| error.to_string())?;
+        Ok(package)
     }
 
     pub fn state(&self) -> State {

@@ -2,6 +2,8 @@
 //! scores each against the sentence that was read.
 //!
 //!     cargo run --release -p buttervoice-replay -- replay/recordings replay/sentences.txt [model.gguf ...]
+//!     cargo run --release -p buttervoice-replay -- --set <set folder> <model.gguf ...>
+//!     cargo run --release -p buttervoice-replay -- --import <package.zip> <suite folder>
 //!
 //! Each model file is run on this machine. The Grok variants run only when
 //! `XAI_API_KEY` is set; without it nothing leaves the machine.
@@ -105,6 +107,26 @@ fn median(mut durations: Vec<Duration>) -> Duration {
 
 fn run() -> Result<(), String> {
     let mut args = std::env::args().skip(1).peekable();
+    if args.peek().map(String::as_str) == Some("--import") {
+        args.next();
+        let (Some(package), Some(suite)) = (args.next(), args.next()) else {
+            return Err("usage: buttervoice-replay --import <package.zip> <suite folder>".into());
+        };
+        let unpacked = buttervoice_samples::package::unpack(Path::new(&package), Path::new(&suite))
+            .map_err(|error| format!("{package}: {error}"))?;
+        let set = buttervoice_samples::load(&unpacked).map_err(|error| error.to_string())?;
+        let by = &set.recorded_with;
+        println!(
+            "Added {} samples by {:?} ({} on macOS {}, app {}) to {}",
+            set.samples.len(),
+            by.speaker,
+            by.chip,
+            by.macos,
+            by.app_version,
+            unpacked.display()
+        );
+        return Ok(());
+    }
     if args.peek().map(String::as_str) == Some("--set") {
         args.next();
         let folder = args

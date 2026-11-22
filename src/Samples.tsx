@@ -55,6 +55,16 @@ function Samples() {
   const [speaker, setSpeaker] = createSignal("");
   const [said, setSaid] = createSignal("");
   const [saved, setSaved] = createSignal("");
+  const [packaged, setPackaged] = createSignal("");
+
+  async function makePackage() {
+    try {
+      setPackaged(await invoke<string>("samples_package"));
+      setProblem("");
+    } catch (error) {
+      setProblem(String(error));
+    }
+  }
   const [problem, setProblem] = createSignal("");
   const [recording, setRecording] = createSignal("");
 
@@ -91,6 +101,7 @@ function Samples() {
 
   async function start() {
     setSaved("");
+    setPackaged("");
     await act("samples_start", { speaker: speaker() });
   }
 
@@ -126,6 +137,21 @@ function Samples() {
         <p class="status" role="status">
           {t("samples.saved")} <code>{saved()}</code>
         </p>
+        <Show
+          when={packaged()}
+          fallback={
+            <>
+              <button type="button" onClick={() => void makePackage()}>
+                {t("samples.package")}
+              </button>
+              <p class="status">{t("samples.package_what")}</p>
+            </>
+          }
+        >
+          <p class="status" role="status">
+            {t("samples.packaged")} <code>{packaged()}</code>
+          </p>
+        </Show>
       </Show>
       <Show when={!state().active}>
         <p class="status">{t("samples.intro")}</p>

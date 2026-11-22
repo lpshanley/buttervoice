@@ -484,6 +484,29 @@ fn choose_microphone(
         .map_err(|error| not_saved(error, &transcribers))
 }
 
+/// Packs the set just saved into the Downloads folder and shows it in the
+/// Finder. Sending it is the person's to do; the app sends nothing.
+#[tauri::command(async)]
+fn samples_package(
+    app: tauri::AppHandle,
+    recorder: tauri::State<'_, Arc<Recorder>>,
+    transcribers: tauri::State<'_, Arc<Transcribers>>,
+) -> Result<String, String> {
+    let not_made = |error: &dyn std::fmt::Display| {
+        tracing::error!(%error, "the samples package could not be made");
+        Message::PackageNotMade.text(transcribers.display_language())
+    };
+    let downloads = app.path().download_dir().map_err(|e| not_made(&e))?;
+    let package = recorder
+        .package_last_saved(&downloads)
+        .map_err(|e| not_made(&e))?;
+    let _ = std::process::Command::new("/usr/bin/open")
+        .arg("-R")
+        .arg(&package)
+        .status();
+    Ok(package.display().to_string())
+}
+
 #[tauri::command(async)]
 fn forget_api_key(transcribers: tauri::State<'_, Arc<Transcribers>>) -> Result<(), String> {
     transcribers.forget_key()
@@ -724,6 +747,7 @@ pub fn run() {
             samples_audio,
             samples_cancel,
             samples_finish,
+            samples_package,
             choose_language,
             choose_provider,
             save_api_key,

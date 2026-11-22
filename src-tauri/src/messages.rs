@@ -20,6 +20,7 @@ pub enum Message {
     UpdateCheckFailed,
     UpdateNotInstalled,
     InstallUpdate,
+    PackageNotMade,
 }
 
 impl Message {
@@ -40,6 +41,7 @@ impl Message {
             Message::UpdateCheckFailed => "update.check_failed",
             Message::UpdateNotInstalled => "update.not_installed",
             Message::InstallUpdate => "tray.install_update",
+            Message::PackageNotMade => "error.package_not_made",
         }
     }
 
@@ -52,7 +54,8 @@ impl Message {
 mod tests {
     use super::*;
 
-    const EVERY_MESSAGE: [Message; 15] = [
+    const EVERY_MESSAGE: [Message; 16] = [
+        Message::PackageNotMade,
         Message::InstallUpdate,
         Message::UpdateCheckFailed,
         Message::UpdateNotInstalled,

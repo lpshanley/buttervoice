@@ -102,5 +102,9 @@
   "update.installing": "Installing… ButterVoice will relaunch by itself.",
   "tray.install_update": "Install Update…",
   "update.daily": "Check for updates once a day",
-  "hud.starting": "Starting…"
+  "hud.starting": "Starting…",
+  "error.package_not_made": "The file to send could not be made.",
+  "samples.package": "Make a file to send",
+  "samples.packaged": "Made in your Downloads folder:",
+  "samples.package_what": "It holds these recordings and what you said in them. Nothing is sent: share it however you like."
 }

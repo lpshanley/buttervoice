@@ -102,5 +102,9 @@
   "update.installing": "Instalando… O ButterVoice vai reabrir sozinho.",
   "tray.install_update": "Instalar atualização…",
   "update.daily": "Procurar atualizações uma vez por dia",
-  "hud.starting": "Iniciando…"
+  "hud.starting": "Iniciando…",
+  "error.package_not_made": "Não foi possível criar o arquivo para enviar.",
+  "samples.package": "Criar um arquivo para enviar",
+  "samples.packaged": "Criado na sua pasta Downloads:",
+  "samples.package_what": "Ele contém estas gravações e o que você disse nelas. Nada é enviado: compartilhe como preferir."
 }
