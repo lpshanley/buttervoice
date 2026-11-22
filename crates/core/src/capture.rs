@@ -1,4 +1,6 @@
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+use std::time::Duration;
 
 use crate::timeline::Timestamp;
 
@@ -46,6 +48,102 @@ fn read(mark: &AtomicU64) -> Option<Timestamp> {
     match mark.load(Relaxed) {
         UNSET => None,
         nanos => Some(Timestamp::from_nanos(nanos)),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AudioFormat {
+    pub sample_rate: u32,
+    pub channels: u16,
+}
+
+/// `samples` holds the channels interleaved, as the device delivered them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CapturedAudio {
+    pub format: AudioFormat,
+    pub samples: Vec<f32>,
+    pub dropped_samples: u64,
+}
+
+impl CapturedAudio {
+    pub fn duration(&self) -> Duration {
+        let frames = self.samples.len() as u64 / u64::from(self.format.channels);
+        Duration::from_nanos(frames * 1_000_000_000 / u64::from(self.format.sample_rate))
+    }
+}
+
+#[derive(Debug, Default)]
+struct Shared {
+    marks: CaptureMarks,
+    dropped_samples: AtomicU64,
+}
+
+/// The audio thread's end of the channel. Writing never locks or allocates.
+pub struct CaptureWriter {
+    samples: rtrb::Producer<f32>,
+    shared: Arc<Shared>,
+}
+
+pub struct CaptureReader {
+    format: AudioFormat,
+    samples: rtrb::Consumer<f32>,
+    collected: Vec<f32>,
+    shared: Arc<Shared>,
+}
+
+/// `buffered` is how much audio may wait between two calls to
+/// [`CaptureReader::collect`] before samples are dropped.
+pub fn capture_channel(format: AudioFormat, buffered: Duration) -> (CaptureWriter, CaptureReader) {
+    let samples_per_second = u128::from(format.sample_rate) * u128::from(format.channels);
+    let capacity = (samples_per_second * buffered.as_nanos() / 1_000_000_000) as usize;
+    let (producer, consumer) = rtrb::RingBuffer::new(capacity);
+    let shared = Arc::new(Shared::default());
+    (
+        CaptureWriter {
+            samples: producer,
+            shared: shared.clone(),
+        },
+        CaptureReader {
+            format,
+            samples: consumer,
+            collected: Vec::new(),
+            shared,
+        },
+    )
+}
+
+impl CaptureWriter {
+    pub fn buffer_captured(&mut self, samples: &[f32], captured_at: Timestamp) {
+        self.shared.marks.buffer_captured(samples, captured_at);
+        let (_, did_not_fit) = self.samples.push_partial_slice(samples);
+        if !did_not_fit.is_empty() {
+            self.shared
+                .dropped_samples
+                .fetch_add(did_not_fit.len() as u64, Relaxed);
+        }
+    }
+}
+
+impl CaptureReader {
+    pub fn collect(&mut self) {
+        if let Ok(waiting) = self.samples.read_chunk(self.samples.slots()) {
+            let (first, second) = waiting.as_slices();
+            self.collected.extend_from_slice(first);
+            self.collected.extend_from_slice(second);
+            waiting.commit_all();
+        }
+    }
+
+    pub fn finish(mut self) -> (CapturedAudio, CaptureReport) {
+        self.collect();
+        (
+            CapturedAudio {
+                format: self.format,
+                samples: self.collected,
+                dropped_samples: self.shared.dropped_samples.load(Relaxed),
+            },
+            self.shared.marks.report(),
+        )
     }
 }
 

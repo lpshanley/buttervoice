@@ -6,3 +6,4 @@ edition = "2024"
 publish = false
 
 [dependencies]
+rtrb = "0.4.1"
