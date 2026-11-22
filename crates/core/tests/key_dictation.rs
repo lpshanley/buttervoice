@@ -558,3 +558,18 @@ fn a_sample_is_not_text_that_the_next_dictation_carries_on_from() {
 
     assert_eq!(after, Some(AfterTranscription::Type("again".to_string())));
 }
+
+#[test]
+fn a_recording_can_be_kept_without_being_transcribed_at_all() {
+    let mut dictations = held_and_released();
+    dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
+
+    let finished = dictations
+        .kept_untranscribed()
+        .expect("the dictation finishes");
+
+    assert_eq!(finished.transcription, Transcription::NotAttempted);
+    assert_eq!(finished.typing, Typing::NotAttempted);
+    assert_eq!(finished.provider, None);
+    assert_eq!(dictations.status(), DictationStatus::Idle);
+}

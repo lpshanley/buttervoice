@@ -235,6 +235,21 @@ impl KeyDictations {
         Some(self.finish(stopped, Some(stats), transcription, Typing::NotAttempted))
     }
 
+    /// For a recording that is kept without anything being asked to
+    /// transcribe it.
+    pub fn kept_untranscribed(&mut self) -> Option<FinishedDictation> {
+        let Phase::Transcribing(stopped, stats) = std::mem::replace(&mut self.phase, Phase::Idle)
+        else {
+            return None;
+        };
+        Some(self.finish(
+            stopped,
+            Some(stats),
+            Transcription::NotAttempted,
+            Typing::NotAttempted,
+        ))
+    }
+
     pub fn typing_finished(
         &mut self,
         outcome: Result<(), TypingFailure>,
