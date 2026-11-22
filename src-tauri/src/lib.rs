@@ -1,10 +1,43 @@
+mod key_tap;
+
+use buttervoice_core::hotkey::HotkeyKey;
+use buttervoice_core::key_dictation::{FinishedDictation, KeyDictations};
+use buttervoice_core::recording::Mode;
+use key_tap::TapEvent;
+use tauri::Manager;
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
-use tauri::Manager;
+fn listen_for_the_dictation_key() -> std::io::Result<()> {
+    std::thread::Builder::new()
+        .name("key-tap".into())
+        .spawn(|| {
+            let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
+            let ended = key_tap::run(|event| {
+                let finished = match event {
+                    TapEvent::FlagsChanged { flags, at } => dictations.flags_changed(flags, at),
+                    TapEvent::Interrupted { flags, at } => {
+                        tracing::warn!("key listener interrupted");
+                        dictations.resync(flags, at)
+                    }
+                };
+                record(finished);
+            });
+            record(dictations.key_listener_lost(key_tap::now()));
+            tracing::error!(reason = %ended, "key listener stopped");
+        })?;
+    Ok(())
+}
+
+fn record(finished: Option<FinishedDictation>) {
+    if let Some(finished) = finished {
+        buttervoice_telemetry::record_dictation(&finished.summary, finished.stopped_because);
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -14,6 +47,7 @@ pub fn run() {
             let log_file_guard = buttervoice_telemetry::install(&app.path().app_log_dir()?)?;
             app.manage(log_file_guard);
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "app started");
+            listen_for_the_dictation_key()?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![greet])

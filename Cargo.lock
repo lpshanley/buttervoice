@@ -350,12 +350,14 @@ checksum = "87a0cf66fd1eb2fb7b822cb78370d82303750809bc6ba855f3f58e517d3238db"
 name = "buttervoice"
 version = "0.1.0"
 dependencies = [
+ "buttervoice-core",
  "buttervoice-telemetry",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
+ "thiserror 2.0.21",
  "tracing",
 ]
 
