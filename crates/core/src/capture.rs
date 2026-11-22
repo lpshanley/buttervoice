@@ -296,6 +296,10 @@ impl CaptureReader {
 
 const BUILT_IN_MICROPHONE: &str = "BuiltInMicrophoneDevice";
 
+const BUILT_IN_SETTING: &str = "built_in";
+const SYSTEM_DEFAULT_SETTING: &str = "system_default";
+const DEVICE_SETTING: &str = "device:";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputKind {
     BuiltIn,
@@ -310,13 +314,64 @@ pub fn input_kind(id: &str) -> InputKind {
     }
 }
 
-/// The input device to capture from, out of the ids macOS lists. The Mac's
-/// own microphone wins over the system default because a Bluetooth headset
-/// delivers most of a second of silence while it switches into call mode.
-pub fn choose_input<'a>(available: &[&'a str], system_default: Option<&'a str>) -> Option<&'a str> {
-    available
-        .iter()
-        .copied()
-        .find(|id| *id == BUILT_IN_MICROPHONE)
+/// Which microphone a person wants dictation to use.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MicrophoneChoice {
+    /// The Mac's own microphone, or the system default on a Mac without one.
+    BuiltIn,
+    SystemDefault,
+    /// A particular device, by the id macOS gives it.
+    Device(String),
+}
+
+impl MicrophoneChoice {
+    pub fn to_setting(&self) -> String {
+        match self {
+            MicrophoneChoice::BuiltIn => BUILT_IN_SETTING.to_string(),
+            MicrophoneChoice::SystemDefault => SYSTEM_DEFAULT_SETTING.to_string(),
+            MicrophoneChoice::Device(id) => format!("{DEVICE_SETTING}{id}"),
+        }
+    }
+
+    /// With nothing saved, or a value this version does not know, the Mac's
+    /// own microphone: it starts hearing sooner than a Bluetooth headset,
+    /// which delivers most of a second of silence while it wakes. This is a
+    /// default to revisit once headsets have been measured.
+    pub fn from_setting(saved: Option<&str>) -> MicrophoneChoice {
+        match saved {
+            Some(SYSTEM_DEFAULT_SETTING) => MicrophoneChoice::SystemDefault,
+            Some(saved) => match saved.strip_prefix(DEVICE_SETTING) {
+                Some(id) if !id.is_empty() => MicrophoneChoice::Device(id.to_string()),
+                _ => MicrophoneChoice::BuiltIn,
+            },
+            None => MicrophoneChoice::BuiltIn,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChosenInput<'a> {
+    pub id: &'a str,
+    /// The chosen device is not connected, so another is used instead.
+    pub fell_back: bool,
+}
+
+/// The input device to capture from, out of the ids macOS lists.
+pub fn choose_input<'a>(
+    choice: &MicrophoneChoice,
+    available: &[&'a str],
+    system_default: Option<&'a str>,
+) -> Option<ChosenInput<'a>> {
+    let connected = |wanted: &str| available.iter().copied().find(|id| *id == wanted);
+    let (preferred, fell_back) = match choice {
+        MicrophoneChoice::BuiltIn => (connected(BUILT_IN_MICROPHONE), false),
+        MicrophoneChoice::SystemDefault => (None, false),
+        MicrophoneChoice::Device(wanted) => {
+            let device = connected(wanted);
+            (device, device.is_none())
+        }
+    };
+    preferred
         .or(system_default)
+        .map(|id| ChosenInput { id, fell_back })
 }

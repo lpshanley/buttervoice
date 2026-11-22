@@ -7,7 +7,8 @@ use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::time::Duration;
 
 use buttervoice_core::capture::{
-    AudioFormat, CaptureReader, Captured, capture_channel, choose_input, input_kind,
+    AudioFormat, CaptureReader, Captured, MicrophoneChoice, capture_channel, choose_input,
+    input_kind,
 };
 use buttervoice_core::key_dictation::CaptureCommand;
 use buttervoice_core::timeline::Timestamp;
@@ -76,9 +77,14 @@ fn start() -> Result<Capturing, StartError> {
         .and_then(|device| device.id().ok())
         .map(|id| id.id().to_string());
     let available: Vec<&str> = inputs.iter().map(|(id, _)| id.as_str()).collect();
-    let chosen = choose_input(&available, system_default.as_deref())
-        .ok_or(StartError::NoInputDevice)?
-        .to_string();
+    let chosen = choose_input(
+        &MicrophoneChoice::BuiltIn,
+        &available,
+        system_default.as_deref(),
+    )
+    .ok_or(StartError::NoInputDevice)?
+    .id
+    .to_string();
     let (_, device) = inputs
         .into_iter()
         .find(|(id, _)| *id == chosen)

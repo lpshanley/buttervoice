@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use buttervoice_core::capture::{
-    AudioFormat, CapturedAudio, ConversionFailed, InputKind, capture_channel, choose_input,
-    input_kind,
+    AudioFormat, CapturedAudio, ChosenInput, ConversionFailed, InputKind, MicrophoneChoice,
+    capture_channel, choose_input, input_kind,
 };
 use buttervoice_core::timeline::Timestamp;
 
@@ -15,17 +15,106 @@ fn at_micros(micros: u64) -> Timestamp {
 const BUILT_IN: &str = "BuiltInMicrophoneDevice";
 const HEADSET: &str = "00-11-22-33-44-55:input";
 
+const USB: &str = "AppleUSBAudioEngine:Made-up:Mic:1:1";
+
+fn chosen(id: &str) -> Option<ChosenInput<'_>> {
+    Some(ChosenInput {
+        id,
+        fell_back: false,
+    })
+}
+
 #[test]
-fn the_built_in_microphone_is_preferred_over_the_system_default() {
+fn choosing_the_built_in_microphone_uses_it_over_the_system_default() {
     assert_eq!(
-        choose_input(&[HEADSET, BUILT_IN], Some(HEADSET)),
-        Some(BUILT_IN)
+        choose_input(
+            &MicrophoneChoice::BuiltIn,
+            &[HEADSET, BUILT_IN],
+            Some(HEADSET)
+        ),
+        chosen(BUILT_IN)
     );
 }
 
 #[test]
-fn without_a_built_in_microphone_the_system_default_is_used() {
-    assert_eq!(choose_input(&[HEADSET], Some(HEADSET)), Some(HEADSET));
+fn on_a_mac_without_its_own_microphone_the_built_in_choice_uses_the_system_default() {
+    assert_eq!(
+        choose_input(&MicrophoneChoice::BuiltIn, &[HEADSET], Some(HEADSET)),
+        chosen(HEADSET)
+    );
+}
+
+#[test]
+fn choosing_the_system_default_follows_it_even_when_there_is_a_built_in_one() {
+    assert_eq!(
+        choose_input(
+            &MicrophoneChoice::SystemDefault,
+            &[BUILT_IN, HEADSET],
+            Some(HEADSET)
+        ),
+        chosen(HEADSET)
+    );
+}
+
+#[test]
+fn a_chosen_device_is_used_while_it_is_connected() {
+    let choice = MicrophoneChoice::Device(USB.to_string());
+
+    assert_eq!(
+        choose_input(&choice, &[BUILT_IN, USB, HEADSET], Some(HEADSET)),
+        chosen(USB)
+    );
+}
+
+#[test]
+fn a_chosen_device_that_is_not_connected_gives_way_to_the_system_default_and_says_so() {
+    let choice = MicrophoneChoice::Device(USB.to_string());
+
+    assert_eq!(
+        choose_input(&choice, &[BUILT_IN, HEADSET], Some(HEADSET)),
+        Some(ChosenInput {
+            id: HEADSET,
+            fell_back: true,
+        })
+    );
+}
+
+#[test]
+fn with_no_microphone_at_all_there_is_nothing_to_capture_from() {
+    assert_eq!(
+        choose_input(&MicrophoneChoice::SystemDefault, &[], None),
+        None
+    );
+    assert_eq!(
+        choose_input(&MicrophoneChoice::Device(USB.to_string()), &[], None),
+        None
+    );
+}
+
+#[test]
+fn each_choice_is_saved_and_read_back_as_itself() {
+    for choice in [
+        MicrophoneChoice::BuiltIn,
+        MicrophoneChoice::SystemDefault,
+        MicrophoneChoice::Device(USB.to_string()),
+    ] {
+        assert_eq!(
+            MicrophoneChoice::from_setting(Some(&choice.to_setting())),
+            choice
+        );
+    }
+}
+
+#[test]
+fn with_nothing_saved_the_microphone_is_the_macs_own() {
+    assert_eq!(
+        MicrophoneChoice::from_setting(None),
+        MicrophoneChoice::BuiltIn
+    );
+    assert_eq!(
+        MicrophoneChoice::from_setting(Some("somewhere-else")),
+        MicrophoneChoice::BuiltIn
+    );
 }
 
 #[test]
