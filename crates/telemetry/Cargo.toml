@@ -1,0 +1,16 @@
+[package]
+name = "buttervoice-telemetry"
+version = "0.1.0"
+description = "Where dictation telemetry goes: the local log file and, later, OTLP"
+edition = "2024"
+publish = false
+
+[dependencies]
+buttervoice-core = { path = "../core" }
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["json"] }
+
+[dev-dependencies]
+serde_json = "1"
+tempfile = "3"
