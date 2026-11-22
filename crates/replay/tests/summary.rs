@@ -1,3 +1,4 @@
+use buttervoice_core::language::Language;
 use buttervoice_core::transcription::TranscriptionFailure;
 use buttervoice_replay::summary::{KindSummary, Scored, summarise};
 use buttervoice_samples::Kind;
@@ -5,6 +6,7 @@ use buttervoice_samples::Kind;
 fn heard(kind: Kind, said: &str, heard: &str) -> Scored {
     Scored {
         kind,
+        language: Language::English,
         said: said.to_string(),
         heard: Ok(heard.to_string()),
     }
@@ -61,6 +63,7 @@ fn a_failed_transcription_misses_every_word_and_is_counted_as_a_failure() {
         heard(Kind::ReadSentence, "one two three", "one two three"),
         Scored {
             kind: Kind::ReadSentence,
+            language: Language::English,
             said: "four five six".to_string(),
             heard: Err(TranscriptionFailure::EngineFailed),
         },

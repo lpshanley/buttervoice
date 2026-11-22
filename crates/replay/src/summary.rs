@@ -1,6 +1,7 @@
 //! Results read per kind of sample. One average over a whole set hides
 //! exactly what the kinds were recorded to show.
 
+use buttervoice_core::language::Language;
 use buttervoice_core::transcription::TranscriptionFailure;
 use buttervoice_samples::Kind;
 
@@ -9,6 +10,7 @@ use crate::scoring::word_errors;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scored {
     pub kind: Kind,
+    pub language: Language,
     /// What the person said. Empty when they said nothing on purpose.
     pub said: String,
     pub heard: Result<String, TranscriptionFailure>,
@@ -44,7 +46,8 @@ pub fn summarise(scored: &[Scored]) -> Vec<KindSummary> {
                         ""
                     }
                 };
-                let (sample_errors, sample_said) = word_errors(&sample.said, heard);
+                let (sample_errors, sample_said) =
+                    word_errors(sample.language, &sample.said, heard);
                 errors += sample_errors;
                 said += sample_said;
                 if sample_said == 0 && !heard.trim().is_empty() {

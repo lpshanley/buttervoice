@@ -296,6 +296,7 @@ fn run_set(folder: &Path, models: &[String]) -> Result<(), String> {
             writeln!(report_file, "{line}").map_err(|error| error.to_string())?;
             scored.push(Scored {
                 kind: sample.kind,
+                language: sample.language,
                 said: sample.said.clone(),
                 heard,
             });
