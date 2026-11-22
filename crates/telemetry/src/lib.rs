@@ -121,8 +121,15 @@ pub fn record_app_started(build: &Build) {
             BuildKind::Release => "release",
         },
         commit = build.commit,
+        pid = std::process::id(),
         "app started"
     );
+}
+
+/// Carries the same process id as the run's "app started" line, so a start
+/// with no matching quit is a run that ended some other way.
+pub fn record_app_quit() {
+    tracing::info!(pid = std::process::id(), "app quit");
 }
 
 pub fn record_marked_bad(latest_dictation: Option<DictationId>) {

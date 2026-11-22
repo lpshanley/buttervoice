@@ -266,7 +266,7 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
-                tracing::info!("app quit");
+                buttervoice_telemetry::record_app_quit();
                 if let Some(running) = app.try_state::<RunningTelemetry>() {
                     running
                         .0
