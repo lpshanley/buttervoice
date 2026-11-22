@@ -7,6 +7,7 @@ mod typing;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
 
 use buttervoice_core::api_key::KeySource;
 use buttervoice_core::capture::CapturedAudio;
@@ -18,11 +19,13 @@ use buttervoice_core::recording::Mode;
 use buttervoice_core::transcription::TranscriptionFailure;
 use buttervoice_replay::recordings;
 use hud::Hud;
-use key_tap::TapEvent;
+use key_tap::{TapEnded, TapEvent};
 use tauri::Manager;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use transcribers::Transcribers;
+
+const KEY_LISTENER_RETRY: Duration = Duration::from_secs(2);
 
 fn listen_for_the_dictation_key(
     hud: Arc<Hud>,
@@ -78,26 +81,42 @@ fn listen_for_the_dictation_key(
                     let _ = microphone.send(command);
                 }
             };
-            let ended = key_tap::run(|event| {
-                let (command, status) = {
-                    let mut dictations = lock(&dictations);
-                    let command = match event {
-                        TapEvent::FlagsChanged { flags, at } => dictations.flags_changed(flags, at),
-                        TapEvent::Interrupted { flags, at } => {
-                            tracing::warn!("key listener interrupted");
-                            dictations.resync(flags, at)
-                        }
+            // The tap cannot be created until Input Monitoring is granted, so
+            // keep trying: the grant then takes effect without a restart.
+            let mut waiting_for_permission = false;
+            loop {
+                let ended = key_tap::run(|event| {
+                    let (command, status) = {
+                        let mut dictations = lock(&dictations);
+                        let command = match event {
+                            TapEvent::Ready { flags, at } => {
+                                tracing::info!("key listener ready");
+                                dictations.resync(flags, at)
+                            }
+                            TapEvent::FlagsChanged { flags, at } => {
+                                dictations.flags_changed(flags, at)
+                            }
+                            TapEvent::Interrupted { flags, at } => {
+                                tracing::warn!("key listener interrupted");
+                                dictations.resync(flags, at)
+                            }
+                        };
+                        (command, dictations.status())
                     };
-                    (command, dictations.status())
-                };
-                // The microphone first: the HUD can wait a moment, the first
-                // word cannot.
-                send(command);
-                hud.show(status);
-            });
-            send(lock(&dictations).key_listener_lost(key_tap::now()));
-            hud.show(lock(&dictations).status());
-            tracing::error!(reason = %ended, "key listener stopped");
+                    // The microphone first: the HUD can wait a moment, the
+                    // first word cannot.
+                    send(command);
+                    hud.show(status);
+                });
+                send(lock(&dictations).key_listener_lost(key_tap::now()));
+                hud.show(lock(&dictations).status());
+                let now_waiting = matches!(ended, TapEnded::Unavailable);
+                if !(now_waiting && waiting_for_permission) {
+                    tracing::error!(reason = %ended, "key listener stopped; retrying");
+                }
+                waiting_for_permission = now_waiting;
+                std::thread::sleep(KEY_LISTENER_RETRY);
+            }
         })?;
     Ok(())
 }

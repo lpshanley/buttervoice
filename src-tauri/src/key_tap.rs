@@ -7,6 +7,12 @@ use std::ffi::c_void;
 use buttervoice_core::timeline::Timestamp;
 
 pub enum TapEvent {
+    /// The tap has just started. `flags` is the modifier state at that
+    /// moment, in case a key is already held.
+    Ready {
+        flags: u64,
+        at: Timestamp,
+    },
     FlagsChanged {
         flags: u64,
         at: Timestamp,
@@ -52,6 +58,10 @@ pub fn run(mut on_event: impl FnMut(TapEvent)) -> TapEnded {
         let source = CFMachPortCreateRunLoopSource(std::ptr::null(), tap, 0);
         CFRunLoopAddSource(CFRunLoopGetCurrent(), source, kCFRunLoopCommonModes);
         CGEventTapEnable(tap, true);
+        (context.on_event.borrow_mut())(TapEvent::Ready {
+            flags: CGEventSourceFlagsState(HID_SYSTEM_STATE),
+            at: now(),
+        });
         CFRunLoopRun();
         CFMachPortInvalidate(tap);
         CFRelease(source);
