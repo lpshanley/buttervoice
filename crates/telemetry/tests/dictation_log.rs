@@ -27,6 +27,7 @@ fn a_dictation_is_logged_as_one_line_with_its_id_and_latencies_in_milliseconds()
     let mut timeline = Timeline::new(DictationId(7));
     timeline.mark(Mark::KeyDown, at_micros(1_000_000));
     timeline.mark(Mark::FirstSample, at_micros(1_180_250));
+    timeline.mark(Mark::FirstSound, at_micros(1_250_500));
     timeline.mark(Mark::KeyUp, at_micros(4_000_000));
     timeline.mark(Mark::TextLanded, at_micros(4_612_500));
 
@@ -36,6 +37,7 @@ fn a_dictation_is_logged_as_one_line_with_its_id_and_latencies_in_milliseconds()
     assert_eq!(lines[0]["dictation_id"], 7);
     assert_eq!(lines[0]["key_held_ms"], 3000.0);
     assert_eq!(lines[0]["key_down_to_first_sample_ms"], 180.25);
+    assert_eq!(lines[0]["key_down_to_first_sound_ms"], 250.5);
     assert_eq!(lines[0]["key_up_to_text_landed_ms"], 612.5);
 }
 

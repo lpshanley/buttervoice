@@ -48,6 +48,7 @@ pub fn record_dictation(summary: &Summary, stopped_because: StopReason) {
         stopped_because = stop_reason_name(stopped_because),
         key_held_ms = summary.key_held.map(millis),
         key_down_to_first_sample_ms = summary.key_down_to_first_sample.map(millis),
+        key_down_to_first_sound_ms = summary.key_down_to_first_sound.map(millis),
         key_up_to_text_landed_ms = summary.key_up_to_text_landed.map(millis),
         "dictation"
     );
