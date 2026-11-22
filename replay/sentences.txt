@@ -1,0 +1,20 @@
+Good morning.
+Turn the lights off.
+I will call you back after lunch.
+Can you send me the notes from this morning's meeting?
+Let's move the review to Thursday afternoon.
+The build is failing on the main branch again.
+Please add a test for the empty case.
+I think we should ship it and watch the logs.
+Thanks, that looks good to me.
+Remind me to water the plants when I get home.
+The quick brown fox jumps over the lazy dog.
+We need to rename this function before it spreads.
+Open a pull request and ask for a second opinion.
+It was quieter than I expected, so I spoke up.
+Yes.
+No, not yet.
+The microphone is across the desk, so speak the way you normally would.
+Check whether the cache is stale before blaming the network.
+I'm going to grab a coffee, do you want anything?
+That is everything for today, see you tomorrow.
