@@ -23,6 +23,8 @@ pub struct Preferences {
     pub last_update_check: Option<u64>,
     /// The label last given when recording samples, offered the next time.
     pub sample_speaker: Option<String>,
+    /// Whether what is dictated is kept so it can be searched later.
+    pub keep_history: bool,
 }
 
 /// The saved choices, shared by every part of the app that reads them. A
@@ -64,12 +66,14 @@ const LOCAL_MODEL: &str = "local_model";
 const CHECK_FOR_UPDATES_DAILY: &str = "check_for_updates_daily";
 const LAST_UPDATE_CHECK: &str = "last_update_check";
 const SAMPLE_SPEAKER: &str = "sample_speaker";
+const KEEP_HISTORY: &str = "keep_history";
 
 pub fn load(file: &Path) -> Preferences {
     let saved = std::fs::read_to_string(file)
         .ok()
         .and_then(|contents| serde_json::from_str::<Value>(&contents).ok());
     let text = |name: &str| saved.as_ref()?.get(name)?.as_str();
+    let switch = |name: &str| saved.as_ref()?.get(name)?.as_bool();
     Preferences {
         provider: Provider::from_setting(text(PROVIDER)),
         dictation_language: Language::from_setting(text(DICTATION_LANGUAGE)),
@@ -78,14 +82,12 @@ pub fn load(file: &Path) -> Preferences {
         local_model: text(LOCAL_MODEL).map(str::to_string),
         // On unless turned off: keeping the team current matters more
         // than one request to GitHub a day.
-        check_for_updates_daily: saved
-            .as_ref()
-            .and_then(|preferences| preferences.get(CHECK_FOR_UPDATES_DAILY)?.as_bool())
-            .unwrap_or(true),
+        check_for_updates_daily: switch(CHECK_FOR_UPDATES_DAILY).unwrap_or(true),
         last_update_check: saved
             .as_ref()
             .and_then(|preferences| preferences.get(LAST_UPDATE_CHECK)?.as_u64()),
         sample_speaker: text(SAMPLE_SPEAKER).map(str::to_string),
+        keep_history: switch(KEEP_HISTORY).unwrap_or(true),
     }
 }
 
@@ -102,6 +104,7 @@ pub fn save(file: &Path, preferences: &Preferences) -> std::io::Result<()> {
         CHECK_FOR_UPDATES_DAILY: preferences.check_for_updates_daily,
         LAST_UPDATE_CHECK: preferences.last_update_check,
         SAMPLE_SPEAKER: preferences.sample_speaker,
+        KEEP_HISTORY: preferences.keep_history,
     });
     std::fs::write(file, saved.to_string())
 }
@@ -128,6 +131,7 @@ mod tests {
             check_for_updates_daily: false,
             last_update_check: Some(1_800_000_000),
             sample_speaker: Some("LPS".to_string()),
+            keep_history: false,
         };
 
         save(&file, &chosen).unwrap();
@@ -152,6 +156,7 @@ mod tests {
                 check_for_updates_daily: true,
                 last_update_check: None,
                 sample_speaker: None,
+                keep_history: true,
             }
         );
     }
@@ -195,6 +200,7 @@ mod tests {
                 check_for_updates_daily: true,
                 last_update_check: None,
                 sample_speaker: None,
+                keep_history: true,
             }
         );
     }

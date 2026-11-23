@@ -4,6 +4,9 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
 
+use buttervoice_core::key_dictation::FinishedDictation;
+use buttervoice_core::transcription::Transcription;
+use buttervoice_core::typing::Typing;
 use unicode_normalization::UnicodeNormalization;
 use unicode_normalization::char::is_combining_mark;
 
@@ -22,6 +25,26 @@ pub struct Entry {
     pub language: Option<String>,
     pub backend: Option<String>,
     pub app: Option<App>,
+}
+
+/// What is kept of a finished dictation, if anything: only text that was
+/// to be typed for the person.
+pub fn entry_for(dictation: &FinishedDictation, at: u64, app: Option<App>) -> Option<Entry> {
+    let Transcription::Succeeded(transcript) = &dictation.transcription else {
+        return None;
+    };
+    if dictation.typing == Typing::NotAttempted {
+        return None;
+    }
+    Some(Entry {
+        text: transcript.text.clone(),
+        at,
+        language: dictation
+            .language
+            .map(|language| language.tag().to_string()),
+        backend: dictation.backend.map(str::to_string),
+        app,
+    })
 }
 
 pub struct History {
