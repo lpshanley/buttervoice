@@ -17,17 +17,31 @@ pub struct Hud {
     shown: Mutex<DictationStatus>,
 }
 
-/// A full-screen app has a space of its own, which a window joins only as
-/// a full-screen auxiliary; being on every desktop is not enough.
+/// A full-screen app has a space of its own. A background app's window
+/// shows there only as a non-activating panel that joins it as a
+/// full-screen auxiliary, so the overlay's window is made one: its class
+/// becomes NSPanel, as tauri-nspanel does, and it sits at the status-bar
+/// level.
 fn show_over_full_screen_apps(window: &tauri::WebviewWindow) -> tauri::Result<()> {
-    use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
+    use objc2::ClassType;
+    use objc2_app_kit::{
+        NSPanel, NSStatusWindowLevel, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask,
+    };
     let pointer = window.ns_window()?;
-    // Set-up runs on the main thread, where the window belongs.
-    let ns_window: &NSWindow = unsafe { &*pointer.cast() };
-    ns_window.setCollectionBehavior(
-        ns_window.collectionBehavior()
+    // Set-up runs on the main thread, where the window belongs. NSPanel is
+    // NSWindow with nothing added to its storage, so the class can change.
+    unsafe { objc2::ffi::object_setClass(pointer.cast(), NSPanel::class()) };
+    let panel: &NSPanel = unsafe { &*pointer.cast() };
+    panel.setStyleMask(panel.styleMask() | NSWindowStyleMask::NonactivatingPanel);
+    panel.setHidesOnDeactivate(false);
+    let as_window: &NSWindow = panel;
+    as_window.setLevel(NSStatusWindowLevel);
+    as_window.setCollectionBehavior(
+        as_window.collectionBehavior()
             | NSWindowCollectionBehavior::FullScreenAuxiliary
-            | NSWindowCollectionBehavior::CanJoinAllSpaces,
+            | NSWindowCollectionBehavior::CanJoinAllSpaces
+            | NSWindowCollectionBehavior::Stationary
+            | NSWindowCollectionBehavior::IgnoresCycle,
     );
     Ok(())
 }
