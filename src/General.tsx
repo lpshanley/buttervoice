@@ -2,6 +2,7 @@ import { createSignal, For, onSettled, Show, useContext } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
+import Check from "./Check";
 import GheeMascot from "./GheeMascot";
 import { t } from "./i18n";
 import { PERMISSIONS, ReadinessContext } from "./readiness";
@@ -12,7 +13,6 @@ type Found = { current: string; newer: string | null };
 function General() {
   const readiness = useContext(ReadinessContext);
   const allowed = readiness.allowed;
-  const missing = () => PERMISSIONS.filter((_, index) => allowed()?.[index] === false);
 
   const [update, setUpdate] = createSignal<"idle" | "checking" | "installing">("idle");
   const [found, setFound] = createSignal<Found | null>(null);
@@ -122,30 +122,34 @@ function General() {
         </li>
       </ul>
       <h2 id="permissions">{t("permissions.heading")}</h2>
-      <Show
-        when={missing().length > 0}
-        fallback={<p class="status">{allowed() ? t("permissions.all_allowed") : ""}</p>}
-      >
-        <ul class="permissions">
-          <For each={missing()}>
-            {(permission) => (
-              <li>
-                <div>
-                  <strong>{t(`permission.${permission.id}.name`)}</strong>
-                  <span class="why">{t(`permission.${permission.id}.why`)}</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    void permission.request().then(() => readiness.recheckPermissions())
-                  }
-                >
-                  {t("permissions.allow")}
-                </button>
-              </li>
-            )}
-          </For>
-        </ul>
+      <Show when={allowed()}>
+        {(now) => (
+          <ul class="permissions">
+            <For each={PERMISSIONS}>
+              {(permission, index) => (
+                <li>
+                  <div>
+                    <strong>{t(`permission.${permission.id}.name`)}</strong>
+                    <span class="why">{t(`permission.${permission.id}.why`)}</span>
+                  </div>
+                  <Show
+                    when={!now()[index()]}
+                    fallback={<Check label={t("permissions.allowed")} />}
+                  >
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void permission.request().then(() => readiness.recheckPermissions())
+                      }
+                    >
+                      {t("permissions.allow")}
+                    </button>
+                  </Show>
+                </li>
+              )}
+            </For>
+          </ul>
+        )}
       </Show>
     </div>
   );

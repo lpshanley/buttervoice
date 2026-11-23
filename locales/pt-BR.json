@@ -148,6 +148,5 @@
   "nav.setup": "Configurar",
   "nav.dictation": "Ditado",
   "nav.general": "Geral",
-  "permissions.all_allowed": "Tudo permitido",
   "home.period": "Últimos {{ days }} dias"
 }
