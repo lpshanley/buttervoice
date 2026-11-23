@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [v1]
+    branches: [main]
   pull_request:
 
 concurrency:
@@ -29,7 +29,7 @@ jobs:
         run: rustup toolchain install --no-self-update
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: ${{ github.ref == 'refs/heads/v1' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Format
         run: cargo fmt --all --check
       - name: Lint
@@ -74,7 +74,7 @@ jobs:
         run: rustup toolchain install --no-self-update
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: ${{ github.ref == 'refs/heads/v1' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           cache: true
