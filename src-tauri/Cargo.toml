@@ -39,6 +39,11 @@ rust-i18n = "4"
 sys-locale = "0.3"
 buttervoice-samples = { path = "../crates/samples" }
 tauri-plugin-updater = "2.14.1"
+tauri-plugin-mcp-bridge = { version = "0.13.1", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
+
+[features]
+# The bridge that lets an AI assistant drive the app during development.
+mcp-bridge = ["dep:tauri-plugin-mcp-bridge"]

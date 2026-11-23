@@ -11,7 +11,8 @@
     "serve": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint src",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "agent": "tauri dev --features mcp-bridge"
   },
   "license": "MIT",
   "dependencies": {

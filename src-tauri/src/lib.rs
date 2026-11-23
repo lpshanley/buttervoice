@@ -982,13 +982,35 @@ fn lock(dictations: &Mutex<KeyDictations>) -> MutexGuard<'_, KeyDictations> {
 /// destructors, so nothing else would write out the last log lines.
 struct RunningTelemetry(Mutex<Option<Telemetry>>);
 
+// The bridge lets an assistant run JavaScript in the app's windows, so it
+// must never reach the team.
+#[cfg(all(feature = "mcp-bridge", not(debug_assertions)))]
+compile_error!("the mcp-bridge feature is for development builds only");
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_macos_permissions::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build());
+    // Only this Mac may connect: by default the bridge listens on every
+    // network.
+    #[cfg(feature = "mcp-bridge")]
+    let builder = builder.plugin(
+        tauri_plugin_mcp_bridge::Builder::new()
+            .bind_address("127.0.0.1")
+            .build(),
+    );
+    builder
         .manage(Updates::default())
         .setup(|app| {
+            // Granted here rather than in the capabilities folder, so a
+            // build without the bridge carries no trace of it.
+            #[cfg(feature = "mcp-bridge")]
+            app.add_capability(
+                tauri::ipc::CapabilityBuilder::new("mcp-bridge")
+                    .windows(["hud", MAIN_WINDOW, SAMPLES])
+                    .permission("mcp-bridge:default"),
+            )?;
             let telemetry = buttervoice_telemetry::install(&app.path().app_log_dir()?)?;
             app.manage(RunningTelemetry(Mutex::new(Some(telemetry))));
             buttervoice_telemetry::record_app_started(&Build {
