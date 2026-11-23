@@ -11,6 +11,7 @@ import {
   requestInputMonitoringPermission,
   requestMicrophonePermission,
 } from "tauri-plugin-macos-permissions-api";
+import GheeMascot from "./GheeMascot";
 import { type Locale, t } from "./i18n";
 
 type Provider = "local" | "grok";
@@ -137,6 +138,7 @@ function Settings() {
   const [found, setFound] = createSignal<Found | null>(null);
   const [version, setVersion] = createSignal("");
   const [daily, setDaily] = createSignal(true);
+  const [updateProblem, setUpdateProblem] = createSignal("");
 
   async function refreshUpdates() {
     const now = await invoke<{ daily: boolean; known: string | null }>("update_setup");
@@ -149,9 +151,9 @@ function Settings() {
     setUpdate("checking");
     try {
       setFound(await invoke<Found>("check_for_update"));
-      setProblem("");
+      setUpdateProblem("");
     } catch (error) {
-      setProblem(String(error));
+      setUpdateProblem(String(error));
     }
     setUpdate("idle");
   }
@@ -162,7 +164,7 @@ function Settings() {
       // On success the app relaunches and this window goes with it.
       await invoke("install_update");
     } catch (error) {
-      setProblem(String(error));
+      setUpdateProblem(String(error));
       setUpdate("idle");
     }
   }
@@ -499,49 +501,63 @@ function Settings() {
         </Show>
       </div>
       <h2>{t("update.heading")}</h2>
-      <p class="status">{t("update.current", { version: version() })}</p>
-      <Show
-        when={found()?.newer}
-        fallback={
-          <>
+      <div class="update-status">
+        <GheeMascot size={36} />
+        <div class="what">
+          <span>
+            {found()?.newer
+              ? t("update.ready_title", { version: found()?.newer ?? "" })
+              : found()
+                ? t("update.newest")
+                : "ButterVoice"}
+          </span>
+          <span class="why">
+            {t("update.version", { version: version() })}
+          </span>
+        </div>
+        <Show
+          when={found()?.newer}
+          fallback={
             <button
               type="button"
+              class="soft"
               disabled={update() !== "idle"}
               onClick={() => void checkForUpdate()}
             >
               {update() === "checking" ? t("update.checking") : t("update.check")}
             </button>
-            <Show when={found() && !found()?.newer}>
-              <p class="status" role="status">
-                {t("update.newest")}
-              </p>
-            </Show>
-          </>
-        }
-      >
-        <p class="status" role="status">
-          {t("update.available", { version: found()?.newer ?? "" })}
-        </p>
-        <button
-          type="button"
-          disabled={update() !== "idle"}
-          onClick={() => void installUpdate()}
-        >
-          {update() === "installing" ? t("update.installing") : t("update.install")}
-        </button>
-      </Show>
-      <label class="switch">
-        <input
-          type="checkbox"
-          checked={daily()}
-          onChange={(event) =>
-            void attempt("choose_daily_update_check", { on: event.currentTarget.checked }).then(
-              () => refreshUpdates(),
-            )
           }
-        />
-        <span>{t("update.daily")}</span>
-      </label>
+        >
+          <button
+            type="button"
+            class="pill"
+            disabled={update() !== "idle"}
+            onClick={() => void installUpdate()}
+          >
+            {update() === "installing" ? t("update.installing_short") : t("update.button")}
+          </button>
+        </Show>
+      </div>
+      <Show when={updateProblem()}>
+        <p class="problem" role="alert">
+          {updateProblem()}
+        </p>
+      </Show>
+      <ul class="permissions">
+        <li>
+          <label for="daily-updates">{t("update.daily")}</label>
+          <input
+            id="daily-updates"
+            type="checkbox"
+            checked={daily()}
+            onChange={(event) =>
+              void attempt("choose_daily_update_check", { on: event.currentTarget.checked }).then(
+                () => refreshUpdates(),
+              )
+            }
+          />
+        </li>
+      </ul>
       <p class="status">{t("update.what")}</p>
       <h2 id="permissions">{t("permissions.heading")}</h2>
       <ul class="permissions">

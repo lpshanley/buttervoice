@@ -10,6 +10,7 @@ function UpdateNotice() {
   const [problem, setProblem] = createSignal("");
 
   async function install() {
+    setProblem("");
     setInstalling(true);
     try {
       // On success the app relaunches into the new version.
@@ -28,15 +29,23 @@ function UpdateNotice() {
 
   return (
     <Show when={newer()}>
-      <div class="update-notice" role="status">
-        <p>{t("update.ready", { version: newer() ?? "" })}</p>
-        <button type="button" disabled={installing()} onClick={() => void install()}>
-          {installing() ? t("update.installing_short") : t("update.install_short")}
-        </button>
-        <Show when={problem()}>
-          <p class="problem">{problem()}</p>
-        </Show>
-      </div>
+      {(version) => (
+        <div class="update" role="status" title={problem() || undefined}>
+          <span>{t("update.ready_title", { version: version() })}</span>
+          <button
+            type="button"
+            class={["pill", { failed: Boolean(problem()) }]}
+            disabled={installing()}
+            onClick={() => void install()}
+          >
+            {installing()
+              ? t("update.installing_short")
+              : problem()
+                ? t("update.retry")
+                : t("update.button")}
+          </button>
+        </div>
+      )}
     </Show>
   );
 }

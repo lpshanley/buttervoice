@@ -12,6 +12,7 @@
   --focus: #44474b;
   --primary: #222427;
   --primary-text: #ffffff;
+  --control-fill: #ebeae6;
   --problem: #b3261e;
   /* How much was dictated: empty, then pale cream to deep butter. */
   --heat-0: #efede8;
@@ -39,6 +40,7 @@
     --focus: #c9cbce;
     --primary: #f5f5f3;
     --primary-text: #202124;
+    --control-fill: #3a3b3e;
     --problem: #ff8a7a;
     --heat-0: #2c2d30;
     --heat-1: #5a4712;
@@ -279,7 +281,7 @@
 .main {
   position: relative;
   display: grid;
-  grid-template-columns: 176px minmax(0, 1fr);
+  grid-template-columns: 212px minmax(0, 1fr);
   height: 100vh;
 }
 
@@ -295,7 +297,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 44px 12px 20px;
+  padding: 44px 12px 12px;
   background: var(--group);
   border-right: 1px solid var(--divider);
 }
@@ -527,39 +529,47 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Pushed to the foot of the sidebar, on white so it reads as a card. */
-.main .update-notice {
+/* Only while a newer version waits, at the foot of the sidebar. */
+.main .update {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
   margin-top: auto;
-  padding: 10px;
-  border: 1px solid var(--divider);
-  border-radius: 8px;
-  background: var(--canvas);
+  padding: 6px 0 0 8px;
+  color: var(--secondary);
   font-size: 12px;
+  white-space: nowrap;
 }
 
-.main .update-notice p {
-  margin: 0;
+.main .update span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.main .update-notice button {
-  padding: 6px 10px;
+/* A small, quiet rounded button for the update, wherever it is offered. */
+.main button.pill {
+  flex: none;
+  padding: 3px 10px;
   border: 0;
-  border-radius: 6px;
-  background: var(--primary);
-  color: var(--primary-text);
+  border-radius: 999px;
+  background: var(--control-fill);
+  color: var(--ink);
   font: inherit;
+  font-size: 12px;
   font-weight: 500;
-  text-align: center;
 }
 
-.main .update-notice button:disabled {
+.main button.pill:hover:not(:disabled) {
+  background: var(--divider);
+}
+
+.main button.pill:disabled {
   opacity: 0.45;
 }
 
-.main .update-notice .problem {
+.main button.pill.failed {
   color: var(--problem);
 }
 
@@ -597,4 +607,46 @@
   font: inherit;
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+/* As macOS sets Software Update: the app, where it stands, and one filled
+   button, in a group of their own. */
+.settings .update-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--group);
+}
+
+.settings .update-status img {
+  flex: none;
+}
+
+.settings .update-status .what {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.settings .update-status .why {
+  font-size: 12px;
+  color: var(--secondary);
+}
+
+.settings button.soft {
+  flex: none;
+  background: var(--control-fill);
+  color: var(--ink);
+}
+
+.settings .permissions li > label {
+  font-weight: 400;
+}
+
+.settings .permissions input[type="checkbox"] {
+  accent-color: var(--ink);
 }
