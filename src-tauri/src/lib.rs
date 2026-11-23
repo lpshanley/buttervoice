@@ -31,6 +31,7 @@ use hud::Hud;
 use key_tap::{TapEnded, TapEvent};
 use messages::Message;
 use samples::Recorder;
+use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager};
@@ -667,9 +668,13 @@ fn add_menu_bar_item(app: &tauri::App, language: Language) -> tauri::Result<()> 
                 let _ = window.set_focus();
             }
         });
-    if let Some(icon) = app.default_window_icon() {
-        item = item.icon(icon.clone());
-    }
+    // A template image: macOS colours it to suit the menu bar. The canvas
+    // is cropped to Ghee, because the menu bar item is drawn 18 pt tall.
+    item = item
+        .icon(Image::from_bytes(include_bytes!(
+            "../icons/menu-bar/ghee-template.png"
+        ))?)
+        .icon_as_template(true);
     item.build(app)?;
     Ok(())
 }
