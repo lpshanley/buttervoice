@@ -1,5 +1,6 @@
-//! A listen-only macOS event tap for modifier-key changes. It needs the
-//! Input Monitoring permission and cannot delay or block other apps' keys.
+//! A listen-only macOS event tap for modifier-key changes, and for the bare
+//! fact that some other key went down, never which. It needs the Input
+//! Monitoring permission and cannot delay or block other apps' keys.
 
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -17,6 +18,7 @@ pub enum TapEvent {
         flags: u64,
         at: Timestamp,
     },
+    OtherKeyDown,
     /// macOS switched the tap off and it has been switched back on. Key
     /// events may have been missed, so `flags` is the modifier state now.
     Interrupted {
@@ -45,7 +47,7 @@ pub fn run(mut on_event: impl FnMut(TapEvent)) -> TapEnded {
             SESSION_EVENT_TAP,
             HEAD_INSERT,
             LISTEN_ONLY,
-            1 << FLAGS_CHANGED,
+            1 << FLAGS_CHANGED | 1 << KEY_DOWN,
             on_tap_event,
             &raw const context as *mut c_void,
         )
@@ -93,6 +95,7 @@ unsafe extern "C" fn on_tap_event(
             flags: unsafe { CGEventGetFlags(event) },
             at: Timestamp::from_nanos(unsafe { CGEventGetTimestamp(event) }),
         },
+        KEY_DOWN => TapEvent::OtherKeyDown,
         TAP_DISABLED_BY_TIMEOUT | TAP_DISABLED_BY_USER_INPUT => {
             unsafe { CGEventTapEnable(context.tap.get(), true) };
             TapEvent::Interrupted {
@@ -112,6 +115,7 @@ type TapCallback = unsafe extern "C" fn(EventRef, u32, EventRef, *mut c_void) ->
 const SESSION_EVENT_TAP: u32 = 1;
 const HEAD_INSERT: u32 = 0;
 const LISTEN_ONLY: u32 = 1;
+const KEY_DOWN: u32 = 10;
 const FLAGS_CHANGED: u32 = 12;
 const TAP_DISABLED_BY_TIMEOUT: u32 = 0xFFFF_FFFE;
 const TAP_DISABLED_BY_USER_INPUT: u32 = 0xFFFF_FFFF;

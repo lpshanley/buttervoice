@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::DictationId;
 use crate::capture::{AudioStats, Captured, CapturedAudio, InputKind};
 use crate::hotkey::{HotkeyDecoder, HotkeyKey, KeyEdge};
@@ -97,11 +99,18 @@ enum Phase {
     Typing(Stopped, AudioStats, Transcript),
 }
 
+/// Held no longer than this, a press is a tap rather than speech.
+const LONGEST_TAP: Duration = Duration::from_millis(300);
+/// How soon after a tap the second one must come to go hands-free.
+const SECOND_TAP_WITHIN: Duration = Duration::from_millis(400);
+
 #[derive(Debug)]
 pub struct KeyDictations {
     decoder: HotkeyDecoder,
     control: RecordingControl,
     phase: Phase,
+    pressed_at: Option<Timestamp>,
+    second_tap_by: Option<Timestamp>,
     purpose_from_now: Purpose,
     last_dictation_text: Option<String>,
 }
@@ -112,6 +121,8 @@ impl KeyDictations {
             decoder: HotkeyDecoder::new(key),
             control: RecordingControl::new(mode),
             phase: Phase::Idle,
+            pressed_at: None,
+            second_tap_by: None,
             purpose_from_now: Purpose::Dictation(Provider::Local),
             last_dictation_text: None,
         }
@@ -156,6 +167,27 @@ impl KeyDictations {
     pub fn flags_changed(&mut self, flags: u64, at: Timestamp) -> Option<CaptureCommand> {
         let edge = self.decoder.flags_changed(flags)?;
         self.key_edge(edge, at)
+    }
+
+    /// Some other key went down. The hotkey held with it, as Option is for
+    /// an accent, was a shortcut and not a tap.
+    pub fn other_key_pressed(&mut self) {
+        self.pressed_at = None;
+    }
+
+    /// When a tap still waiting for a second one should give up, for the
+    /// app to call `second_tap_window_closed` then.
+    pub fn second_tap_deadline(&self) -> Option<Timestamp> {
+        self.second_tap_by
+    }
+
+    pub fn second_tap_window_closed(&mut self, at: Timestamp) -> Option<CaptureCommand> {
+        if self.second_tap_by.is_none_or(|deadline| at < deadline) {
+            return None;
+        }
+        self.second_tap_by = None;
+        let decision = self.control.second_tap_missed();
+        self.apply(decision, at)
     }
 
     /// `flags` is the modifier state read directly from macOS after key
@@ -356,8 +388,30 @@ impl KeyDictations {
 
     fn key_edge(&mut self, edge: KeyEdge, at: Timestamp) -> Option<CaptureCommand> {
         let decision = match edge {
-            KeyEdge::Pressed(press) => self.control.key_pressed(press),
-            KeyEdge::Released(press) => self.control.key_released(press),
+            KeyEdge::Pressed(press) => {
+                // The window may have closed before the app had a chance to say so.
+                if let Some(command) = self.second_tap_window_closed(at) {
+                    return Some(command);
+                }
+                self.pressed_at = Some(at);
+                self.second_tap_by = None;
+                self.control.key_pressed(press)
+            }
+            KeyEdge::Released(press) => {
+                let held = self
+                    .pressed_at
+                    .take()
+                    .map(|down| at.saturating_duration_since(down));
+                if held.is_some_and(|held| held <= LONGEST_TAP) {
+                    let decision = self.control.key_tapped(press);
+                    self.second_tap_by = self.control.awaiting_second_tap().then(|| {
+                        Timestamp::from_nanos(at.as_nanos() + SECOND_TAP_WITHIN.as_nanos() as u64)
+                    });
+                    decision
+                } else {
+                    self.control.key_released(press)
+                }
+            }
         };
         self.apply(decision, at)
     }

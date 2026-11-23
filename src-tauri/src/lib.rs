@@ -178,9 +178,10 @@ fn listen_for_the_dictation_key(
             let mut waiting_for_permission = false;
             loop {
                 let ended = key_tap::run(|event| {
-                    let (command, before, status, started) = {
+                    let (command, before, status, started, new_deadline) = {
                         let mut dictations = lock(&dictations);
                         let before = dictations.status();
+                        let deadline_before = dictations.second_tap_deadline();
                         dictations.set_purpose(purpose_now());
                         let command = match event {
                             TapEvent::Ready { flags, at } => {
@@ -190,6 +191,10 @@ fn listen_for_the_dictation_key(
                             TapEvent::FlagsChanged { flags, at } => {
                                 dictations.flags_changed(flags, at)
                             }
+                            TapEvent::OtherKeyDown => {
+                                dictations.other_key_pressed();
+                                None
+                            }
                             TapEvent::Interrupted { flags, at } => {
                                 tracing::warn!("key listener interrupted");
                                 dictations.resync(flags, at)
@@ -198,7 +203,10 @@ fn listen_for_the_dictation_key(
                         let started = matches!(command, Some(CaptureCommand::Start))
                             .then(|| dictations.latest_dictation())
                             .flatten();
-                        (command, before, dictations.status(), started)
+                        let new_deadline = dictations
+                            .second_tap_deadline()
+                            .filter(|deadline| Some(*deadline) != deadline_before);
+                        (command, before, dictations.status(), started, new_deadline)
                     };
                     // The microphone first: the HUD and the log can wait a
                     // moment, the first word cannot.
@@ -207,6 +215,15 @@ fn listen_for_the_dictation_key(
                     refresh_menu_for(before, status);
                     if let Some(dictation) = started {
                         buttervoice_telemetry::record_dictation_started(dictation);
+                    }
+                    if let Some(deadline) = new_deadline {
+                        close_second_tap_window_at(
+                            deadline,
+                            dictations.clone(),
+                            microphone.clone(),
+                            hud.clone(),
+                            menu_app.clone(),
+                        );
                     }
                 });
                 let before = lock(&dictations).status();
@@ -223,6 +240,38 @@ fn listen_for_the_dictation_key(
             }
         })?;
     Ok(commands)
+}
+
+/// A single tap keeps capturing in case a second one follows; once that
+/// can no longer happen, the dictation stops.
+fn close_second_tap_window_at(
+    deadline: buttervoice_core::timeline::Timestamp,
+    dictations: Dictations,
+    microphone: std::sync::mpsc::Sender<CaptureCommand>,
+    hud: Arc<Hud>,
+    app: tauri::AppHandle,
+) {
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_nanos(
+            deadline
+                .as_nanos()
+                .saturating_sub(key_tap::now().as_nanos()),
+        ));
+        let (command, before, status) = {
+            let mut dictations = lock(&dictations);
+            let before = dictations.status();
+            let command = dictations.second_tap_window_closed(key_tap::now());
+            (command, before, dictations.status())
+        };
+        if let Some(command) = command {
+            let _ = microphone.send(command);
+        }
+        hud.show(status);
+        if capturing(before) != capturing(status) {
+            let menu_app = app.clone();
+            let _ = app.run_on_main_thread(move || refresh_menu(&menu_app));
+        }
+    });
 }
 
 /// What is kept of each finished dictation.

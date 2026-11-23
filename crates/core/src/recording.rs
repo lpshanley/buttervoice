@@ -32,6 +32,10 @@ enum State {
         started_by: PressId,
         mode: Mode,
     },
+    /// Tapped once: still capturing, in case a second tap makes it hands-free.
+    AwaitingSecondTap {
+        dictation: DictationId,
+    },
     Processing,
 }
 
@@ -67,6 +71,41 @@ impl RecordingControl {
                 started_by,
                 mode: Mode::Toggle,
             } if press != started_by => self.stop(dictation, StopReason::KeyPressedAgain),
+            State::AwaitingSecondTap { dictation } => {
+                self.state = State::Recording {
+                    dictation,
+                    started_by: press,
+                    mode: Mode::Toggle,
+                };
+                Decision::Ignore
+            }
+            _ => Decision::Ignore,
+        }
+    }
+
+    /// A press let go too soon to have been held for speech. In push-to-talk
+    /// the dictation goes on capturing, waiting for a second tap.
+    pub fn key_tapped(&mut self, press: PressId) -> Decision {
+        match self.state {
+            State::Recording {
+                dictation,
+                started_by,
+                mode: Mode::PushToTalk,
+            } if press == started_by => {
+                self.state = State::AwaitingSecondTap { dictation };
+                Decision::Ignore
+            }
+            _ => self.key_released(press),
+        }
+    }
+
+    pub fn awaiting_second_tap(&self) -> bool {
+        matches!(self.state, State::AwaitingSecondTap { .. })
+    }
+
+    pub fn second_tap_missed(&mut self) -> Decision {
+        match self.state {
+            State::AwaitingSecondTap { dictation } => self.stop(dictation, StopReason::KeyReleased),
             _ => Decision::Ignore,
         }
     }
@@ -109,7 +148,9 @@ impl RecordingControl {
 
     fn stop_any_recording(&mut self, reason: StopReason) -> Decision {
         match self.state {
-            State::Recording { dictation, .. } => self.stop(dictation, reason),
+            State::Recording { dictation, .. } | State::AwaitingSecondTap { dictation } => {
+                self.stop(dictation, reason)
+            }
             _ => Decision::Ignore,
         }
     }

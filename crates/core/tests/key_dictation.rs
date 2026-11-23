@@ -550,7 +550,7 @@ fn a_key_released_before_any_sound_arrived_goes_straight_to_working() {
     let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
     dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(1_000_000));
 
-    dictations.flags_changed(NO_MODIFIERS, at_micros(1_300_000));
+    dictations.flags_changed(NO_MODIFIERS, at_micros(1_500_000));
 
     assert_eq!(dictations.status(), DictationStatus::Working);
 }
@@ -563,7 +563,7 @@ fn sound_arriving_when_nothing_is_being_captured_changes_nothing() {
     assert_eq!(dictations.status(), DictationStatus::Idle);
 
     dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(1_000_000));
-    dictations.flags_changed(NO_MODIFIERS, at_micros(1_300_000));
+    dictations.flags_changed(NO_MODIFIERS, at_micros(1_500_000));
     dictations.sound_arrived();
     assert_eq!(dictations.status(), DictationStatus::Working);
 }
@@ -714,4 +714,94 @@ fn stopping_by_hand_with_nothing_running_does_nothing() {
 
     assert_eq!(dictations.stop_by_hand(at_micros(1_000_000)), None);
     assert_eq!(dictations.status(), DictationStatus::Idle);
+}
+
+/// Tapped at 1.000 s (up at 1.120 s), then pressed again at 1.300 s.
+fn double_tapped() -> KeyDictations {
+    let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
+    dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(1_000_000));
+    dictations.flags_changed(NO_MODIFIERS, at_micros(1_120_000));
+    dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(1_300_000));
+    dictations
+}
+
+#[test]
+fn a_double_tap_keeps_capturing_after_the_key_is_let_go() {
+    let mut dictations = double_tapped();
+
+    assert_eq!(
+        dictations.flags_changed(NO_MODIFIERS, at_micros(1_400_000)),
+        None
+    );
+    assert_eq!(dictations.status(), DictationStatus::Starting);
+}
+
+#[test]
+fn after_a_double_tap_the_next_press_stops_capture() {
+    let mut dictations = double_tapped();
+    dictations.flags_changed(NO_MODIFIERS, at_micros(1_400_000));
+
+    assert_eq!(
+        dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(5_000_000)),
+        Some(CaptureCommand::Stop)
+    );
+    let finished = finished(dictations.capture_stopped(None, at_micros(5_020_000)));
+    assert_eq!(finished.stopped_because, StopReason::KeyPressedAgain);
+}
+
+/// Tapped at 1.000 s and let go at 1.120 s.
+fn tapped_once() -> KeyDictations {
+    let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
+    dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(1_000_000));
+    dictations.flags_changed(NO_MODIFIERS, at_micros(1_120_000));
+    dictations
+}
+
+#[test]
+fn a_single_tap_waits_four_tenths_of_a_second_for_a_second_one() {
+    let dictations = tapped_once();
+
+    assert_eq!(dictations.second_tap_deadline(), Some(at_micros(1_520_000)));
+}
+
+#[test]
+fn a_single_tap_stops_capture_once_no_second_tap_came() {
+    let mut dictations = tapped_once();
+
+    assert_eq!(
+        dictations.second_tap_window_closed(at_micros(1_520_000)),
+        Some(CaptureCommand::Stop)
+    );
+    let finished = finished(dictations.capture_stopped(None, at_micros(1_540_000)));
+    assert_eq!(finished.stopped_because, StopReason::KeyReleased);
+}
+
+#[test]
+fn a_double_tap_leaves_nothing_waiting_for_another_tap() {
+    let mut dictations = double_tapped();
+    dictations.flags_changed(NO_MODIFIERS, at_micros(1_400_000));
+
+    assert_eq!(dictations.second_tap_deadline(), None);
+}
+
+#[test]
+fn a_second_press_after_the_window_stops_capture_instead_of_going_hands_free() {
+    let mut dictations = tapped_once();
+
+    assert_eq!(
+        dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(1_600_000)),
+        Some(CaptureCommand::Stop)
+    );
+}
+
+#[test]
+fn a_quick_press_used_with_another_key_is_not_a_tap() {
+    let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
+    dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(1_000_000));
+    dictations.other_key_pressed();
+
+    assert_eq!(
+        dictations.flags_changed(NO_MODIFIERS, at_micros(1_120_000)),
+        Some(CaptureCommand::Stop)
+    );
 }
