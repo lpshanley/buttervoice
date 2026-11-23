@@ -12,6 +12,7 @@ import {
   requestMicrophonePermission,
 } from "tauri-plugin-macos-permissions-api";
 import { type Locale, t } from "./i18n";
+import GheeMark from "./GheeMark";
 import "./settings.css";
 
 type Provider = "local" | "grok";
@@ -260,7 +261,10 @@ function Settings() {
 
   return (
     <main class="settings">
-      <h1>ButterVoice</h1>
+      <h1>
+        <GheeMark size={22} />
+        ButterVoice
+      </h1>
       <h2>{t("language.heading")}</h2>
       <Show when={!language().chosen}>
         <p class="status" role="status">

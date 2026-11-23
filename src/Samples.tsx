@@ -1,6 +1,7 @@
 import { createSignal, For, onSettled, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import GheeMark from "./GheeMark";
 import { t } from "./i18n";
 import "./settings.css";
 
@@ -132,7 +133,10 @@ function Samples() {
 
   return (
     <main class="settings samples">
-      <h1>{t("samples.title")}</h1>
+      <h1>
+        <GheeMark size={22} />
+        {t("samples.title")}
+      </h1>
       <Show when={saved()}>
         <p class="status" role="status">
           {t("samples.saved")} <code>{saved()}</code>
