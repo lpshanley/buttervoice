@@ -17,11 +17,27 @@ pub struct Hud {
     shown: Mutex<DictationStatus>,
 }
 
+/// A full-screen app has a space of its own, which a window joins only as
+/// a full-screen auxiliary; being on every desktop is not enough.
+fn show_over_full_screen_apps(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
+    let pointer = window.ns_window()?;
+    // Set-up runs on the main thread, where the window belongs.
+    let ns_window: &NSWindow = unsafe { &*pointer.cast() };
+    ns_window.setCollectionBehavior(
+        ns_window.collectionBehavior()
+            | NSWindowCollectionBehavior::FullScreenAuxiliary
+            | NSWindowCollectionBehavior::CanJoinAllSpaces,
+    );
+    Ok(())
+}
+
 impl Hud {
     pub fn set_up(app: &AppHandle) -> tauri::Result<Self> {
         if let Some(window) = app.get_webview_window(WINDOW) {
             // Clicks go through to whatever is underneath.
             window.set_ignore_cursor_events(true)?;
+            show_over_full_screen_apps(&window)?;
             if let Some(screen) = window.primary_monitor()? {
                 let window_size = window.outer_size()?;
                 let margin = (BOTTOM_MARGIN * screen.scale_factor()) as i32;
