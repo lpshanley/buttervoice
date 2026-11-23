@@ -700,7 +700,10 @@ fn a_dictation_stopped_by_hand_is_stopped_for_that_reason_and_ignores_the_late_r
         dictations.stop_by_hand(at_micros(1_500_000)),
         Some(CaptureCommand::Stop)
     );
-    assert_eq!(dictations.flags_changed(NO_MODIFIERS, at_micros(1_900_000)), None);
+    assert_eq!(
+        dictations.flags_changed(NO_MODIFIERS, at_micros(1_900_000)),
+        None
+    );
     let dictation = finished(dictations.capture_stopped(None, at_micros(1_510_000)));
     assert_eq!(dictation.stopped_because, StopReason::Manual);
 }
