@@ -119,5 +119,12 @@
   "model.heading": "Model on this Mac",
   "model.recommended": "Recommended",
   "model.untested": "Not yet tested with your language",
-  "model.not_downloaded": "Not downloaded yet"
+  "model.not_downloaded": "Not downloaded yet",
+  "setup.heading": "Getting started",
+  "setup.language": "Choose the language you dictate in",
+  "setup.transcription": "Get transcription ready",
+  "setup.permissions": "Give ButterVoice the access it needs",
+  "setup.done": "Done",
+  "setup.show": "Show me",
+  "setup.then": "Then hold the right Option key, speak, and let go."
 }

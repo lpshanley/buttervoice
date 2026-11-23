@@ -82,7 +82,7 @@
 }
 
 /* Groups: warm sand, 8 pt corners, hairlines inset 12 pt. */
-.settings :is(.providers, .permissions) {
+.settings :is(.providers, .permissions, .steps) {
   margin: 0;
   padding: 0;
   list-style: none;
@@ -90,7 +90,7 @@
   background: var(--group);
 }
 
-.settings :is(.providers label, .permissions li) {
+.settings :is(.providers label, .permissions li, .steps li) {
   position: relative;
   display: flex;
   gap: 10px;
@@ -103,13 +103,13 @@
   align-items: flex-start;
 }
 
-.settings .permissions li {
+.settings :is(.permissions, .steps) li {
   align-items: center;
   justify-content: space-between;
   min-height: 30px;
 }
 
-.settings :is(.providers label + label, .permissions li + li)::before {
+.settings :is(.providers label + label, .permissions li + li, .steps li + li)::before {
   content: "";
   position: absolute;
   top: 0;
@@ -254,4 +254,8 @@
 
 .settings > button {
   align-self: flex-start;
+}
+
+.settings .steps li.done {
+  color: var(--secondary);
 }

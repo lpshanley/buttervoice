@@ -35,6 +35,9 @@ function megabytes(bytes: number) {
   return `${Math.round(bytes / 1_000_000)} MB`;
 }
 
+/** A provider is ready to dictate in these states. */
+const READY: State[] = ["ready", "ready_untested", "key_from_environment", "key_saved"];
+
 const PROVIDERS: Provider[] = ["local", "grok"];
 
 type LanguageSetup = { language: Locale; chosen: boolean };
@@ -224,6 +227,15 @@ function Settings() {
     );
   };
 
+  // What is left before the first dictation, worked out from what this
+  // window already knows. It goes once all three are done.
+  const steps = () => [
+    { id: "language", done: language().chosen },
+    { id: "transcription", done: READY.includes(setup().state) },
+    { id: "permissions", done: allowed()?.every(Boolean) ?? false },
+  ];
+  const settingUp = () => allowed() !== null && steps().some((step) => !step.done);
+
   async function attempt(command: string, args?: Record<string, unknown>) {
     try {
       await invoke(command, args);
@@ -265,7 +277,32 @@ function Settings() {
         <GheeMark size={22} />
         ButterVoice
       </h1>
-      <h2>{t("language.heading")}</h2>
+      <Show when={settingUp()}>
+        <h2>{t("setup.heading")}</h2>
+        <ol class="steps">
+          <For each={steps()}>
+            {(step) => (
+              <li class={{ done: step.done }}>
+                <span>{t(`setup.${step.id as "language" | "transcription" | "permissions"}`)}</span>
+                <Show
+                  when={!step.done}
+                  fallback={<span class="allowed">{t("setup.done")}</span>}
+                >
+                  <button
+                    type="button"
+                    class="quiet"
+                    onClick={() => document.getElementById(step.id)?.scrollIntoView({ behavior: "smooth" })}
+                  >
+                    {t("setup.show")}
+                  </button>
+                </Show>
+              </li>
+            )}
+          </For>
+        </ol>
+        <p class="status">{t("setup.then")}</p>
+      </Show>
+      <h2 id="language">{t("language.heading")}</h2>
       <Show when={!language().chosen}>
         <p class="status" role="status">
           {t("language.choose_first")}
@@ -289,7 +326,7 @@ function Settings() {
         </For>
       </div>
       <p class="status">{t("language.what")}</p>
-      <h2>{t("transcription.heading")}</h2>
+      <h2 id="transcription">{t("transcription.heading")}</h2>
       <div class="providers" role="radiogroup" aria-label={t("transcription.choice_label")}>
         <For each={PROVIDERS}>
           {(provider) => (
@@ -491,7 +528,7 @@ function Settings() {
         <span>{t("update.daily")}</span>
       </label>
       <p class="status">{t("update.what")}</p>
-      <h2>{t("permissions.heading")}</h2>
+      <h2 id="permissions">{t("permissions.heading")}</h2>
       <ul class="permissions">
         <For each={PERMISSIONS}>
           {(permission, index) => (

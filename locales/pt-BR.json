@@ -119,5 +119,12 @@
   "model.heading": "Modelo de transcrição local",
   "model.recommended": "Recomendado",
   "model.untested": "Ainda não testado neste idioma",
-  "model.not_downloaded": "Ainda não baixado"
+  "model.not_downloaded": "Ainda não baixado",
+  "setup.heading": "Primeiros passos",
+  "setup.language": "Escolha o idioma em que você dita",
+  "setup.transcription": "Deixe a transcrição pronta",
+  "setup.permissions": "Dê ao ButterVoice os acessos de que ele precisa",
+  "setup.done": "Feito",
+  "setup.show": "Mostrar",
+  "setup.then": "Depois, segure a tecla Option da direita, fale e solte."
 }
