@@ -548,6 +548,38 @@
   text-overflow: ellipsis;
 }
 
+/* Once it is under way there is nothing to press: just where it has got to. */
+.main .update.updating {
+  display: block;
+  padding-bottom: 4px;
+}
+
+.main .update.updating .label {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.main .update .percent {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Butter, as the app is doing this on its own, like listening. */
+.main .update .bar {
+  height: 2px;
+  margin-top: 6px;
+  border-radius: 1px;
+  background: var(--divider);
+  overflow: hidden;
+}
+
+.main .update .bar > div {
+  height: 100%;
+  background: var(--heat-3);
+  transition: width 0.25s linear;
+}
+
 /* A small, quiet rounded button for the update, wherever it is offered. */
 .main button.pill {
   flex: none;

@@ -165,5 +165,7 @@
   "update.retry": "Try again",
   "update.version": "Version {{ version }}",
   "update.ready_title": "{{ version }} is available",
-  "update.button": "Update"
+  "update.button": "Update",
+  "update.updating_to": "Updating to {{ version }}…",
+  "update.restarting": "Restarting…"
 }
