@@ -24,13 +24,18 @@ function Hud() {
     let frame = 0;
     let fading: ReturnType<typeof setTimeout> | undefined;
 
+    // Only what changed is written, so a still frame costs WebKit no
+    // repaint: once Ghee has leaned in, only his blinks move him.
+    const set = (element: Element | undefined, name: string, value: string) => {
+      if (element && element.getAttribute(name) !== value) element.setAttribute(name, value);
+    };
     const draw = (p: Pose) => {
       const place = transforms(p);
-      body?.setAttribute("transform", place.body);
-      edge?.setAttribute("d", outline(p.melt));
-      face?.setAttribute("transform", place.face);
-      eyes?.setAttribute("transform", place.eyes);
-      mouth?.setAttribute("transform", place.mouth);
+      set(body, "transform", place.body);
+      set(edge, "d", outline(p.melt));
+      set(face, "transform", place.face);
+      set(eyes, "transform", place.eyes);
+      set(mouth, "transform", place.mouth);
       shown = p;
     };
 
