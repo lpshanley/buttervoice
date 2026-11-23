@@ -2,6 +2,7 @@ import { createEffect, createSignal, For, onSettled, Show, useContext } from "so
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import Check from "./Check";
 import { type Locale, t } from "./i18n";
 import { type Provider, ReadinessContext } from "./readiness";
 
@@ -174,7 +175,7 @@ function Dictation() {
           )}
         </For>
       </div>
-      <Show when={setup().provider === "local" && models().length > 1}>
+      <Show when={setup().provider === "local" && models().length > 0}>
         <h2>{t("model.heading")}</h2>
         <div class="providers" role="radiogroup" aria-label={t("model.heading")}>
           <For each={models()}>
@@ -187,7 +188,12 @@ function Dictation() {
                   onChange={() => void chooseModel(model)}
                 />
                 <span>
-                  <strong>{model.name}</strong>
+                  <strong>
+                    {model.name}
+                    <Show when={model.downloaded}>
+                      <Check label={t("model.downloaded")} />
+                    </Show>
+                  </strong>
                   <span class="why">
                     {[
                       model.recommended ? t("model.recommended") : "",

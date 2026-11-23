@@ -1,4 +1,5 @@
 import { For, Show, useContext } from "solid-js";
+import Check from "./Check";
 import { t } from "./i18n";
 import { ReadinessContext, type Step } from "./readiness";
 
@@ -13,7 +14,7 @@ function Setup(props: { onGo: (step: Step) => void }) {
           {(step) => (
             <li class={{ done: step.done }}>
               <span>{t(`setup.${step.id}`)}</span>
-              <Show when={!step.done} fallback={<span class="allowed">{t("setup.done")}</span>}>
+              <Show when={!step.done} fallback={<Check label={t("setup.done")} />}>
                 <button type="button" class="quiet" onClick={() => props.onGo(step.id)}>
                   {t("setup.show")}
                 </button>

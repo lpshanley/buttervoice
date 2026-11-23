@@ -14,6 +14,7 @@
   --primary-text: #ffffff;
   --control-fill: #ebeae6;
   --problem: #b3261e;
+  --done: #1e8e3e;
   /* How much was dictated: empty, then pale cream to deep butter. */
   --heat-0: #efede8;
   --heat-1: #fff0c4;
@@ -38,6 +39,7 @@
     --control-line: #4a4c50;
     --control-edge: #6e7074;
     --focus: #c9cbce;
+    --done: #5bb974;
     --primary: #f5f5f3;
     --primary-text: #202124;
     --control-fill: #3a3b3e;
@@ -135,8 +137,7 @@
   font-weight: 500;
 }
 
-.settings :is(.providers, .permissions) .why,
-.settings .permissions .allowed {
+.settings :is(.providers, .permissions) .why {
   display: block;
   color: var(--secondary);
 }
@@ -271,6 +272,12 @@
 
 .settings > button {
   align-self: flex-start;
+}
+
+.check {
+  margin-left: 6px;
+  font-weight: 600;
+  color: var(--done);
 }
 
 .settings .steps li.done {
