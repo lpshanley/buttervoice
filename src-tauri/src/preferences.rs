@@ -25,6 +25,8 @@ pub struct Preferences {
     pub sample_speaker: Option<String>,
     /// Whether what is dictated is kept so it can be searched later.
     pub keep_history: bool,
+    /// How fast the person types, to work out the time dictating saves.
+    pub typing_words_per_minute: u32,
 }
 
 /// The saved choices, shared by every part of the app that reads them. A
@@ -67,6 +69,10 @@ const CHECK_FOR_UPDATES_DAILY: &str = "check_for_updates_daily";
 const LAST_UPDATE_CHECK: &str = "last_update_check";
 const SAMPLE_SPEAKER: &str = "sample_speaker";
 const KEEP_HISTORY: &str = "keep_history";
+const TYPING_WORDS_PER_MINUTE: &str = "typing_words_per_minute";
+
+/// A commonly quoted average for typing on a keyboard.
+pub const AVERAGE_TYPING_WORDS_PER_MINUTE: u32 = 40;
 
 pub fn load(file: &Path) -> Preferences {
     let saved = std::fs::read_to_string(file)
@@ -88,6 +94,12 @@ pub fn load(file: &Path) -> Preferences {
             .and_then(|preferences| preferences.get(LAST_UPDATE_CHECK)?.as_u64()),
         sample_speaker: text(SAMPLE_SPEAKER).map(str::to_string),
         keep_history: switch(KEEP_HISTORY).unwrap_or(true),
+        typing_words_per_minute: saved
+            .as_ref()
+            .and_then(|preferences| preferences.get(TYPING_WORDS_PER_MINUTE)?.as_u64())
+            .and_then(|speed| u32::try_from(speed).ok())
+            .filter(|speed| *speed > 0)
+            .unwrap_or(AVERAGE_TYPING_WORDS_PER_MINUTE),
     }
 }
 
@@ -105,6 +117,7 @@ pub fn save(file: &Path, preferences: &Preferences) -> std::io::Result<()> {
         LAST_UPDATE_CHECK: preferences.last_update_check,
         SAMPLE_SPEAKER: preferences.sample_speaker,
         KEEP_HISTORY: preferences.keep_history,
+        TYPING_WORDS_PER_MINUTE: preferences.typing_words_per_minute,
     });
     std::fs::write(file, saved.to_string())
 }
@@ -132,6 +145,7 @@ mod tests {
             last_update_check: Some(1_800_000_000),
             sample_speaker: Some("LPS".to_string()),
             keep_history: false,
+            typing_words_per_minute: 65,
         };
 
         save(&file, &chosen).unwrap();
@@ -157,6 +171,7 @@ mod tests {
                 last_update_check: None,
                 sample_speaker: None,
                 keep_history: true,
+                typing_words_per_minute: 40,
             }
         );
     }
@@ -201,6 +216,7 @@ mod tests {
                 last_update_check: None,
                 sample_speaker: None,
                 keep_history: true,
+                typing_words_per_minute: 40,
             }
         );
     }

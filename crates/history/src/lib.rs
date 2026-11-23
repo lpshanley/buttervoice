@@ -1,5 +1,7 @@
 //! What was dictated, kept as one JSON line per dictation until cleared.
 
+pub mod usage;
+
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
@@ -30,14 +32,8 @@ pub struct Entry {
 /// What is kept of a finished dictation, if anything: only text that was
 /// to be typed for the person.
 pub fn entry_for(dictation: &FinishedDictation, at: u64, app: Option<App>) -> Option<Entry> {
-    let Transcription::Succeeded(transcript) = &dictation.transcription else {
-        return None;
-    };
-    if dictation.typing == Typing::NotAttempted {
-        return None;
-    }
     Some(Entry {
-        text: transcript.text.clone(),
+        text: text_to_keep(dictation)?.to_string(),
         at,
         language: dictation
             .language
@@ -45,6 +41,15 @@ pub fn entry_for(dictation: &FinishedDictation, at: u64, app: Option<App>) -> Op
         backend: dictation.backend.map(str::to_string),
         app,
     })
+}
+
+/// The text of a dictation that was to be typed for the person. Sample takes
+/// and blank results never were.
+fn text_to_keep(dictation: &FinishedDictation) -> Option<&str> {
+    let Transcription::Succeeded(transcript) = &dictation.transcription else {
+        return None;
+    };
+    (dictation.typing != Typing::NotAttempted).then_some(transcript.text.as_str())
 }
 
 pub struct History {
