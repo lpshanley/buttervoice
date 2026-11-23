@@ -23,9 +23,9 @@ function History() {
   // Answers can arrive out of order while typing; only the latest counts.
   let asked = 0;
 
-  async function search() {
+  async function search(text = query()) {
     const question = ++asked;
-    const answer = await invoke<Entry[]>("history_search", { query: query() });
+    const answer = await invoke<Entry[]>("history_search", { query: text });
     if (question === asked) setFound(answer);
   }
 
@@ -68,8 +68,10 @@ function History() {
         spellcheck="false"
         value={query()}
         onInput={(event) => {
-          setQuery(event.currentTarget.value);
-          void search();
+          // The write is not readable until the next microtask.
+          const text = event.currentTarget.value;
+          setQuery(text);
+          void search(text);
         }}
       />
       <Show when={!keep()}>
