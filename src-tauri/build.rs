@@ -1,6 +1,7 @@
 use std::process::Command;
 
 fn main() {
+    println!("cargo:rerun-if-changed=../locales");
     println!("cargo:rustc-env=BUTTERVOICE_COMMIT={}", commit());
     tauri_build::build()
 }

@@ -5,7 +5,7 @@
   },
   {
     "kind": "read_sentence",
-    "say": "Vou me atrasar uns dez minutos, podem começar sem mim."
+    "say": "Vou me atrasar uns dez minutos. Podem começar sem mim."
   },
   {
     "kind": "read_sentence",
@@ -41,11 +41,11 @@
   },
   {
     "kind": "hard_words",
-    "say": "A fatura é de mil duzentos e cinquenta reais, com vencimento em três de março."
+    "say": "A fatura é de mil duzentos e cinquenta reais e vence no dia três de março."
   },
   {
     "kind": "hard_words",
-    "say": "Me chama às nove e meia ou me manda por e-mail a configuração do Kubernetes."
+    "say": "Me chama às nove e meia ou me manda a configuração do Kubernetes por e-mail."
   },
   {
     "kind": "hard_words",
@@ -57,11 +57,11 @@
   },
   {
     "kind": "long_dictation",
-    "say": "Esta semana terminei a primeira versão do novo fluxo de configuração inicial. A principal mudança é que as pessoas escolhem o idioma antes de qualquer outra coisa, e o aplicativo então recomenda uma forma de transcrição adequada. Ainda preciso escrever a parte que baixa o modelo de fala, mostrar o progresso durante o download e verificar o arquivo antes de usá-lo. Depois disso quero dedicar um dia à janela de ajustes, porque ela cresceu duas vezes e o layout precisa de atenção. Se nada inesperado acontecer, devo ter algo para a equipe testar até o fim da semana que vem."
+    "say": "Nesta semana, terminei a primeira versão do novo fluxo de configuração inicial. A principal mudança é que agora a pessoa escolhe primeiro o idioma, e o app recomenda uma opção de transcrição para aquele idioma. Ainda preciso implementar o download do modelo de transcrição, mostrar o andamento e verificar o arquivo antes de usar o modelo. Depois quero dedicar um dia à janela de ajustes, porque ela dobrou de tamanho e preciso reorganizar as opções. Se tudo correr bem, devo ter algo para a equipe testar até o fim da semana que vem."
   },
   {
     "kind": "long_dictation",
-    "say": "Aqui vai um resumo rápido da conversa de ontem. Combinamos que todo modelo precisa ser testado com gravações reais antes de ser oferecido a alguém, e que os resultados devem mostrar quanto custa executá-lo, além da precisão. Duas pessoas se ofereceram para gravar amostras, uma em inglês e outra em português. A questão em aberto é por quanto tempo guardamos essas gravações e quem pode ouvi-las. Vou escrever isso e enviar para todos antes de sexta para que possam comentar."
+    "say": "Aqui vai um resumo rápido da conversa de ontem. Combinamos que vamos testar cada modelo com gravações reais antes de disponibilizá-lo. Os resultados precisam mostrar tanto a precisão quanto o custo de rodar o modelo. Duas pessoas se ofereceram para gravar amostras, uma em inglês e outra em português. Ainda falta decidir por quanto tempo vamos guardar as gravações e quem vai poder ouvi-las. Vou colocar isso por escrito e mandar para todo mundo antes de sexta, para dar tempo de comentarem."
   },
   {
     "kind": "conditions",
@@ -72,7 +72,7 @@
   {
     "kind": "conditions",
     "say": "Você pode dar uma olhada nisso quando tiver um minuto?",
-    "do": "Afaste-se, ou fique a cerca de um metro do computador.",
+    "do": "Fique a mais ou menos um metro do computador e fale.",
     "conditions": "far from the microphone"
   },
   {
@@ -84,16 +84,16 @@
   {
     "kind": "conditions",
     "say": "Você pode dar uma olhada nisso quando tiver um minuto?",
-    "do": "Coloque uma música ou ligue um ventilador por perto e então fale.",
+    "do": "Coloque uma música para tocar ou ligue um ventilador por perto. Depois, fale.",
     "conditions": "background noise"
   },
   {
     "kind": "natural_speech",
-    "do": "Com suas palavras, conte o que você fez hoje de manhã. Duas ou três frases."
+    "do": "Conte, em duas ou três frases, o que você fez hoje de manhã."
   },
   {
     "kind": "natural_speech",
-    "do": "Explique a um colega como chegar à sua mesa ou ao seu escritório em casa."
+    "do": "Imagine que um colega precisa encontrar sua mesa ou o lugar onde você trabalha em casa. Explique como chegar lá."
   },
   {
     "kind": "silence",

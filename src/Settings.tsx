@@ -282,7 +282,7 @@ function Settings() {
                 onChange={() => void chooseLanguage(option.tag)}
               />
               <span>
-                <strong>{option.name}</strong>
+                <strong lang={option.tag}>{option.name}</strong>
               </span>
             </label>
           )}

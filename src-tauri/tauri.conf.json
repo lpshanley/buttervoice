@@ -8,7 +8,8 @@
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist",
     "additionalWatchFolders": [
-      "../crates"
+      "../crates",
+      "../locales"
     ]
   },
   "app": {
@@ -30,7 +31,7 @@
       },
       {
         "label": "settings",
-        "title": "ButterVoice Settings",
+        "title": "ButterVoice",
         "width": 460,
         "height": 760,
         "resizable": true,
@@ -39,7 +40,7 @@
       },
       {
         "label": "samples",
-        "title": "ButterVoice Samples",
+        "title": "ButterVoice",
         "width": 520,
         "height": 620,
         "resizable": true,
@@ -65,6 +66,9 @@
       "icons/icon.ico"
     ],
     "macOS": {
+      "files": {
+        "Resources/pt-BR.lproj/InfoPlist.strings": "localizations/pt-BR.lproj/InfoPlist.strings"
+      },
       "entitlements": "Entitlements.plist",
       "hardenedRuntime": true,
       "minimumSystemVersion": "14.0"

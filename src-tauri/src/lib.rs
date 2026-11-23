@@ -248,7 +248,7 @@ fn language_setup(transcribers: tauri::State<'_, Arc<Transcribers>>) -> Language
     }
 }
 
-/// The windows are told through an event, so both change without a restart.
+/// The webviews are told through an event so they change without a restart.
 const DISPLAY_LANGUAGE_CHANGED: &str = "display-language";
 
 // `async`: a new language can mean loading a different model.
@@ -264,9 +264,12 @@ fn choose_language(
     transcribers
         .choose_language(language)
         .map_err(|error| not_saved(error, &transcribers))?;
+    refresh_window_titles(&app, language);
     refresh_menu(&app);
-    app.emit(DISPLAY_LANGUAGE_CHANGED, language.tag())
-        .map_err(|error| error.to_string())
+    if let Err(error) = app.emit(DISPLAY_LANGUAGE_CHANGED, language.tag()) {
+        tracing::warn!(%error, "the webviews could not be notified of the language change");
+    }
+    Ok(())
 }
 
 // `async` keeps the Keychain call, which can wait on a system prompt, off
@@ -279,7 +282,10 @@ fn save_api_key(
     if key.trim().is_empty() {
         return Err(Message::EnterAKeyFirst.text(transcribers.display_language()));
     }
-    transcribers.save_key(&key)
+    transcribers.save_key(&key).map_err(|error| {
+        tracing::warn!(%error, "the API key could not be saved");
+        Message::KeyNotSaved.text(transcribers.display_language())
+    })
 }
 
 #[tauri::command]
@@ -529,7 +535,10 @@ fn samples_package(
 
 #[tauri::command(async)]
 fn forget_api_key(transcribers: tauri::State<'_, Arc<Transcribers>>) -> Result<(), String> {
-    transcribers.forget_key()
+    transcribers.forget_key().map_err(|error| {
+        tracing::warn!(%error, "the API key could not be removed");
+        Message::KeyNotRemoved.text(transcribers.display_language())
+    })
 }
 
 /// Debug builds keep their key in an entry of their own. An unsigned build
@@ -586,6 +595,19 @@ fn refresh_menu(app: &tauri::AppHandle) {
         && let Ok(menu) = menu_in(app, language, update_found)
     {
         let _ = item.set_menu(Some(menu));
+    }
+}
+
+fn refresh_window_titles(app: &tauri::AppHandle, language: Language) {
+    for (label, message) in [
+        (SETTINGS, Message::SettingsTitle),
+        (SAMPLES, Message::SamplesTitle),
+    ] {
+        if let Some(window) = app.get_webview_window(label)
+            && let Err(error) = window.set_title(&message.text(language))
+        {
+            tracing::warn!(%error, label, "the window title could not be updated");
+        }
     }
 }
 
@@ -739,7 +761,9 @@ pub fn run() {
                 Language::closest_to(&sys_locale::get_locale().unwrap_or_default()),
             );
             app.manage(transcribers.clone());
-            add_menu_bar_item(app, transcribers.display_language())?;
+            let language = transcribers.display_language();
+            refresh_window_titles(app.handle(), language);
+            add_menu_bar_item(app, language)?;
             let hud = Arc::new(Hud::set_up(app.handle())?);
             let dictations: Dictations = Arc::new(Mutex::new(KeyDictations::new(
                 HotkeyKey::RightOption,

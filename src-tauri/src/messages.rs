@@ -1,5 +1,4 @@
-//! The text the Rust side shows a person: the menu bar item and the errors
-//! that commands return. The windows get theirs from the same catalogs.
+//! Native window titles, menu bar items, and errors shown by the webviews.
 
 use buttervoice_core::language::Language;
 
@@ -10,7 +9,11 @@ pub enum Message {
     RecordSamples,
     OpenSettings,
     Quit,
+    SettingsTitle,
+    SamplesTitle,
     EnterAKeyFirst,
+    KeyNotSaved,
+    KeyNotRemoved,
     ChoiceNotSaved,
     SamplesNotSaved,
     TakeNotSaved,
@@ -33,7 +36,11 @@ impl Message {
             Message::RecordSamples => "tray.record_samples",
             Message::OpenSettings => "tray.settings",
             Message::Quit => "tray.quit",
+            Message::SettingsTitle => "window.settings",
+            Message::SamplesTitle => "window.samples",
             Message::EnterAKeyFirst => "error.enter_a_key",
+            Message::KeyNotSaved => "error.key_not_saved",
+            Message::KeyNotRemoved => "error.key_not_removed",
             Message::ChoiceNotSaved => "error.choice_not_saved",
             Message::SamplesNotSaved => "error.samples_not_saved",
             Message::TakeNotSaved => "error.take_not_saved",
@@ -58,7 +65,7 @@ impl Message {
 mod tests {
     use super::*;
 
-    const EVERY_MESSAGE: [Message; 18] = [
+    const EVERY_MESSAGE: [Message; 22] = [
         Message::PackageNotMade,
         Message::InstallUpdate,
         Message::UpdateCheckFailed,
@@ -75,7 +82,11 @@ mod tests {
         Message::CopyLastDictation,
         Message::OpenSettings,
         Message::Quit,
+        Message::SettingsTitle,
+        Message::SamplesTitle,
         Message::EnterAKeyFirst,
+        Message::KeyNotSaved,
+        Message::KeyNotRemoved,
         Message::ChoiceNotSaved,
     ];
 
