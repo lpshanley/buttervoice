@@ -147,12 +147,9 @@ function Samples() {
         <Show
           when={packaged()}
           fallback={
-            <>
-              <button type="button" onClick={() => void makePackage()}>
-                {t("samples.package")}
-              </button>
-              <p class="status">{t("samples.package_what")}</p>
-            </>
+            <button type="button" onClick={() => void makePackage()}>
+              {t("samples.package")}
+            </button>
           }
         >
           <p class="status" role="status">
@@ -174,13 +171,11 @@ function Samples() {
               id="speaker"
               autocomplete="off"
               spellcheck="false"
-              placeholder={t("samples.speaker_placeholder")}
               value={speaker()}
               onInput={(event) => setSpeaker(event.currentTarget.value)}
             />
             <button type="submit">{t("samples.start")}</button>
           </div>
-          <p class="status">{t("samples.speaker_hint")}</p>
         </form>
       </Show>
       <Show when={state().active && state().prompt}>
@@ -209,12 +204,11 @@ function Samples() {
               <p class="status">
                 {t("samples.kept_here")} <q>{state().kept_here?.said}</q>
               </p>
-              <p class="status">{t("samples.replace_hint")}</p>
+              <p class="status">{t("samples.record_over")}</p>
             </Show>
           }
         >
           <Show when={state().take?.difference.length}>
-            <p class="status">{t("samples.difference")}</p>
             <Show
               when={state().take?.difference.some((part) => part.kind !== "same")}
               fallback={<p class="status">{t("samples.no_difference")}</p>}
@@ -233,7 +227,6 @@ function Samples() {
                   )}
                 </For>
               </p>
-              <p class="status">{t("samples.difference_hint")}</p>
             </Show>
           </Show>
           <Show

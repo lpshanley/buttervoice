@@ -93,7 +93,6 @@ function Heatmap(props: { days: Record<string, Day> }) {
         </For>
       </div>
       <figcaption>
-        <span>{t("home.heatmap_total", { words: count(total()) })}</span>
         <span class="legend" aria-hidden="true">
           {t("home.less")}
           <For each={[0, 1, 2, 3, 4]}>{(level) => <span class={`cell level-${level}`} />}</For>

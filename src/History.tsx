@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import CopyButton from "./CopyButton";
 import { moment } from "./format";
-import { t } from "./i18n";
+import { locale, t } from "./i18n";
 
 type Entry = {
   text: string;
@@ -13,6 +13,11 @@ type Entry = {
   backend: string | null;
   app: { name: string; bundle_id: string | null } | null;
 };
+
+/** Named only when it is not the language dictated in now. */
+function otherLanguage(entry: Entry) {
+  return entry.language === locale() ? null : entry.language;
+}
 
 function History() {
   const [query, setQuery] = createSignal("");
@@ -105,11 +110,6 @@ function History() {
           {problem()}
         </p>
       </Show>
-      <Show when={!keep()}>
-        <p class="status" role="status">
-          {t("history.off")}
-        </p>
-      </Show>
       <Show
         when={found().length > 0}
         fallback={
@@ -123,7 +123,7 @@ function History() {
                 <div>
                   <p class="text">{entry.text}</p>
                   <span class="why">
-                    {[moment(new Date(entry.at * 1000)), entry.app?.name, entry.language]
+                    {[moment(new Date(entry.at * 1000)), entry.app?.name, otherLanguage(entry)]
                       .filter(Boolean)
                       .join(" · ")}
                   </span>

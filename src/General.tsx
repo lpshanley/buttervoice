@@ -121,7 +121,6 @@ function General() {
           />
         </li>
       </ul>
-      <p class="status">{t("update.what")}</p>
       <h2 id="permissions">{t("permissions.heading")}</h2>
       <Show
         when={missing().length > 0}

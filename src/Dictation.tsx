@@ -105,6 +105,20 @@ function Dictation() {
     );
   };
 
+  // Ready, downloading, or missing a model or key already shows in the
+  // controls, so only the other states are worth a line.
+  const statusLine = () => {
+    const state = setup().state;
+    return state === "starting" ||
+      state === "model_unusable" ||
+      state === "language_not_supported" ||
+      state === "ready_untested" ||
+      state === "key_from_environment" ||
+      state === "key_saved"
+      ? t(`status.${state}`)
+      : "";
+  };
+
   // Which model is in use and which are downloaded follow the transcription state.
   createEffect(setup, () => void refreshModels());
 
@@ -124,11 +138,6 @@ function Dictation() {
   return (
     <div class="settings">
       <h2 id="language">{t("language.heading")}</h2>
-      <Show when={!language().chosen}>
-        <p class="status" role="status">
-          {t("language.choose_first")}
-        </p>
-      </Show>
       <div class="providers" role="radiogroup" aria-label={t("language.heading")}>
         <For each={LANGUAGES}>
           {(option) => (
@@ -146,7 +155,6 @@ function Dictation() {
           )}
         </For>
       </div>
-      <p class="status">{t("language.what")}</p>
       <h2 id="transcription">{t("transcription.heading")}</h2>
       <div class="providers" role="radiogroup" aria-label={t("transcription.choice_label")}>
         <For each={PROVIDERS}>
@@ -196,14 +204,15 @@ function Dictation() {
           </For>
         </div>
       </Show>
-      <p class="status" role="status">
-        {t(`status.${setup().state}`)}
-      </p>
+      <Show when={statusLine()}>
+        <p class="status" role="status">
+          {statusLine()}
+        </p>
+      </Show>
       <Show when={setup().state === "model_missing" && setup().model_bytes}>
         <button type="button" onClick={() => void download()}>
           {t("download.button", { size: megabytes(setup().model_bytes ?? 0) })}
         </button>
-        <p class="status">{t("download.what")}</p>
       </Show>
       <Show when={setup().state === "downloading"}>
         <progress max={setup().model_bytes ?? 1} value={downloaded()} />
@@ -231,11 +240,12 @@ function Dictation() {
               type="password"
               autocomplete="off"
               spellcheck="false"
-              placeholder={t("key.placeholder")}
               value={draft()}
               onInput={(event) => setDraft(event.currentTarget.value)}
             />
-            <button type="submit">{t("key.save")}</button>
+            <button type="submit" disabled={!draft().trim()}>
+              {t("key.save")}
+            </button>
           </div>
         </form>
       </Show>
@@ -260,7 +270,6 @@ function Dictation() {
           />
           <span>
             <strong>{t("microphone.built_in")}</strong>
-            <span class="why">{t("microphone.built_in_what")}</span>
           </span>
         </label>
         <label>
@@ -272,7 +281,6 @@ function Dictation() {
           />
           <span>
             <strong>{t("microphone.system_default")}</strong>
-            <span class="why">{t("microphone.system_default_what")}</span>
           </span>
         </label>
         <For each={otherDevices()}>

@@ -51,7 +51,6 @@ function Home(props: { onShowHistory: () => void }) {
 
   return (
     <div class="settings">
-      <p class="how">{t("home.how")}</p>
       <Show when={saved()}>
         {(now) => (
           <>
