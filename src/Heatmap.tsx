@@ -1,6 +1,6 @@
 import { For, Show } from "solid-js";
-import { count, localDay } from "./format";
-import { locale, t } from "./i18n";
+import { count, dayName, localDay, monthName, weekdayName } from "./format";
+import { t } from "./i18n";
 
 export type Day = { dictations: number; words: number; spoken_ms: number };
 
@@ -47,11 +47,6 @@ function weeksEndingToday(days: Record<string, Day>): Cell[][] {
 function Heatmap(props: { days: Record<string, Day> }) {
   const weeks = () => weeksEndingToday(props.days);
   const total = () => weeks().flat().reduce((sum, cell) => sum + cell.words, 0);
-  const monthName = (date: Date) => new Intl.DateTimeFormat(locale(), { month: "short" }).format(date);
-  const weekday = (index: number) =>
-    new Intl.DateTimeFormat(locale(), { weekday: "short" }).format(new Date(2026, 10, 1 + index));
-  const dayName = (date: Date) =>
-    new Intl.DateTimeFormat(locale(), { dateStyle: "medium" }).format(date);
   // A month is named above the first week that starts in it, unless the
   // name before it is too close to fit beside it.
   const monthsAbove = () => {
@@ -76,7 +71,7 @@ function Heatmap(props: { days: Record<string, Day> }) {
         <For each={[0, 1, 2, 3, 4, 5, 6]}>
           {(row) => (
             <>
-              <span class="weekday">{row % 2 ? weekday(row) : ""}</span>
+              <span class="weekday">{row % 2 ? weekdayName(row) : ""}</span>
               <For each={weeks()}>
                 {(week) => (
                   <Show when={week[row]} fallback={<span />}>
