@@ -805,3 +805,21 @@ fn a_quick_press_used_with_another_key_is_not_a_tap() {
         Some(CaptureCommand::Stop)
     );
 }
+
+#[test]
+fn after_the_hotkey_is_changed_only_the_new_key_starts_capture() {
+    const LEFT_CONTROL_DOWN: u64 = 0x40101;
+    let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
+
+    dictations.set_key(HotkeyKey::LeftControl);
+
+    assert_eq!(
+        dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(1_000_000)),
+        None
+    );
+    dictations.flags_changed(NO_MODIFIERS, at_micros(1_100_000));
+    assert_eq!(
+        dictations.flags_changed(LEFT_CONTROL_DOWN, at_micros(1_200_000)),
+        Some(CaptureCommand::Start)
+    );
+}

@@ -638,6 +638,33 @@ fn choose_microphone(
         .map_err(|error| not_saved(error, &transcribers))
 }
 
+#[tauri::command]
+fn hotkey_setup(preferences: tauri::State<'_, Arc<preferences::Store>>) -> &'static str {
+    preferences.get().hotkey.name()
+}
+
+/// The windows are told through an event so each names the new key.
+const HOTKEY_CHANGED: &str = "hotkey";
+
+#[tauri::command]
+fn choose_hotkey(
+    key: String,
+    app: tauri::AppHandle,
+    preferences: tauri::State<'_, Arc<preferences::Store>>,
+    dictations: tauri::State<'_, Dictations>,
+    transcribers: tauri::State<'_, Arc<Transcribers>>,
+) -> Result<(), String> {
+    let key = HotkeyKey::from_setting(Some(&key));
+    preferences
+        .change(|saved| saved.hotkey = key)
+        .map_err(|error| not_saved(error, &transcribers))?;
+    lock(&dictations).set_key(key);
+    if let Err(error) = app.emit(HOTKEY_CHANGED, key.name()) {
+        tracing::warn!(%error, "the webviews could not be notified of the hotkey change");
+    }
+    Ok(())
+}
+
 /// Packs the set just saved into the Downloads folder and shows it in the
 /// Finder. Sending it is the person's to do; the app sends nothing.
 #[tauri::command(async)]
@@ -1093,7 +1120,7 @@ pub fn run() {
             add_menu_bar_item(app, language)?;
             let hud = Arc::new(Hud::set_up(app.handle())?);
             let dictations: Dictations = Arc::new(Mutex::new(KeyDictations::new(
-                HotkeyKey::RightOption,
+                preferences.get().hotkey,
                 Mode::PushToTalk,
             )));
             app.manage(dictations.clone());
@@ -1143,6 +1170,8 @@ pub fn run() {
             install_update,
             cancel_model_download,
             choose_microphone,
+            hotkey_setup,
+            choose_hotkey,
             samples_state,
             samples_start,
             samples_speaker,

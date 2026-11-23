@@ -3,14 +3,54 @@ use crate::recording::PressId;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HotkeyKey {
     RightOption,
+    LeftOption,
+    RightCommand,
+    RightControl,
+    LeftControl,
+    Fn,
 }
 
 impl HotkeyKey {
+    pub const ALL: [HotkeyKey; 6] = [
+        HotkeyKey::RightOption,
+        HotkeyKey::LeftOption,
+        HotkeyKey::RightCommand,
+        HotkeyKey::RightControl,
+        HotkeyKey::LeftControl,
+        HotkeyKey::Fn,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            HotkeyKey::RightOption => "right_option",
+            HotkeyKey::LeftOption => "left_option",
+            HotkeyKey::RightCommand => "right_command",
+            HotkeyKey::RightControl => "right_control",
+            HotkeyKey::LeftControl => "left_control",
+            HotkeyKey::Fn => "fn",
+        }
+    }
+
+    /// The key a saved choice stands for. With no choice, or one this
+    /// version does not know, it is Right Option.
+    pub fn from_setting(saved: Option<&str>) -> HotkeyKey {
+        Self::ALL
+            .into_iter()
+            .find(|key| Some(key.name()) == saved)
+            .unwrap_or(HotkeyKey::RightOption)
+    }
+
     /// The bit macOS sets for this physical key alone, unlike the shared
     /// "some Option key is down" bit that the key on the other side also sets.
     fn device_flag(self) -> u64 {
         match self {
             HotkeyKey::RightOption => 0x40,
+            HotkeyKey::LeftOption => 0x20,
+            HotkeyKey::RightCommand => 0x10,
+            HotkeyKey::RightControl => 0x2000,
+            HotkeyKey::LeftControl => 0x1,
+            // There is only one Fn key, so its shared bit is its own.
+            HotkeyKey::Fn => 0x80_0000,
         }
     }
 }
@@ -43,6 +83,12 @@ impl HotkeyDecoder {
             presses_seen: 0,
             state: KeyState::Up,
         }
+    }
+
+    /// Listens for `key` from now on. Press ids keep counting, so a press of
+    /// the new key is never mistaken for one of the old.
+    pub fn set_key(&mut self, key: HotkeyKey) {
+        self.key = key;
     }
 
     /// Brings the decoder back in line with `flags`, the modifier state read

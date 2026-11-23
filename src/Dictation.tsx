@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import Check from "./Check";
+import { chooseHotkey, hotkey, HOTKEYS, KEY_CAPS, type Hotkey } from "./hotkey";
 import { type Locale, t } from "./i18n";
 import { type Provider, ReadinessContext } from "./readiness";
 
@@ -92,6 +93,15 @@ function Dictation() {
   async function chooseMicrophone(choice: string) {
     await attempt("choose_microphone", { choice });
     await refreshMicrophones();
+  }
+
+  async function pickHotkey(key: Hotkey) {
+    try {
+      await chooseHotkey(key);
+      setProblem("");
+    } catch (error) {
+      setProblem(String(error));
+    }
   }
 
   // The built-in microphone is offered as its own choice, so it is not
@@ -314,6 +324,29 @@ function Dictation() {
           </label>
         </Show>
       </div>
+      <h2>{t("hotkey.heading")}</h2>
+      <div class="keys" role="radiogroup" aria-label={t("hotkey.heading")}>
+        <For each={HOTKEYS}>
+          {(key) => (
+            <label>
+              <input
+                type="radio"
+                name="hotkey"
+                aria-label={t(`hotkey.${key}`)}
+                checked={hotkey() === key}
+                onChange={() => void pickHotkey(key)}
+              />
+              <span class="symbol" aria-hidden="true">
+                {KEY_CAPS[key].symbol}
+              </span>
+              <span class="side" aria-hidden="true">
+                {KEY_CAPS[key].side ? t(`hotkey.side.${KEY_CAPS[key].side}`) : "\u00a0"}
+              </span>
+            </label>
+          )}
+        </For>
+      </div>
+      <p class="status">{t("hotkey.how")}</p>
     </div>
   );
 }

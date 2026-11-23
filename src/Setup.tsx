@@ -1,6 +1,7 @@
 import { For, Show, useContext } from "solid-js";
 import Check from "./Check";
 import { t } from "./i18n";
+import { keyName } from "./hotkey";
 import { ReadinessContext, type Step } from "./readiness";
 
 /** What is left before the first dictation. Each step leads to where it is done. */
@@ -23,7 +24,7 @@ function Setup(props: { onGo: (step: Step) => void }) {
           )}
         </For>
       </ol>
-      <p class="status">{t("setup.then")}</p>
+      <p class="status">{t("setup.then", { key: keyName() })}</p>
     </div>
   );
 }

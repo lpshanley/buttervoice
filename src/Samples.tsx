@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import GheeMascot from "./GheeMascot";
 import { t } from "./i18n";
+import { keyName } from "./hotkey";
 import "./settings.css";
 
 type Kind =
@@ -158,7 +159,7 @@ function Samples() {
         </Show>
       </Show>
       <Show when={!state().active}>
-        <p class="status">{t("samples.intro")}</p>
+        <p class="status">{t("samples.intro", { key: keyName() })}</p>
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -199,12 +200,12 @@ function Samples() {
           fallback={
             <Show
               when={state().kept_here}
-              fallback={<p class="status">{t("samples.hold")}</p>}
+              fallback={<p class="status">{t("samples.hold", { key: keyName() })}</p>}
             >
               <p class="status">
                 {t("samples.kept_here")} <q>{state().kept_here?.said}</q>
               </p>
-              <p class="status">{t("samples.record_over")}</p>
+              <p class="status">{t("samples.record_over", { key: keyName() })}</p>
             </Show>
           }
         >
@@ -248,7 +249,7 @@ function Samples() {
               </p>
             </Show>
           </Show>
-          <p class="status">{t("samples.record_over")}</p>
+          <p class="status">{t("samples.record_over", { key: keyName() })}</p>
         </Show>
         <div class="row">
           <button

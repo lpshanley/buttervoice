@@ -128,6 +128,10 @@ impl KeyDictations {
         }
     }
 
+    pub fn set_key(&mut self, key: HotkeyKey) {
+        self.decoder.set_key(key);
+    }
+
     pub fn status(&self) -> DictationStatus {
         match self.phase {
             Phase::Idle => DictationStatus::Idle,

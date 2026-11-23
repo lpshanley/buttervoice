@@ -3,6 +3,7 @@ import { createEffect } from "solid-js";
 import { render } from "@solidjs/web";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import Hud from "./Hud";
+import { followTheHotkey } from "./hotkey";
 import { followTheApp, locale } from "./i18n";
 import Samples from "./Samples";
 import Main from "./Main";
@@ -11,6 +12,7 @@ import Main from "./Main";
 const view = getCurrentWindow().label;
 document.documentElement.dataset.view = view;
 void followTheApp();
+void followTheHotkey();
 
 render(
   () => {

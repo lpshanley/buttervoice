@@ -5,6 +5,7 @@ import CopyButton from "./CopyButton";
 import Heatmap, { type Day } from "./Heatmap";
 import { count, minutes, moment } from "./format";
 import { t } from "./i18n";
+import { keyName } from "./hotkey";
 
 type Entry = { text: string; at: number; app: { name: string } | null };
 
@@ -90,7 +91,10 @@ function Home(props: { onShowHistory: () => void }) {
       <Show
         when={latest().length > 0}
         fallback={
-          <Show when={lastThisRun()} fallback={<p class="status">{t("home.none")}</p>}>
+          <Show
+            when={lastThisRun()}
+            fallback={<p class="status">{t("home.none", { key: keyName() })}</p>}
+          >
             <ul class="history">
               <li>
                 <p class="text">{lastThisRun()}</p>

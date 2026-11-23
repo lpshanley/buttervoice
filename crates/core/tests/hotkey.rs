@@ -112,3 +112,45 @@ fn a_key_still_held_at_resync_stays_the_same_press() {
         Some(KeyEdge::Released(PressId(1)))
     );
 }
+
+// Flag words as macOS reports each key held on its own: the shared
+// modifier bit, the key's own side bit, and the always-set 0x100.
+const KEYS_AND_FLAGS: [(HotkeyKey, u64); 6] = [
+    (HotkeyKey::RightOption, 0x80140),
+    (HotkeyKey::LeftOption, 0x80120),
+    (HotkeyKey::RightCommand, 0x100110),
+    (HotkeyKey::RightControl, 0x42100),
+    (HotkeyKey::LeftControl, 0x40101),
+    (HotkeyKey::Fn, 0x800100),
+];
+
+#[test]
+fn each_hotkey_is_pressed_by_its_own_key_and_no_other() {
+    for (key, _) in KEYS_AND_FLAGS {
+        for (other, flags) in KEYS_AND_FLAGS {
+            let mut decoder = HotkeyDecoder::new(key);
+            let edge = decoder.flags_changed(flags);
+            if key == other {
+                assert_eq!(edge, Some(KeyEdge::Pressed(PressId(1))), "{key:?}");
+            } else {
+                assert_eq!(edge, None, "{key:?} pressed by {other:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn each_hotkey_is_read_back_from_the_name_it_is_saved_under() {
+    for (key, _) in KEYS_AND_FLAGS {
+        assert_eq!(HotkeyKey::from_setting(Some(key.name())), key);
+    }
+}
+
+#[test]
+fn with_no_saved_hotkey_or_one_not_known_right_option_is_used() {
+    assert_eq!(HotkeyKey::from_setting(None), HotkeyKey::RightOption);
+    assert_eq!(
+        HotkeyKey::from_setting(Some("caps_lock")),
+        HotkeyKey::RightOption
+    );
+}
