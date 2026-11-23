@@ -22,6 +22,8 @@ use buttervoice_grok::{DEFAULT_BASE_URL, GrokTranscriber};
 use buttervoice_local::LocalTranscriber;
 use buttervoice_replay::recordings::{self, Recording};
 use buttervoice_replay::report::{Report, replay};
+mod cost;
+
 use buttervoice_replay::summary::{Scored, Summary, by, by_kind, summarise};
 
 struct GrokVariant {
@@ -127,6 +129,13 @@ fn run() -> Result<(), String> {
             unpacked.display()
         );
         return Ok(());
+    }
+    if args.peek().map(String::as_str) == Some(SCORE_ONE_MODEL) {
+        args.next();
+        let (Some(folder), Some(model)) = (args.next(), args.next()) else {
+            return Err("usage: buttervoice-replay --score-one-model <folder> <model.gguf>".into());
+        };
+        return score_one_model(Path::new(&folder), &model);
     }
     if args.peek().map(String::as_str) == Some("--suite") {
         args.next();
@@ -263,7 +272,8 @@ fn run_suite(folder: &Path, models: &[String]) -> Result<(), String> {
         );
     }
     let report_path = folder.join("report.jsonl");
-    let mut report_file = std::fs::File::create(&report_path)
+    // Started empty here; each model's run adds its lines.
+    std::fs::File::create(&report_path)
         .map_err(|error| format!("could not create {}: {error}", report_path.display()))?;
     println!(
         "{:<24} {:<36} {:>7} {:>10} {:>9} {:>9} {:>12} {:>10}",
@@ -276,81 +286,127 @@ fn run_suite(folder: &Path, models: &[String]) -> Result<(), String> {
         "x real time",
         "median ms"
     );
+    // Each model is scored by a run of this tool of its own, so the memory
+    // and energy it reports are that model's alone.
+    let this_tool = std::env::current_exe().map_err(|error| error.to_string())?;
     for model in models {
-        let name = Path::new(model)
-            .file_stem()
-            .map(|stem| stem.to_string_lossy().into_owned())
-            .unwrap_or_else(|| model.clone());
-        let started = Instant::now();
-        let transcriber = LocalTranscriber::load(Path::new(model))
+        let status = std::process::Command::new(&this_tool)
+            .args([SCORE_ONE_MODEL, &folder.display().to_string(), model])
+            .status()
             .map_err(|error| format!("{model}: {error}"))?;
-        eprintln!(
-            "{name}: loaded in {:.0} ms",
-            started.elapsed().as_secs_f64() * 1000.0
-        );
-        let mut scored = Vec::new();
-        for set in &suite {
-            for (index, sample) in set.set.samples.iter().enumerate() {
-                let started = Instant::now();
-                let heard = transcriber
-                    .transcribe(&sample.audio, sample.language)
-                    .map(|transcript| transcript.text)
-                    .map_err(|error| {
-                        eprintln!("{name}: {error}");
-                        TranscriptionFailure::EngineFailed
-                    });
-                let took = started.elapsed();
-                let line = serde_json::json!({
-                    "model": name,
-                    "set": set.name,
-                    "sample": index + 1,
-                    "speaker": set.set.recorded_with.speaker,
-                    "language": sample.language.tag(),
-                    "input": input_name(sample.input),
-                    "kind": sample.kind.name(),
-                    "conditions": sample.conditions,
-                    "said": sample.said,
-                    "prompt": sample.prompt,
-                    "heard": heard.as_ref().ok(),
-                    "seconds_of_audio": sample.audio.duration().as_secs_f64(),
-                    "took_ms": took.as_secs_f64() * 1000.0,
-                });
-                writeln!(report_file, "{line}").map_err(|error| error.to_string())?;
-                scored.push(Scored {
-                    kind: sample.kind,
-                    language: sample.language,
-                    speaker: set.set.recorded_with.speaker.clone(),
-                    input: sample.input,
-                    said: sample.said.clone(),
-                    heard,
-                    audio: sample.audio.duration(),
-                    took,
-                });
-            }
-        }
-        let name = name.trim_end_matches("-Q8_0");
-        print_summary(name, "everything", &summarise(&scored));
-        let groups = [
-            by(&scored, |sample| {
-                format!("language {}", sample.language.tag())
-            }),
-            by(&scored, |sample| {
-                format!("mic {}", input_name(sample.input))
-            }),
-            by(&scored, |sample| format!("speaker {}", sample.speaker)),
-        ];
-        for group in groups.iter().filter(|group| group.len() > 1) {
-            for (label, summary) in group {
-                print_summary(name, label, summary);
-            }
-        }
-        for (kind, summary) in by_kind(&scored) {
-            print_summary(name, kind.name(), &summary);
+        if !status.success() {
+            return Err(format!("{model}: scoring failed"));
         }
     }
     eprintln!("Details written to {}", report_path.display());
     Ok(())
 }
+
+/// Run by `--suite` once per model: scores that model alone, adding to the
+/// report and printing its rows.
+fn score_one_model(folder: &Path, model: &str) -> Result<(), String> {
+    buttervoice_local::silence_engine_log();
+    let suite = buttervoice_samples::load_suite(folder)
+        .map_err(|error| format!("{}: {error}", folder.display()))?;
+    let report_path = folder.join("report.jsonl");
+    let mut report_file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&report_path)
+        .map_err(|error| format!("could not open {}: {error}", report_path.display()))?;
+    let name = model_name(model);
+    let started = Instant::now();
+    let transcriber =
+        LocalTranscriber::load(Path::new(model)).map_err(|error| format!("{model}: {error}"))?;
+    eprintln!(
+        "{name}: loaded in {:.0} ms",
+        started.elapsed().as_secs_f64() * 1000.0
+    );
+    let mut scored = Vec::new();
+    for set in &suite {
+        for (index, sample) in set.set.samples.iter().enumerate() {
+            let started = Instant::now();
+            let heard = transcriber
+                .transcribe(&sample.audio, sample.language)
+                .map(|transcript| transcript.text)
+                .map_err(|error| {
+                    eprintln!("{name}: {error}");
+                    TranscriptionFailure::EngineFailed
+                });
+            let took = started.elapsed();
+            let line = serde_json::json!({
+                "model": name,
+                "set": set.name,
+                "sample": index + 1,
+                "speaker": set.set.recorded_with.speaker,
+                "language": sample.language.tag(),
+                "input": input_name(sample.input),
+                "kind": sample.kind.name(),
+                "conditions": sample.conditions,
+                "said": sample.said,
+                "prompt": sample.prompt,
+                "heard": heard.as_ref().ok(),
+                "seconds_of_audio": sample.audio.duration().as_secs_f64(),
+                "took_ms": took.as_secs_f64() * 1000.0,
+            });
+            writeln!(report_file, "{line}").map_err(|error| error.to_string())?;
+            scored.push(Scored {
+                kind: sample.kind,
+                language: sample.language,
+                speaker: set.set.recorded_with.speaker.clone(),
+                input: sample.input,
+                said: sample.said.clone(),
+                heard,
+                audio: sample.audio.duration(),
+                took,
+            });
+        }
+    }
+    let name = name.trim_end_matches("-Q8_0");
+    print_summary(name, "everything", &summarise(&scored));
+    let groups = [
+        by(&scored, |sample| {
+            format!("language {}", sample.language.tag())
+        }),
+        by(&scored, |sample| {
+            format!("mic {}", input_name(sample.input))
+        }),
+        by(&scored, |sample| format!("speaker {}", sample.speaker)),
+    ];
+    for group in groups.iter().filter(|group| group.len() > 1) {
+        for (label, summary) in group {
+            print_summary(name, label, summary);
+        }
+    }
+    for (kind, summary) in by_kind(&scored) {
+        print_summary(name, kind.name(), &summary);
+    }
+    let used = cost::so_far()?;
+    let minutes = scored
+        .iter()
+        .map(|sample| sample.audio)
+        .sum::<Duration>()
+        .as_secs_f64()
+        / 60.0;
+    let on_disk = std::fs::metadata(model).map(|file| file.len()).unwrap_or(0);
+    println!(
+        "{:<24} {:<36} {:.2} GB on disk, {:.2} GB peak memory, {:.1} CPU s per minute of audio (GPU not counted)",
+        name,
+        "cost",
+        on_disk as f64 / 1e9,
+        used.peak_footprint_bytes as f64 / 1e9,
+        used.cpu.as_secs_f64() / minutes,
+    );
+    Ok(())
+}
+
+fn model_name(model: &str) -> String {
+    Path::new(model)
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_else(|| model.to_string())
+}
+
+const SCORE_ONE_MODEL: &str = "--score-one-model";
 
 fn input_name(input: InputKind) -> &'static str {
     match input {

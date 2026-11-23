@@ -370,6 +370,7 @@ dependencies = [
  "buttervoice-local",
  "buttervoice-samples",
  "hound",
+ "libc",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
