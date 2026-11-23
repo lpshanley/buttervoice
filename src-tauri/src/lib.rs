@@ -914,9 +914,11 @@ fn add_menu_bar_item(app: &tauri::App, language: Language) -> tauri::Result<()> 
                 buttervoice_telemetry::record_marked_bad(latest);
             } else if event.id() == OPEN {
                 show_main_window(app, "home");
-            } else if event.id() == SETTINGS || event.id() == INSTALL_UPDATE {
-                // Settings shows the update and installs it.
-                show_main_window(app, "settings");
+            } else if event.id() == SETTINGS {
+                show_main_window(app, "dictation");
+            } else if event.id() == INSTALL_UPDATE {
+                // General shows the update and installs it.
+                show_main_window(app, "general");
             } else if event.id() == SAMPLES
                 && let Some(window) = app.get_webview_window(SAMPLES)
             {
@@ -953,7 +955,7 @@ const COPY_LAST: &str = "copy-last";
 const STOP: &str = "stop-dictation";
 const OPEN: &str = "open";
 const SETTINGS: &str = "settings";
-/// Home, the history and settings, in one window.
+/// Home, the history and the settings sections, in one window.
 const MAIN_WINDOW: &str = "main";
 const SHOW_SECTION: &str = "show-section";
 const UPDATE_KNOWN: &str = "update-known";

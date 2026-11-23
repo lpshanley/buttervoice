@@ -19,7 +19,7 @@ type TimeSaved = {
   saved_ms: number;
 };
 
-function Home(props: { onShowHistory: () => void; onShowSettings: () => void }) {
+function Home(props: { onShowHistory: () => void }) {
   const [saved, setSaved] = createSignal<TimeSaved | null>(null);
   const [days, setDays] = createSignal<Record<string, Day>>({});
   const [latest, setLatest] = createSignal<Entry[]>([]);
@@ -33,6 +33,16 @@ function Home(props: { onShowHistory: () => void; onShowSettings: () => void }) 
     setLastThisRun(await invoke<string | null>("last_dictation"));
   }
 
+  async function chooseTypingSpeed(text: string) {
+    const wordsPerMinute = Math.round(Number(text));
+    try {
+      if (wordsPerMinute > 0) await invoke("choose_typing_speed", { wordsPerMinute });
+    } catch {
+      // Refused: reading it back below shows the speed still saved.
+    }
+    setSaved(await invoke<TimeSaved>("time_saved"));
+  }
+
   onSettled(() => {
     void refresh();
     const finished = listen("dictation-finished", () => void refresh());
@@ -41,7 +51,6 @@ function Home(props: { onShowHistory: () => void; onShowSettings: () => void }) 
 
   return (
     <div class="settings">
-      <h2>{t("nav.home")}</h2>
       <p class="how">{t("home.how")}</p>
       <Show when={saved()}>
         {(now) => (
@@ -60,24 +69,20 @@ function Home(props: { onShowHistory: () => void; onShowSettings: () => void }) 
                 <dd>{count(now().dictations)}</dd>
               </div>
             </dl>
-            <p class="status">
-              {t("home.saved_how", {
-                days: String(now().days),
-                words: count(now().words),
-                speed: String(now().words_per_minute),
-                typing: minutes((now().words / now().words_per_minute) * 60_000),
-                spoken: minutes(now().spoken_ms),
-              })}{" "}
-              <button type="button" class="link" onClick={() => {
-                  props.onShowSettings();
-                  // Once Settings is showing, bring the field into view.
-                  requestAnimationFrame(() =>
-                    document.getElementById("typing-speed")?.scrollIntoView({ behavior: "smooth" }),
-                  );
-                }}>
-                {t("home.change_speed")}
-              </button>
-            </p>
+            <label class="status speed">
+              {t("home.period", { days: String(now().days) })}
+              {" · "}
+              <input
+                type="number"
+                min="1"
+                max="250"
+                inputmode="numeric"
+                aria-label={t("speed.heading")}
+                value={now().words_per_minute}
+                onChange={(event) => void chooseTypingSpeed(event.currentTarget.value)}
+              />
+              {t("speed.unit")}
+            </label>
           </>
         )}
       </Show>

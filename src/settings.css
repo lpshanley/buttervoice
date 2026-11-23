@@ -510,23 +510,25 @@
   width: 10px;
 }
 
+/* Sits in the caption under the figures, so it stays caption-sized. */
 .settings label.speed {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   font-weight: 400;
 }
 
 .settings label.speed input {
   box-sizing: border-box;
-  width: 64px;
-  padding: 5px 8px;
+  width: 48px;
+  padding: 1px 4px;
   border: 1px solid var(--control-line);
   border-radius: 6px;
   background: var(--canvas);
   color: inherit;
   font: inherit;
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 /* Only while a newer version waits, at the foot of the sidebar. */
@@ -681,4 +683,26 @@
 
 .settings .permissions input[type="checkbox"] {
   accent-color: var(--ink);
+}
+
+/* The history's own options sit under its search, ahead of a list that
+   can run long. */
+.settings .history-options {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings .history-options .status {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings .history-options button.link {
+  flex: none;
+  font-size: 12px;
+}
+
+.settings label.speed input::-webkit-inner-spin-button {
+  appearance: none;
 }

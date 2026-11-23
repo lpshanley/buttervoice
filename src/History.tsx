@@ -59,7 +59,6 @@ function History() {
 
   return (
     <div class="settings">
-      <h2>{t("nav.history")}</h2>
       <input
         type="search"
         class="search"
@@ -74,6 +73,38 @@ function History() {
           void search(text);
         }}
       />
+      <div class="history-options">
+        <label class="switch">
+          <input
+            type="checkbox"
+            checked={keep()}
+            onChange={(event) => void chooseKeep(event.currentTarget.checked)}
+          />
+          <span>{t("history.keep")}</span>
+        </label>
+        <span class="status">{t("history.keep_what")}</span>
+        <button type="button" class="link" onClick={() => setConfirming(true)}>
+          {t("history.clear")}
+        </button>
+      </div>
+      <Show when={confirming()}>
+        <div class="confirm" role="alertdialog" aria-label={t("history.clear")}>
+          <p>{t("history.clear_confirm")}</p>
+          <div class="row">
+            <button type="button" class="danger" onClick={() => void clear()}>
+              {t("history.clear_yes")}
+            </button>
+            <button type="button" class="quiet" onClick={() => setConfirming(false)}>
+              {t("history.clear_no")}
+            </button>
+          </div>
+        </div>
+      </Show>
+      <Show when={problem()}>
+        <p class="problem" role="alert">
+          {problem()}
+        </p>
+      </Show>
       <Show when={!keep()}>
         <p class="status" role="status">
           {t("history.off")}
@@ -102,40 +133,6 @@ function History() {
             )}
           </For>
         </ul>
-      </Show>
-      <label class="switch">
-        <input
-          type="checkbox"
-          checked={keep()}
-          onChange={(event) => void chooseKeep(event.currentTarget.checked)}
-        />
-        <span>{t("history.keep")}</span>
-      </label>
-      <p class="status">{t("history.keep_what")}</p>
-      <Show
-        when={confirming()}
-        fallback={
-          <button type="button" class="quiet" onClick={() => setConfirming(true)}>
-            {t("history.clear")}
-          </button>
-        }
-      >
-        <div class="confirm" role="alertdialog" aria-label={t("history.clear")}>
-          <p>{t("history.clear_confirm")}</p>
-          <div class="row">
-            <button type="button" class="danger" onClick={() => void clear()}>
-              {t("history.clear_yes")}
-            </button>
-            <button type="button" class="quiet" onClick={() => setConfirming(false)}>
-              {t("history.clear_no")}
-            </button>
-          </div>
-        </div>
-      </Show>
-      <Show when={problem()}>
-        <p class="problem" role="alert">
-          {problem()}
-        </p>
       </Show>
     </div>
   );
