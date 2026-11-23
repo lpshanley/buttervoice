@@ -1,0 +1,21 @@
+{
+  "light": {
+    "canvas": "#FFFFFF",
+    "group": "#FAF9F6",
+    "divider": "#E7E6E3",
+    "ink": "#202124",
+    "secondary": "#626467"
+  },
+  "dark": {
+    "canvas": "#1C1D1F",
+    "group": "#262729",
+    "divider": "#3B3D40",
+    "ink": "#F5F5F3",
+    "secondary": "#A6A8AC"
+  },
+  "shared": {
+    "butter": "#FFCF4A",
+    "porcelain": "#F7F8FA",
+    "hudSurface": "#222427"
+  }
+}

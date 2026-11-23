@@ -1,0 +1,20 @@
+/* ButterVoice. The porcelain token is for the app tile. */
+:root {
+  --bv-canvas: #FFFFFF;
+  --bv-group: #FAF9F6;
+  --bv-divider: #E7E6E3;
+  --bv-ink: #202124;
+  --bv-secondary: #626467;
+  --bv-butter: #FFCF4A;
+  --bv-porcelain: #F7F8FA;
+  --bv-hud-surface: #222427;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bv-canvas: #1C1D1F;
+    --bv-group: #262729;
+    --bv-divider: #3B3D40;
+    --bv-ink: #F5F5F3;
+    --bv-secondary: #A6A8AC;
+  }
+}

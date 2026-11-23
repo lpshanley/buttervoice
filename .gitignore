@@ -7,3 +7,6 @@ replay/recordings/
 
 # Speech model weights for the replay tool: hundreds of megabytes each.
 replay/models/
+
+# Finder
+.DS_Store
