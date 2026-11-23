@@ -13,6 +13,12 @@
   --primary: #222427;
   --primary-text: #ffffff;
   --problem: #b3261e;
+  /* How much was dictated: empty, then pale cream to deep butter. */
+  --heat-0: #efede8;
+  --heat-1: #fff0c4;
+  --heat-2: #ffe08a;
+  --heat-3: #ffcf4a;
+  --heat-4: #e5a300;
 
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
   font-size: 13px;
@@ -34,6 +40,11 @@
     --primary: #f5f5f3;
     --primary-text: #202124;
     --problem: #ff8a7a;
+    --heat-0: #2c2d30;
+    --heat-1: #5a4712;
+    --heat-2: #94721a;
+    --heat-3: #d4a32a;
+    --heat-4: #ffcf4a;
   }
 }
 
@@ -355,64 +366,6 @@
   flex: none;
 }
 
-.settings .figures {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin: 0;
-}
-
-.settings .figures div {
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--group);
-}
-
-.settings .figures dt {
-  font-size: 12px;
-  color: var(--secondary);
-}
-
-.settings .figures dd {
-  margin: 2px 0 0;
-  font-size: 17px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-/* One bar per dictation on a shared baseline; a dictation that was not
-   typed keeps its place as an outline. */
-.settings .waits {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 56px;
-  margin: 4px 0 0;
-  padding: 0 0 1px;
-  list-style: none;
-  border-bottom: 1px solid var(--divider);
-}
-
-.settings .waits li {
-  flex: 1;
-  max-width: 18px;
-  min-height: 3px;
-  border-radius: 4px 4px 0 0;
-  background: var(--secondary);
-}
-
-.settings .waits li:hover {
-  background: var(--ink);
-}
-
-/* Short, so a dictation with no wait does not outweigh the real ones. */
-.settings .waits li.not_typed {
-  height: 8px !important;
-  box-sizing: border-box;
-  border: 1px dashed var(--control-edge);
-  background: none;
-}
-
 .settings input[type="search"] {
   box-sizing: border-box;
   width: 100%;
@@ -470,4 +423,108 @@
 
 .settings > button.quiet {
   align-self: flex-start;
+}
+
+/* GitHub-style: a column per week, Sunday at the top. Cells shrink with
+   the window and stay square. */
+/* As wide as the grid, so the legend ends where the weeks do. */
+.settings .heatmap {
+  width: fit-content;
+  max-width: 100%;
+  margin: 8px 0 0;
+}
+
+.settings .heatmap .grid {
+  display: grid;
+  grid-template-columns: auto repeat(26, minmax(0, 14px));
+  grid-template-rows: auto repeat(7, auto);
+  grid-auto-flow: row;
+  justify-content: start;
+  gap: 3px;
+}
+
+.settings .heatmap .month,
+.settings .heatmap .weekday,
+.settings .heatmap figcaption {
+  font-size: 11px;
+  color: var(--secondary);
+}
+
+.settings .heatmap .month {
+  white-space: nowrap;
+  overflow: visible;
+}
+
+.settings .heatmap .weekday {
+  padding-right: 4px;
+  line-height: 1;
+  align-self: center;
+}
+
+.settings .heatmap .cell {
+  display: block;
+  aspect-ratio: 1;
+  border-radius: 3px;
+}
+
+.settings .heatmap .cell:hover {
+  outline: 1px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.settings .heatmap .level-0 { background: var(--heat-0); }
+.settings .heatmap .level-1 { background: var(--heat-1); }
+.settings .heatmap .level-2 { background: var(--heat-2); }
+.settings .heatmap .level-3 { background: var(--heat-3); }
+.settings .heatmap .level-4 { background: var(--heat-4); }
+
+.settings .heatmap figcaption {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
+.settings .heatmap .legend {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.settings .heatmap .legend .cell {
+  width: 10px;
+}
+
+.settings .saved {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--group);
+}
+
+.settings .saved .figure {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.settings label.speed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-weight: 400;
+}
+
+.settings label.speed input {
+  box-sizing: border-box;
+  width: 64px;
+  padding: 5px 8px;
+  border: 1px solid var(--control-line);
+  border-radius: 6px;
+  background: var(--canvas);
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
 }

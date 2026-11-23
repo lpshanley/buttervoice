@@ -26,6 +26,7 @@ use buttervoice_core::transcription::Provider;
 use buttervoice_core::typing::Typing;
 use buttervoice_core::update_schedule::check_due;
 use buttervoice_history::History;
+use buttervoice_history::usage::{self, Usage};
 use buttervoice_local::fetch::FetchError;
 use buttervoice_samples::RecordedWith;
 use buttervoice_samples::session::Take;
@@ -53,7 +54,7 @@ fn listen_for_the_dictation_key(
     transcribers: Arc<Transcribers>,
     recorder: Arc<Recorder>,
     preferences: Arc<preferences::Store>,
-    history: Arc<History>,
+    kept: Kept,
     app: tauri::AppHandle,
 ) -> std::io::Result<CaptureCommands> {
     let menu_app = app.clone();
@@ -149,16 +150,7 @@ fn listen_for_the_dictation_key(
                 }
                 if let Some(finished) = finished {
                     buttervoice_telemetry::record_dictation(&finished);
-                    if keep_history()
-                        && let Some(entry) = buttervoice_history::entry_for(
-                            &finished,
-                            seconds_since_1970(),
-                            frontmost::app(),
-                        )
-                        && let Err(error) = history.add(&entry)
-                    {
-                        tracing::warn!(%error, "the dictation could not be added to the history");
-                    }
+                    kept.record(&finished, keep_history());
                     let _ = app.emit_to(MAIN_WINDOW, DICTATION_FINISHED, ());
                 }
             }
@@ -231,6 +223,28 @@ fn listen_for_the_dictation_key(
             }
         })?;
     Ok(commands)
+}
+
+/// What is kept of each finished dictation.
+struct Kept {
+    history: Arc<History>,
+    usage: Arc<Usage>,
+}
+
+impl Kept {
+    /// The counts are always kept; the text only while the history is on.
+    fn record(&self, finished: &FinishedDictation, keep_history: bool) {
+        if keep_history
+            && let Some(entry) =
+                buttervoice_history::entry_for(finished, seconds_since_1970(), frontmost::app())
+            && let Err(error) = self.history.add(&entry)
+        {
+            tracing::warn!(%error, "the dictation could not be added to the history");
+        }
+        if let Err(error) = self.usage.count(&local_date(0), finished) {
+            tracing::warn!(%error, "the dictation could not be counted");
+        }
+    }
 }
 
 /// Where commands for the microphone go, for the menu's Stop Dictation.
@@ -723,14 +737,6 @@ fn check_for_updates_daily(app: tauri::AppHandle, preferences: Arc<preferences::
     }
 }
 
-#[tauri::command]
-fn recent_dictations(app: tauri::AppHandle) -> Vec<buttervoice_telemetry::RecentDictation> {
-    app.path()
-        .app_log_dir()
-        .map(|log_dir| buttervoice_telemetry::recent_dictations(&log_dir, RECENT_DICTATIONS))
-        .unwrap_or_default()
-}
-
 /// From this run, or from the history when it is kept.
 #[tauri::command]
 fn last_dictation(
@@ -786,6 +792,64 @@ fn clear_history(
         tracing::error!(%error, "the history could not be cleared");
         Message::HistoryNotCleared.text(transcribers.display_language())
     })
+}
+
+/// The date on this Mac's calendar `days_ago`, such as `2026-11-22`.
+fn local_date(days_ago: u64) -> String {
+    let today = chrono::Local::now().date_naive();
+    (today - chrono::Days::new(days_ago))
+        .format("%Y-%m-%d")
+        .to_string()
+}
+
+/// Every day with a dictation, for the heatmap.
+#[tauri::command]
+fn usage_days(
+    usage: tauri::State<'_, Arc<Usage>>,
+) -> std::collections::BTreeMap<String, usage::Day> {
+    usage.days()
+}
+
+#[derive(serde::Serialize)]
+struct TimeSaved {
+    days: u64,
+    words_per_minute: u32,
+    words: u64,
+    spoken_ms: u64,
+    saved_ms: u64,
+}
+
+#[tauri::command]
+fn time_saved(
+    usage: tauri::State<'_, Arc<Usage>>,
+    preferences: tauri::State<'_, Arc<preferences::Store>>,
+) -> TimeSaved {
+    let since = local_date(TIME_SAVED_DAYS - 1);
+    let (words, spoken_ms) = usage
+        .days()
+        .range(since..)
+        .fold((0, 0), |(words, spoken), (_, day)| {
+            (words + day.words, spoken + day.spoken_ms)
+        });
+    let words_per_minute = preferences.get().typing_words_per_minute;
+    TimeSaved {
+        days: TIME_SAVED_DAYS,
+        words_per_minute,
+        words,
+        spoken_ms,
+        saved_ms: usage::time_saved(words, spoken_ms, words_per_minute).as_millis() as u64,
+    }
+}
+
+#[tauri::command]
+fn choose_typing_speed(
+    words_per_minute: u32,
+    preferences: tauri::State<'_, Arc<preferences::Store>>,
+    transcribers: tauri::State<'_, Arc<Transcribers>>,
+) -> Result<(), String> {
+    preferences
+        .change(|saved| saved.typing_words_per_minute = words_per_minute.max(1))
+        .map_err(|error| not_saved(error, &transcribers))
 }
 
 fn seconds_since_1970() -> u64 {
@@ -875,7 +939,9 @@ const MAIN_WINDOW: &str = "main";
 const SHOW_SECTION: &str = "show-section";
 const DICTATION_FINISHED: &str = "dictation-finished";
 const HISTORY_FILE: &str = "history.jsonl";
-const RECENT_DICTATIONS: usize = 20;
+const USAGE_FILE: &str = "usage.json";
+/// Time saved is shown for this many days up to today.
+const TIME_SAVED_DAYS: u64 = 30;
 const HISTORY_SHOWN: usize = 200;
 
 fn show_main_window(app: &tauri::AppHandle, section: &str) {
@@ -941,6 +1007,8 @@ pub fn run() {
             let recorder = Arc::new(Recorder::new(app.path().app_data_dir()?.join("samples")));
             let history = Arc::new(History::open(app.path().app_data_dir()?.join(HISTORY_FILE)));
             app.manage(history.clone());
+            let usage = Arc::new(Usage::open(app.path().app_data_dir()?.join(USAGE_FILE)));
+            app.manage(usage.clone());
             app.manage(recorder.clone());
             app.manage(hud.clone());
             let commands = listen_for_the_dictation_key(
@@ -949,7 +1017,7 @@ pub fn run() {
                 transcribers,
                 recorder,
                 preferences.clone(),
-                history,
+                Kept { history, usage },
                 app.handle().clone(),
             )?;
             app.manage(commands);
@@ -996,13 +1064,15 @@ pub fn run() {
             choose_provider,
             save_api_key,
             forget_api_key,
-            recent_dictations,
             last_dictation,
             copy_text,
             history_setup,
             choose_keep_history,
             history_search,
-            clear_history
+            clear_history,
+            usage_days,
+            time_saved,
+            choose_typing_speed
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

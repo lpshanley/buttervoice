@@ -2,30 +2,24 @@ import { createSignal, For, onSettled, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import CopyButton from "./CopyButton";
-import { duration, moment } from "./format";
+import Heatmap, { type Day } from "./Heatmap";
+import { moment } from "./format";
 import { t } from "./i18n";
 
-/** A dictation as the log recorded it: timings and outcome, never its text. */
-type Recent = {
-  id: number;
-  at: string;
-  release_to_text_ms: number | null;
-  typing: "typed" | "failed" | "not_attempted";
-};
+type Entry = { text: string; at: number; app: { name: string } | null };
 
-function median(values: number[]) {
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
-}
+const LATEST = 3;
 
-function Home() {
-  const [last, setLast] = createSignal<string | null>(null);
-  const [recent, setRecent] = createSignal<Recent[]>([]);
+function Home(props: { onShowHistory: () => void }) {
+  const [days, setDays] = createSignal<Record<string, Day>>({});
+  const [latest, setLatest] = createSignal<Entry[]>([]);
+  const [lastThisRun, setLastThisRun] = createSignal<string | null>(null);
 
   async function refresh() {
-    setLast(await invoke<string | null>("last_dictation"));
-    setRecent(await invoke<Recent[]>("recent_dictations"));
+    setDays(await invoke<Record<string, Day>>("usage_days"));
+    setLatest((await invoke<Entry[]>("history_search", { query: "" })).slice(0, LATEST));
+    // With the history off, this run's last dictation is all there is.
+    setLastThisRun(await invoke<string | null>("last_dictation"));
   }
 
   onSettled(() => {
@@ -34,65 +28,43 @@ function Home() {
     return () => void finished.then((stop) => stop());
   });
 
-  // Sample takes, blank takes and failed transcriptions were never to be
-  // typed, so they say nothing about the wait.
-  const attempted = () => recent().filter((dictation) => dictation.typing !== "not_attempted");
-  const waits = () =>
-    attempted()
-      .map((dictation) => dictation.release_to_text_ms)
-      .filter((wait): wait is number => wait !== null);
-  const notTyped = () => attempted().filter((dictation) => dictation.typing === "failed").length;
-  const oldestFirst = () => [...attempted()].reverse();
-  const tallest = () => Math.max(...waits(), 1);
-
   return (
     <div class="settings">
       <h2>{t("nav.home")}</h2>
       <p class="how">{t("home.how")}</p>
-      <h2>{t("home.last")}</h2>
-      <Show when={last()} fallback={<p class="status">{t("home.none")}</p>}>
-        <div class="dictation">
-          <p class="text">{last()}</p>
-          <CopyButton text={last() ?? ""} />
-        </div>
-      </Show>
-      <h2>{t("home.recent")}</h2>
-      <Show when={waits().length > 0} fallback={<p class="status">{t("home.no_recent")}</p>}>
-        <dl class="figures">
-          <div>
-            <dt>{t("home.typical_wait")}</dt>
-            <dd>{duration(median(waits()))}</dd>
-          </div>
-          <div>
-            <dt>{t("home.slowest")}</dt>
-            <dd>{duration(Math.max(...waits()))}</dd>
-          </div>
-          <div>
-            <dt>{t("home.not_typed")}</dt>
-            <dd>{notTyped()}</dd>
-          </div>
-        </dl>
-        <ol class="waits" aria-label={t("home.chart_label")}>
-          <For each={oldestFirst()}>
-            {(dictation) => (
-              <li
-                class={{ not_typed: dictation.release_to_text_ms === null }}
-                style={{
-                  height: `${Math.max(((dictation.release_to_text_ms ?? 0) / tallest()) * 100, 4)}%`,
-                }}
-                title={
-                  dictation.release_to_text_ms === null
-                    ? t("home.bar_not_typed", { when: moment(new Date(dictation.at)) })
-                    : t("home.bar", {
-                        when: moment(new Date(dictation.at)),
-                        wait: duration(dictation.release_to_text_ms),
-                      })
-                }
-              />
+      <Heatmap days={days()} />
+      <h2>{t("home.latest")}</h2>
+      <Show
+        when={latest().length > 0}
+        fallback={
+          <Show when={lastThisRun()} fallback={<p class="status">{t("home.none")}</p>}>
+            <ul class="history">
+              <li>
+                <p class="text">{lastThisRun()}</p>
+                <CopyButton text={lastThisRun() ?? ""} />
+              </li>
+            </ul>
+          </Show>
+        }
+      >
+        <ul class="history">
+          <For each={latest()}>
+            {(entry) => (
+              <li>
+                <div>
+                  <p class="text">{entry.text}</p>
+                  <span class="why">
+                    {[moment(new Date(entry.at * 1000)), entry.app?.name].filter(Boolean).join(" · ")}
+                  </span>
+                </div>
+                <CopyButton text={entry.text} />
+              </li>
             )}
           </For>
-        </ol>
-        <p class="status">{t("home.wait_what", { count: String(attempted().length) })}</p>
+        </ul>
+        <button type="button" class="quiet" onClick={() => props.onShowHistory()}>
+          {t("home.see_all")}
+        </button>
       </Show>
     </div>
   );

@@ -315,6 +315,7 @@ dependencies = [
  "buttervoice-local",
  "buttervoice-samples",
  "buttervoice-telemetry",
+ "chrono",
  "cpal",
  "objc2",
  "objc2-app-kit",
@@ -407,7 +408,6 @@ name = "buttervoice-telemetry"
 version = "0.2.1"
 dependencies = [
  "buttervoice-core",
- "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",

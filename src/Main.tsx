@@ -47,7 +47,7 @@ function Main() {
       </nav>
       <div class="content">
         <section hidden={section() !== "home"}>
-          <Home />
+          <Home onShowHistory={() => setSection("history")} />
         </section>
         <section hidden={section() !== "history"}>
           <History />

@@ -24,6 +24,7 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = ["s
 buttervoice-core = { path = "../crates/core" }
 buttervoice-grok = { path = "../crates/grok" }
 buttervoice-history = { path = "../crates/history" }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 buttervoice-telemetry = { path = "../crates/telemetry" }
 cpal = "0.18"
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
