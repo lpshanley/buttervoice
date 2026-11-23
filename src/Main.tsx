@@ -5,6 +5,7 @@ import History from "./History";
 import Home from "./Home";
 import { t } from "./i18n";
 import Settings, { SETUP_NEEDED } from "./Settings";
+import UpdateNotice from "./UpdateNotice";
 import "./settings.css";
 
 type Section = "home" | "history" | "settings";
@@ -28,6 +29,8 @@ function Main() {
 
   return (
     <div class="main">
+      {/* The title bar is drawn over the window, so this strip moves it. */}
+      <div class="drag" data-tauri-drag-region />
       <nav class="sidebar" aria-label={t("nav.label")}>
         <div class="brand">
           <GheeMascot size={32} />
@@ -44,10 +47,14 @@ function Main() {
             </button>
           )}
         </For>
+        <UpdateNotice />
       </nav>
       <div class="content">
         <section hidden={section() !== "home"}>
-          <Home onShowHistory={() => setSection("history")} />
+          <Home
+            onShowHistory={() => setSection("history")}
+            onShowSettings={() => setSection("settings")}
+          />
         </section>
         <section hidden={section() !== "history"}>
           <History />

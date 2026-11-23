@@ -11,7 +11,6 @@ import {
   requestInputMonitoringPermission,
   requestMicrophonePermission,
 } from "tauri-plugin-macos-permissions-api";
-import { count, minutes } from "./format";
 import { type Locale, t } from "./i18n";
 
 type Provider = "local" | "grok";
@@ -240,23 +239,16 @@ function Settings() {
   ];
   const settingUp = () => allowed() !== null && steps().some((step) => !step.done);
 
-  type TimeSaved = {
-    days: number;
-    words_per_minute: number;
-    words: number;
-    spoken_ms: number;
-    saved_ms: number;
-  };
-  const [saved, setSaved] = createSignal<TimeSaved | null>(null);
+  const [speed, setSpeed] = createSignal(40);
 
-  async function refreshTimeSaved() {
-    setSaved(await invoke<TimeSaved>("time_saved"));
+  async function refreshSpeed() {
+    setSpeed(await invoke<number>("typing_speed"));
   }
 
   async function chooseTypingSpeed(text: string) {
     const wordsPerMinute = Math.round(Number(text));
     if (wordsPerMinute > 0) await attempt("choose_typing_speed", { wordsPerMinute });
-    await refreshTimeSaved();
+    await refreshSpeed();
   }
 
   async function attempt(command: string, args?: Record<string, unknown>) {
@@ -278,7 +270,7 @@ function Settings() {
       .then(setVersion)
       .then(() => refreshUpdates());
     void recheck();
-    void refreshTimeSaved();
+    void refreshSpeed();
     // macOS does not say when a permission changes. Coming back to this
     // window from System Settings is the moment to look again.
     const watching = getCurrentWindow().onFocusChanged((event) => {
@@ -289,11 +281,11 @@ function Settings() {
       }
     });
     const progress = listen<number>("model-download", (event) => setDownloaded(event.payload));
-    const finished = listen("dictation-finished", () => void refreshTimeSaved());
+    const updateKnown = listen("update-known", () => void refreshUpdates());
     return () => {
       void watching.then((stop) => stop());
       void progress.then((stop) => stop());
-      void finished.then((stop) => stop());
+      void updateKnown.then((stop) => stop());
     };
   });
 
@@ -575,39 +567,19 @@ function Settings() {
           )}
         </For>
       </ul>
-      <Show when={saved()}>
-        {(now) => (
-          <>
-            <h2>{t("saved.heading")}</h2>
-            <div class="saved">
-              <p class="figure">
-                {t("saved.figure", { time: minutes(now().saved_ms), days: String(now().days) })}
-              </p>
-              <p class="status">
-                {t("saved.how", {
-                  words: count(now().words),
-                  typing: minutes((now().words / now().words_per_minute) * 60_000),
-                  speed: String(now().words_per_minute),
-                  spoken: minutes(now().spoken_ms),
-                })}
-              </p>
-              <label class="speed">
-                <span>{t("saved.speed")}</span>
-                <input
-                  type="number"
-                  min="1"
-                  max="250"
-                  inputmode="numeric"
-                  value={now().words_per_minute}
-                  onChange={(event) => void chooseTypingSpeed(event.currentTarget.value)}
-                />
-                <span class="why">{t("saved.speed_unit")}</span>
-              </label>
-            </div>
-            <p class="status">{t("saved.what")}</p>
-          </>
-        )}
-      </Show>
+      <h2 id="typing-speed">{t("speed.heading")}</h2>
+      <label class="speed">
+        <input
+          type="number"
+          min="1"
+          max="250"
+          inputmode="numeric"
+          value={speed()}
+          onChange={(event) => void chooseTypingSpeed(event.currentTarget.value)}
+        />
+        <span>{t("speed.unit")}</span>
+      </label>
+      <p class="status">{t("speed.what")}</p>
     </div>
   );
 }

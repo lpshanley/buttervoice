@@ -157,10 +157,15 @@
   "home.cell_none": "{{ day }}: nothing dictated",
   "home.less": "Less",
   "home.more": "More",
-  "saved.heading": "Time saved",
-  "saved.figure": "About {{ time }} saved in the last {{ days }} days",
-  "saved.how": "You dictated {{ words }} words. Typing them at {{ speed }} words a minute would take {{ typing }}; saying them took {{ spoken }}.",
-  "saved.speed": "Your typing speed",
-  "saved.speed_unit": "words a minute",
-  "saved.what": "An estimate. 40 words a minute is a common average; set your own to make it yours."
+  "update.ready": "Version {{ version }} is ready",
+  "update.installing_short": "Installing…",
+  "home.time_saved": "Time saved",
+  "home.words": "Words dictated",
+  "home.dictations": "Dictations",
+  "home.saved_how": "In the last {{ days }} days. Typing {{ words }} words at {{ speed }} words a minute would take {{ typing }}; saying them took {{ spoken }}.",
+  "home.change_speed": "Change your typing speed",
+  "speed.heading": "Typing speed",
+  "speed.unit": "words a minute",
+  "speed.what": "How fast you type, to estimate the time dictating saves you. 40 words a minute is a common average.",
+  "update.install_short": "Install"
 }

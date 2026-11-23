@@ -38,7 +38,9 @@
         "visible": false,
         "center": true,
         "minWidth": 620,
-        "minHeight": 480
+        "minHeight": 480,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       },
       {
         "label": "samples",

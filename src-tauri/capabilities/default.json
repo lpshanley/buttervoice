@@ -11,6 +11,7 @@
     "core:default",
     "core:window:allow-show",
     "core:window:allow-set-focus",
+    "core:window:allow-start-dragging",
     "macos-permissions:allow-check-microphone-permission",
     "macos-permissions:allow-request-microphone-permission",
     "macos-permissions:allow-check-input-monitoring-permission",

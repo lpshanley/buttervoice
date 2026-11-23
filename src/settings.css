@@ -277,16 +277,25 @@
 
 /* The main window: a sand sidebar, the section on white beside it. */
 .main {
+  position: relative;
   display: grid;
   grid-template-columns: 176px minmax(0, 1fr);
   height: 100vh;
+}
+
+/* Over the traffic lights and the top of each column: drags the window. */
+.main .drag {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 36px;
+  z-index: 1;
 }
 
 .main .sidebar {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 20px 12px;
+  padding: 44px 12px 20px;
   background: var(--group);
   border-right: 1px solid var(--divider);
 }
@@ -325,6 +334,11 @@
 
 .main .content {
   overflow-y: auto;
+}
+
+/* Clear of the drag strip, level with the traffic lights' row below it. */
+.main .content > section > .settings {
+  padding-top: 40px;
 }
 
 .main section[hidden] {
@@ -494,26 +508,10 @@
   width: 10px;
 }
 
-.settings .saved {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px;
-  border-radius: 8px;
-  background: var(--group);
-}
-
-.settings .saved .figure {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-}
-
 .settings label.speed {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 4px;
   font-weight: 400;
 }
 
@@ -527,4 +525,76 @@
   color: inherit;
   font: inherit;
   font-variant-numeric: tabular-nums;
+}
+
+/* Pushed to the foot of the sidebar, on white so it reads as a card. */
+.main .update-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+  padding: 10px;
+  border: 1px solid var(--divider);
+  border-radius: 8px;
+  background: var(--canvas);
+  font-size: 12px;
+}
+
+.main .update-notice p {
+  margin: 0;
+}
+
+.main .update-notice button {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--primary);
+  color: var(--primary-text);
+  font: inherit;
+  font-weight: 500;
+  text-align: center;
+}
+
+.main .update-notice button:disabled {
+  opacity: 0.45;
+}
+
+.main .update-notice .problem {
+  color: var(--problem);
+}
+
+.settings .figures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 8px 0 0;
+}
+
+.settings .figures div {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--group);
+}
+
+.settings .figures dt {
+  font-size: 12px;
+  color: var(--secondary);
+}
+
+.settings .figures dd {
+  margin: 2px 0 0;
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reads as part of the sentence it ends. */
+.settings button.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }

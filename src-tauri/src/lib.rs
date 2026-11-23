@@ -487,8 +487,15 @@ async fn check_for_update(
         tracing::warn!(%error, "the update check failed");
         Message::UpdateCheckFailed.text(transcribers.display_language())
     })?;
-    refresh_menu(&app);
+    update_checked(&app);
     Ok(found)
+}
+
+/// Brings the menu and the main window up to date with the last check.
+fn update_checked(app: &tauri::AppHandle) {
+    refresh_menu(app);
+    let known = app.state::<Updates>().known();
+    let _ = app.emit_to(MAIN_WINDOW, UPDATE_KNOWN, known);
 }
 
 /// What the settings window shows without asking GitHub.
@@ -725,7 +732,7 @@ fn check_for_updates_daily(app: tauri::AppHandle, preferences: Arc<preferences::
                     let _ = preferences.change(|saved| saved.last_update_check = Some(now));
                     let updates = app.state::<Updates>();
                     match tauri::async_runtime::block_on(updates.check(&app)) {
-                        Ok(_) => refresh_menu(&app),
+                        Ok(_) => update_checked(&app),
                         Err(error) => tracing::warn!(%error, "the daily update check failed"),
                     }
                 }
@@ -814,6 +821,7 @@ fn usage_days(
 struct TimeSaved {
     days: u64,
     words_per_minute: u32,
+    dictations: u64,
     words: u64,
     spoken_ms: u64,
     saved_ms: u64,
@@ -825,20 +833,31 @@ fn time_saved(
     preferences: tauri::State<'_, Arc<preferences::Store>>,
 ) -> TimeSaved {
     let since = local_date(TIME_SAVED_DAYS - 1);
-    let (words, spoken_ms) = usage
-        .days()
-        .range(since..)
-        .fold((0, 0), |(words, spoken), (_, day)| {
-            (words + day.words, spoken + day.spoken_ms)
-        });
+    let (dictations, words, spoken_ms) =
+        usage
+            .days()
+            .range(since..)
+            .fold((0, 0, 0), |(dictations, words, spoken), (_, day)| {
+                (
+                    dictations + day.dictations,
+                    words + day.words,
+                    spoken + day.spoken_ms,
+                )
+            });
     let words_per_minute = preferences.get().typing_words_per_minute;
     TimeSaved {
         days: TIME_SAVED_DAYS,
         words_per_minute,
+        dictations,
         words,
         spoken_ms,
         saved_ms: usage::time_saved(words, spoken_ms, words_per_minute).as_millis() as u64,
     }
+}
+
+#[tauri::command]
+fn typing_speed(preferences: tauri::State<'_, Arc<preferences::Store>>) -> u32 {
+    preferences.get().typing_words_per_minute
 }
 
 #[tauri::command]
@@ -937,6 +956,7 @@ const SETTINGS: &str = "settings";
 /// Home, the history and settings, in one window.
 const MAIN_WINDOW: &str = "main";
 const SHOW_SECTION: &str = "show-section";
+const UPDATE_KNOWN: &str = "update-known";
 const DICTATION_FINISHED: &str = "dictation-finished";
 const HISTORY_FILE: &str = "history.jsonl";
 const USAGE_FILE: &str = "usage.json";
@@ -1072,6 +1092,7 @@ pub fn run() {
             clear_history,
             usage_days,
             time_saved,
+            typing_speed,
             choose_typing_speed
         ])
         .build(tauri::generate_context!())

@@ -157,10 +157,15 @@
   "home.cell_none": "{{ day }}: nenhum ditado",
   "home.less": "Menos",
   "home.more": "Mais",
-  "saved.heading": "Tempo economizado",
-  "saved.figure": "Cerca de {{ time }} economizados nos últimos {{ days }} dias",
-  "saved.how": "Você ditou {{ words }} palavras. Digitá-las a {{ speed }} palavras por minuto levaria {{ typing }}; falar levou {{ spoken }}.",
-  "saved.speed": "Sua velocidade de digitação",
-  "saved.speed_unit": "palavras por minuto",
-  "saved.what": "Uma estimativa. 40 palavras por minuto é uma média comum; ajuste para a sua."
+  "update.ready": "A versão {{ version }} está pronta",
+  "update.installing_short": "Instalando…",
+  "home.time_saved": "Tempo economizado",
+  "home.words": "Palavras ditadas",
+  "home.dictations": "Ditados",
+  "home.saved_how": "Nos últimos {{ days }} dias. Digitar {{ words }} palavras a {{ speed }} palavras por minuto levaria {{ typing }}; falar levou {{ spoken }}.",
+  "home.change_speed": "Mudar sua velocidade de digitação",
+  "speed.heading": "Velocidade de digitação",
+  "speed.unit": "palavras por minuto",
+  "speed.what": "A rapidez com que você digita, para estimar o tempo que ditar economiza. 40 palavras por minuto é uma média comum.",
+  "update.install_short": "Instalar"
 }
