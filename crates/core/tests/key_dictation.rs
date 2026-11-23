@@ -687,3 +687,28 @@ fn a_blank_dictation_or_a_sample_take_leaves_the_last_dictation_as_it_was() {
 
     assert_eq!(dictations.last_dictation_text(), Some("Hello there."));
 }
+
+// If the key listener misses a release, the menu can still end the
+// dictation, which then goes on to be transcribed as usual.
+
+#[test]
+fn a_dictation_stopped_by_hand_is_stopped_for_that_reason_and_ignores_the_late_release() {
+    let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
+    dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(1_000_000));
+
+    assert_eq!(
+        dictations.stop_by_hand(at_micros(1_500_000)),
+        Some(CaptureCommand::Stop)
+    );
+    assert_eq!(dictations.flags_changed(NO_MODIFIERS, at_micros(1_900_000)), None);
+    let dictation = finished(dictations.capture_stopped(None, at_micros(1_510_000)));
+    assert_eq!(dictation.stopped_because, StopReason::Manual);
+}
+
+#[test]
+fn stopping_by_hand_with_nothing_running_does_nothing() {
+    let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
+
+    assert_eq!(dictations.stop_by_hand(at_micros(1_000_000)), None);
+    assert_eq!(dictations.status(), DictationStatus::Idle);
+}

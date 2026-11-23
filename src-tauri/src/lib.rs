@@ -16,7 +16,8 @@ use std::time::Duration;
 use buttervoice_core::capture::{InputKind, MicrophoneChoice};
 use buttervoice_core::hotkey::HotkeyKey;
 use buttervoice_core::key_dictation::{
-    AfterCapture, AfterTranscription, CaptureCommand, FinishedDictation, KeyDictations, Purpose,
+    AfterCapture, AfterTranscription, CaptureCommand, DictationStatus, FinishedDictation,
+    KeyDictations, Purpose,
 };
 use buttervoice_core::language::Language;
 use buttervoice_core::recording::Mode;
@@ -51,7 +52,8 @@ fn listen_for_the_dictation_key(
     recorder: Arc<Recorder>,
     preferences: Arc<preferences::Store>,
     app: tauri::AppHandle,
-) -> std::io::Result<()> {
+) -> std::io::Result<CaptureCommands> {
+    let menu_app = app.clone();
     let purpose_now = {
         let recorder = recorder.clone();
         let preferences = preferences.clone();
@@ -144,9 +146,18 @@ fn listen_for_the_dictation_key(
             }
         },
     )?;
+    let commands = CaptureCommands(microphone.clone());
     std::thread::Builder::new()
         .name("key-tap".into())
         .spawn(move || {
+            // Posted, not waited for: the key thread never waits on the
+            // main thread.
+            let refresh_menu_for = |before: DictationStatus, after: DictationStatus| {
+                if capturing(before) != capturing(after) {
+                    let app = menu_app.clone();
+                    let _ = menu_app.run_on_main_thread(move || refresh_menu(&app));
+                }
+            };
             let send = |command: Option<CaptureCommand>| {
                 if let Some(command) = command {
                     let _ = microphone.send(command);
@@ -157,8 +168,9 @@ fn listen_for_the_dictation_key(
             let mut waiting_for_permission = false;
             loop {
                 let ended = key_tap::run(|event| {
-                    let (command, status, started) = {
+                    let (command, before, status, started) = {
                         let mut dictations = lock(&dictations);
+                        let before = dictations.status();
                         dictations.set_purpose(purpose_now());
                         let command = match event {
                             TapEvent::Ready { flags, at } => {
@@ -176,18 +188,22 @@ fn listen_for_the_dictation_key(
                         let started = matches!(command, Some(CaptureCommand::Start))
                             .then(|| dictations.latest_dictation())
                             .flatten();
-                        (command, dictations.status(), started)
+                        (command, before, dictations.status(), started)
                     };
                     // The microphone first: the HUD and the log can wait a
                     // moment, the first word cannot.
                     send(command);
                     hud.show(status);
+                    refresh_menu_for(before, status);
                     if let Some(dictation) = started {
                         buttervoice_telemetry::record_dictation_started(dictation);
                     }
                 });
+                let before = lock(&dictations).status();
                 send(lock(&dictations).key_listener_lost(key_tap::now()));
-                hud.show(lock(&dictations).status());
+                let status = lock(&dictations).status();
+                hud.show(status);
+                refresh_menu_for(before, status);
                 let now_waiting = matches!(ended, TapEnded::Unavailable);
                 if !(now_waiting && waiting_for_permission) {
                     tracing::error!(reason = %ended, "key listener stopped; retrying");
@@ -196,7 +212,17 @@ fn listen_for_the_dictation_key(
                 std::thread::sleep(KEY_LISTENER_RETRY);
             }
         })?;
-    Ok(())
+    Ok(commands)
+}
+
+/// Where commands for the microphone go, for the menu's Stop Dictation.
+struct CaptureCommands(std::sync::mpsc::Sender<CaptureCommand>);
+
+fn capturing(status: DictationStatus) -> bool {
+    matches!(
+        status,
+        DictationStatus::Starting | DictationStatus::Listening
+    )
 }
 
 #[derive(serde::Serialize)]
@@ -552,15 +578,24 @@ fn keychain_service(identifier: &str) -> String {
     }
 }
 
-/// `update_found` adds an item that leads to installing it.
+/// `update_found` adds an item that leads to installing it. Stop
+/// Dictation can be chosen only while one is `capturing`.
 fn menu_in<R: tauri::Runtime, M: Manager<R>>(
     app: &M,
     language: Language,
     update_found: bool,
+    capturing: bool,
 ) -> tauri::Result<Menu<R>> {
     let item = |id, message: Message| {
         MenuItem::with_id(app, id, message.text(language), true, None::<&str>)
     };
+    let stop = MenuItem::with_id(
+        app,
+        STOP,
+        Message::StopDictation.text(language),
+        capturing,
+        None::<&str>,
+    )?;
     let copy_last = item(COPY_LAST, Message::CopyLastDictation)?;
     let mark_bad = item(MARK_BAD, Message::MarkLastDictationAsBad)?;
     let record_samples = item(SAMPLES, Message::RecordSamples)?;
@@ -572,6 +607,7 @@ fn menu_in<R: tauri::Runtime, M: Manager<R>>(
             app,
             &[
                 &install,
+                &stop,
                 &copy_last,
                 &mark_bad,
                 &record_samples,
@@ -582,7 +618,14 @@ fn menu_in<R: tauri::Runtime, M: Manager<R>>(
     } else {
         Menu::with_items(
             app,
-            &[&copy_last, &mark_bad, &record_samples, &settings, &quit],
+            &[
+                &stop,
+                &copy_last,
+                &mark_bad,
+                &record_samples,
+                &settings,
+                &quit,
+            ],
         )
     }
 }
@@ -591,8 +634,9 @@ fn menu_in<R: tauri::Runtime, M: Manager<R>>(
 fn refresh_menu(app: &tauri::AppHandle) {
     let language = app.state::<Arc<Transcribers>>().display_language();
     let update_found = app.state::<Updates>().known().is_some();
+    let capturing = capturing(lock(&app.state::<Dictations>()).status());
     if let Some(item) = app.tray_by_id(MENU_BAR_ITEM)
-        && let Ok(menu) = menu_in(app, language, update_found)
+        && let Ok(menu) = menu_in(app, language, update_found, capturing)
     {
         let _ = item.set_menu(Some(menu));
     }
@@ -654,13 +698,24 @@ fn seconds_since_1970() -> u64 {
 const MENU_BAR_ITEM: &str = "menu-bar";
 
 fn add_menu_bar_item(app: &tauri::App, language: Language) -> tauri::Result<()> {
-    let menu = menu_in(app, language, false)?;
+    let menu = menu_in(app, language, false, false)?;
     let mut item = TrayIconBuilder::with_id(MENU_BAR_ITEM)
         .tooltip("ButterVoice")
         .menu(&menu)
         .on_menu_event(|app, event| {
             if event.id() == QUIT {
                 app.exit(0);
+            } else if event.id() == STOP {
+                let (command, status) = {
+                    let state = app.state::<Dictations>();
+                    let mut dictations = lock(&state);
+                    (dictations.stop_by_hand(key_tap::now()), dictations.status())
+                };
+                if let Some(command) = command {
+                    let _ = app.state::<CaptureCommands>().0.send(command);
+                }
+                app.state::<Arc<Hud>>().show(status);
+                refresh_menu(app);
             } else if event.id() == COPY_LAST {
                 // Only when asked: the clipboard is the person's own.
                 let text = lock(&app.state::<Dictations>())
@@ -715,6 +770,7 @@ const SAMPLES_CHANGED: &str = "samples-changed";
 const QUIT: &str = "quit";
 const MARK_BAD: &str = "mark-bad";
 const COPY_LAST: &str = "copy-last";
+const STOP: &str = "stop-dictation";
 /// Both the menu item and the window it opens.
 const SETTINGS: &str = "settings";
 
@@ -772,7 +828,8 @@ pub fn run() {
             app.manage(dictations.clone());
             let recorder = Arc::new(Recorder::new(app.path().app_data_dir()?.join("samples")));
             app.manage(recorder.clone());
-            listen_for_the_dictation_key(
+            app.manage(hud.clone());
+            let commands = listen_for_the_dictation_key(
                 dictations,
                 hud,
                 transcribers,
@@ -780,6 +837,7 @@ pub fn run() {
                 preferences.clone(),
                 app.handle().clone(),
             )?;
+            app.manage(commands);
             check_for_updates_daily(app.handle().clone(), preferences.clone());
             app.manage(preferences);
             Ok(())

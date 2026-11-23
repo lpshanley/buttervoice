@@ -126,5 +126,6 @@
   "setup.permissions": "Dê ao ButterVoice os acessos de que ele precisa",
   "setup.done": "Feito",
   "setup.show": "Mostrar",
-  "setup.then": "Depois, segure a tecla Option da direita, fale e solte."
+  "setup.then": "Depois, segure a tecla Option da direita, fale e solte.",
+  "tray.stop": "Parar o ditado"
 }

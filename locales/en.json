@@ -126,5 +126,6 @@
   "setup.permissions": "Give ButterVoice the access it needs",
   "setup.done": "Done",
   "setup.show": "Show me",
-  "setup.then": "Then hold the right Option key, speak, and let go."
+  "setup.then": "Then hold the right Option key, speak, and let go.",
+  "tray.stop": "Stop Dictation"
 }

@@ -170,6 +170,13 @@ impl KeyDictations {
         self.apply(decision, at)
     }
 
+    /// Ends the dictation being captured, as the menu does when the key
+    /// listener missed a release.
+    pub fn stop_by_hand(&mut self, at: Timestamp) -> Option<CaptureCommand> {
+        let decision = self.control.manual_stop();
+        self.apply(decision, at)
+    }
+
     /// `captured` is `None` when the microphone could not be started.
     pub fn capture_stopped(
         &mut self,
