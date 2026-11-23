@@ -43,6 +43,8 @@ tauri-plugin-mcp-bridge = { version = "0.13.1", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
+# Tauri's mock runtime, so the updater can be tested without a window.
+tauri = { version = "2", features = ["test"] }
 
 [features]
 # The bridge that lets an AI assistant drive the app during development.

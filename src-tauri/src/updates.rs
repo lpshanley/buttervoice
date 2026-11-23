@@ -3,7 +3,7 @@
 
 use std::sync::Mutex;
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 const UPDATE_PROGRESS: &str = "update-progress";
@@ -23,7 +23,7 @@ pub struct Updates {
 }
 
 impl Updates {
-    pub async fn check(&self, app: &AppHandle) -> Result<Found, String> {
+    pub async fn check<R: Runtime>(&self, app: &AppHandle<R>) -> Result<Found, String> {
         let update = app
             .updater()
             .map_err(|error| error.to_string())?
@@ -52,12 +52,13 @@ impl Updates {
 
     /// Downloads and installs the update found by the last check, then
     /// relaunches into it.
-    pub async fn install(&self, app: &AppHandle) -> Result<(), String> {
+    pub async fn install<R: Runtime>(&self, app: &AppHandle<R>) -> Result<(), String> {
         let update = self
             .found
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .take()
+            // Cloned, not taken, so "Try again" still has it after a failure.
+            .clone()
             .ok_or("no update has been found")?;
         let mut progress = DownloadProgress::default();
         update
@@ -107,7 +108,84 @@ impl DownloadProgress {
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    use tauri::test::{MockRuntime, mock_builder, mock_context, noop_assets};
+
     use super::*;
+
+    /// Stands in for GitHub: a feed naming a newer release, whose download
+    /// always fails. Returns the feed's address.
+    fn release_with_failing_download() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let server = format!("http://{}", listener.local_addr().unwrap());
+        let feed = serde_json::json!({
+            "version": "99.0.0",
+            "platforms": {
+                "test-target": { "url": format!("{server}/download"), "signature": "unused" }
+            }
+        })
+        .to_string();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let mut stream = stream.unwrap();
+                let mut request = [0; 4096];
+                let read = stream.read(&mut request).unwrap_or(0);
+                let response = if request[..read].starts_with(b"GET /feed ") {
+                    format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\
+                         content-length: {}\r\nconnection: close\r\n\r\n{feed}",
+                        feed.len()
+                    )
+                } else {
+                    "HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\n\
+                     connection: close\r\n\r\n"
+                        .to_string()
+                };
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        format!("{server}/feed")
+    }
+
+    fn app_checking(feed: &str) -> tauri::App<MockRuntime> {
+        let mut context = mock_context(noop_assets());
+        context.config_mut().plugins.0.insert(
+            "updater".into(),
+            serde_json::json!({
+                // The download fails before any signature is checked.
+                "pubkey": "unused",
+                "endpoints": [feed],
+                "dangerousInsecureTransportProtocol": true,
+            }),
+        );
+        mock_builder()
+            .plugin(
+                tauri_plugin_updater::Builder::new()
+                    .target("test-target")
+                    .build(),
+            )
+            .build(context)
+            .unwrap()
+    }
+
+    #[test]
+    fn a_failed_install_can_be_tried_again() {
+        let app = app_checking(&release_with_failing_download());
+        let updates = Updates::default();
+        tauri::async_runtime::block_on(async {
+            updates.check(app.handle()).await.unwrap();
+            let failed = updates.install(app.handle()).await.unwrap_err();
+
+            assert_eq!(updates.known().as_deref(), Some("99.0.0"));
+            let retried = updates.install(app.handle()).await.unwrap_err();
+            assert_eq!(
+                retried, failed,
+                "trying again should retry the same download"
+            );
+        });
+    }
 
     #[test]
     fn reports_each_whole_percent_once() {
