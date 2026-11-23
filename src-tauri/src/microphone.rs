@@ -46,6 +46,7 @@ pub fn spawn(
     std::thread::Builder::new()
         .name("microphone".into())
         .spawn(move || {
+            warm_up();
             let mut capturing: Option<Capturing> = None;
             let mut heard_sound = false;
             loop {
@@ -77,6 +78,17 @@ pub fn spawn(
             }
         })?;
     Ok(commands)
+}
+
+/// macOS loads its audio system into the app the first time anything asks
+/// about devices, about 46 ms that otherwise lands on the first dictation.
+/// Listing them here pays it at launch; it never turns the microphone on.
+fn warm_up() {
+    let host = cpal::default_host();
+    let _ = host.input_devices().map(Iterator::count);
+    if let Some(device) = host.default_input_device() {
+        let _ = device.default_input_config();
+    }
 }
 
 fn start(choice: &MicrophoneChoice) -> Result<Capturing, StartError> {
