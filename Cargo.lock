@@ -311,6 +311,7 @@ version = "0.2.1"
 dependencies = [
  "buttervoice-core",
  "buttervoice-grok",
+ "buttervoice-history",
  "buttervoice-local",
  "buttervoice-samples",
  "buttervoice-telemetry",
@@ -354,6 +355,7 @@ dependencies = [
 name = "buttervoice-history"
 version = "0.2.1"
 dependencies = [
+ "buttervoice-core",
  "serde",
  "serde_json",
  "tempfile",

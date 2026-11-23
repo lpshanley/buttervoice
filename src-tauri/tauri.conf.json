@@ -30,13 +30,15 @@
         "focusable": false
       },
       {
-        "label": "settings",
+        "label": "main",
         "title": "ButterVoice",
-        "width": 460,
-        "height": 760,
+        "width": 780,
+        "height": 640,
         "resizable": true,
         "visible": false,
-        "center": true
+        "center": true,
+        "minWidth": 620,
+        "minHeight": 480
       },
       {
         "label": "samples",

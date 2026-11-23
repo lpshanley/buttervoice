@@ -12,8 +12,6 @@ import {
   requestMicrophonePermission,
 } from "tauri-plugin-macos-permissions-api";
 import { type Locale, t } from "./i18n";
-import GheeMark from "./GheeMark";
-import "./settings.css";
 
 type Provider = "local" | "grok";
 
@@ -91,6 +89,15 @@ const PERMISSIONS: Permission[] = [
   },
 ];
 
+/** Sent on the window when something must be set up before dictating. */
+export const SETUP_NEEDED = "setup-needed";
+
+function bringUpTheWindow() {
+  window.dispatchEvent(new Event(SETUP_NEEDED));
+  const current = getCurrentWindow();
+  return current.show().then(() => current.setFocus());
+}
+
 function Settings() {
   const [allowed, setAllowed] = createSignal<boolean[] | null>(null);
   let checkedBefore = false;
@@ -102,9 +109,7 @@ function Settings() {
     setAllowed(now);
     // Something is missing at launch: bring the window up to say so.
     if (first && now.includes(false)) {
-      const window = getCurrentWindow();
-      await window.show();
-      await window.setFocus();
+      await bringUpTheWindow();
     }
   }
 
@@ -190,9 +195,7 @@ function Settings() {
     setLanguage(now);
     // Language is the first thing to set up: bring the window up to ask.
     if (first && !now.chosen) {
-      const window = getCurrentWindow();
-      await window.show();
-      await window.setFocus();
+      await bringUpTheWindow();
     }
   }
 
@@ -272,11 +275,8 @@ function Settings() {
   });
 
   return (
-    <main class="settings">
-      <h1>
-        <GheeMark size={22} />
-        ButterVoice
-      </h1>
+    <div class="settings">
+      <h2>{t("nav.settings")}</h2>
       <Show when={settingUp()}>
         <h2>{t("setup.heading")}</h2>
         <ol class="steps">
@@ -552,7 +552,7 @@ function Settings() {
           )}
         </For>
       </ul>
-    </main>
+    </div>
   );
 }
 

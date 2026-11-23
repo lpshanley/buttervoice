@@ -1,6 +1,6 @@
 /* The ButterVoice palette: white first, warm sand to group rows, butter
    yellow only for selection and listening. */
-:root:is([data-view="settings"], [data-view="samples"]) {
+:root:is([data-view="main"], [data-view="samples"]) {
   --canvas: #ffffff;
   --group: #faf9f6;
   --divider: #e7e6e3;
@@ -22,7 +22,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:is([data-view="settings"], [data-view="samples"]) {
+  :root:is([data-view="main"], [data-view="samples"]) {
     --canvas: #1c1d1f;
     --group: #262729;
     --divider: #3b3d40;
@@ -37,7 +37,7 @@
   }
 }
 
-:root:is([data-view="settings"], [data-view="samples"]) body {
+:root:is([data-view="main"], [data-view="samples"]) body {
   margin: 0;
   background: var(--canvas);
 }
@@ -116,6 +116,10 @@
   right: 0;
   left: 12px;
   border-top: 1px solid var(--divider);
+}
+
+.settings .providers strong {
+  font-weight: 500;
 }
 
 .settings :is(.providers, .permissions) .why,
@@ -258,4 +262,212 @@
 
 .settings .steps li.done {
   color: var(--secondary);
+}
+
+/* The main window: a sand sidebar, the section on white beside it. */
+.main {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  height: 100vh;
+}
+
+.main .sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 20px 12px;
+  background: var(--group);
+  border-right: 1px solid var(--divider);
+}
+
+.main .brand {
+  display: flex;
+  justify-content: center;
+  margin: 4px 0 16px;
+}
+
+.main .brand img {
+  width: 50%;
+  height: auto;
+}
+
+.main .sidebar button {
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+
+/* Neutral, so butter stays for the chosen dot and for listening. */
+.main .sidebar button.current {
+  background: var(--divider);
+  font-weight: 600;
+}
+
+.main .sidebar button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.main .content {
+  overflow-y: auto;
+}
+
+.main section[hidden] {
+  display: none;
+}
+
+.main .settings > h2:first-child {
+  margin: 0;
+  font-size: 17px;
+}
+
+.settings .how {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.settings :is(.dictation, .history li) {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings .dictation {
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--group);
+}
+
+.settings .text {
+  margin: 0;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.settings :is(.dictation, .history) button {
+  flex: none;
+}
+
+.settings .figures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.settings .figures div {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--group);
+}
+
+.settings .figures dt {
+  font-size: 12px;
+  color: var(--secondary);
+}
+
+.settings .figures dd {
+  margin: 2px 0 0;
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* One bar per dictation on a shared baseline; a dictation that was not
+   typed keeps its place as an outline. */
+.settings .waits {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 56px;
+  margin: 4px 0 0;
+  padding: 0 0 1px;
+  list-style: none;
+  border-bottom: 1px solid var(--divider);
+}
+
+.settings .waits li {
+  flex: 1;
+  max-width: 18px;
+  min-height: 3px;
+  border-radius: 4px 4px 0 0;
+  background: var(--secondary);
+}
+
+.settings .waits li:hover {
+  background: var(--ink);
+}
+
+/* Short, so a dictation with no wait does not outweigh the real ones. */
+.settings .waits li.not_typed {
+  height: 8px !important;
+  box-sizing: border-box;
+  border: 1px dashed var(--control-edge);
+  background: none;
+}
+
+.settings input[type="search"] {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--control-line);
+  border-radius: 6px;
+  background: var(--canvas);
+  color: inherit;
+  font: inherit;
+}
+
+.settings .history {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: 8px;
+  background: var(--group);
+}
+
+.settings .history li {
+  position: relative;
+  padding: 10px 12px;
+}
+
+.settings .history li + li::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 12px;
+  border-top: 1px solid var(--divider);
+}
+
+.settings .history .why {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--secondary);
+}
+
+.settings .confirm {
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--group);
+}
+
+.settings .confirm p {
+  margin: 0 0 10px;
+}
+
+.settings button.danger {
+  background: var(--problem);
+  color: #ffffff;
+}
+
+.settings > button.quiet {
+  align-self: flex-start;
 }

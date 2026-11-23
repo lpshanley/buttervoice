@@ -18,11 +18,12 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSPanel", "NSPasteboard", "NSResponder", "NSWindow"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSPanel", "NSPasteboard", "NSResponder", "NSRunningApplication", "NSWindow", "NSWorkspace"] }
 objc2 = "0.6"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString"] }
 buttervoice-core = { path = "../crates/core" }
 buttervoice-grok = { path = "../crates/grok" }
+buttervoice-history = { path = "../crates/history" }
 buttervoice-telemetry = { path = "../crates/telemetry" }
 cpal = "0.18"
 tauri = { version = "2", features = ["tray-icon", "image-png"] }

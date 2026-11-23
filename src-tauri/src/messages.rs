@@ -8,9 +8,10 @@ pub enum Message {
     StopDictation,
     CopyLastDictation,
     RecordSamples,
+    OpenButterVoice,
     OpenSettings,
     Quit,
-    SettingsTitle,
+    MainTitle,
     SamplesTitle,
     EnterAKeyFirst,
     KeyNotSaved,
@@ -27,6 +28,7 @@ pub enum Message {
     UpdateNotInstalled,
     InstallUpdate,
     PackageNotMade,
+    HistoryNotCleared,
 }
 
 impl Message {
@@ -36,9 +38,10 @@ impl Message {
             Message::StopDictation => "tray.stop",
             Message::CopyLastDictation => "tray.copy_last",
             Message::RecordSamples => "tray.record_samples",
+            Message::OpenButterVoice => "tray.open",
             Message::OpenSettings => "tray.settings",
             Message::Quit => "tray.quit",
-            Message::SettingsTitle => "window.settings",
+            Message::MainTitle => "window.main",
             Message::SamplesTitle => "window.samples",
             Message::EnterAKeyFirst => "error.enter_a_key",
             Message::KeyNotSaved => "error.key_not_saved",
@@ -55,6 +58,7 @@ impl Message {
             Message::UpdateNotInstalled => "update.not_installed",
             Message::InstallUpdate => "tray.install_update",
             Message::PackageNotMade => "error.package_not_made",
+            Message::HistoryNotCleared => "error.history_not_cleared",
         }
     }
 
@@ -67,7 +71,9 @@ impl Message {
 mod tests {
     use super::*;
 
-    const EVERY_MESSAGE: [Message; 23] = [
+    const EVERY_MESSAGE: [Message; 25] = [
+        Message::OpenButterVoice,
+        Message::HistoryNotCleared,
         Message::PackageNotMade,
         Message::InstallUpdate,
         Message::UpdateCheckFailed,
@@ -85,7 +91,7 @@ mod tests {
         Message::CopyLastDictation,
         Message::OpenSettings,
         Message::Quit,
-        Message::SettingsTitle,
+        Message::MainTitle,
         Message::SamplesTitle,
         Message::EnterAKeyFirst,
         Message::KeyNotSaved,

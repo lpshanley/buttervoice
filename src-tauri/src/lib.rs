@@ -1,4 +1,5 @@
 mod clipboard;
+mod frontmost;
 mod hud;
 mod key_tap;
 mod messages;
@@ -24,6 +25,7 @@ use buttervoice_core::recording::Mode;
 use buttervoice_core::transcription::Provider;
 use buttervoice_core::typing::Typing;
 use buttervoice_core::update_schedule::check_due;
+use buttervoice_history::History;
 use buttervoice_local::fetch::FetchError;
 use buttervoice_samples::RecordedWith;
 use buttervoice_samples::session::Take;
@@ -51,9 +53,14 @@ fn listen_for_the_dictation_key(
     transcribers: Arc<Transcribers>,
     recorder: Arc<Recorder>,
     preferences: Arc<preferences::Store>,
+    history: Arc<History>,
     app: tauri::AppHandle,
 ) -> std::io::Result<CaptureCommands> {
     let menu_app = app.clone();
+    let keep_history = {
+        let preferences = preferences.clone();
+        move || preferences.get().keep_history
+    };
     let purpose_now = {
         let recorder = recorder.clone();
         let preferences = preferences.clone();
@@ -142,6 +149,17 @@ fn listen_for_the_dictation_key(
                 }
                 if let Some(finished) = finished {
                     buttervoice_telemetry::record_dictation(&finished);
+                    if keep_history()
+                        && let Some(entry) = buttervoice_history::entry_for(
+                            &finished,
+                            seconds_since_1970(),
+                            frontmost::app(),
+                        )
+                        && let Err(error) = history.add(&entry)
+                    {
+                        tracing::warn!(%error, "the dictation could not be added to the history");
+                    }
+                    let _ = app.emit_to(MAIN_WINDOW, DICTATION_FINISHED, ());
                 }
             }
         },
@@ -429,7 +447,7 @@ fn download_model(
     let outcome = transcribers.download_model(|bytes| {
         if last_sent.elapsed() >= PROGRESS_EVERY {
             last_sent = std::time::Instant::now();
-            let _ = app.emit_to(SETTINGS, MODEL_DOWNLOAD, bytes);
+            let _ = app.emit_to(MAIN_WINDOW, MODEL_DOWNLOAD, bytes);
         }
     });
     let language = transcribers.display_language();
@@ -613,6 +631,7 @@ fn menu_in<R: tauri::Runtime, M: Manager<R>>(
     let copy_last = item(COPY_LAST, Message::CopyLastDictation)?;
     let mark_bad = item(MARK_BAD, Message::MarkLastDictationAsBad)?;
     let record_samples = item(SAMPLES, Message::RecordSamples)?;
+    let open = item(OPEN, Message::OpenButterVoice)?;
     let settings = item(SETTINGS, Message::OpenSettings)?;
     let quit = item(QUIT, Message::Quit)?;
     if update_found {
@@ -621,6 +640,7 @@ fn menu_in<R: tauri::Runtime, M: Manager<R>>(
             app,
             &[
                 &install,
+                &open,
                 &stop,
                 &copy_last,
                 &mark_bad,
@@ -633,6 +653,7 @@ fn menu_in<R: tauri::Runtime, M: Manager<R>>(
         Menu::with_items(
             app,
             &[
+                &open,
                 &stop,
                 &copy_last,
                 &mark_bad,
@@ -658,7 +679,7 @@ fn refresh_menu(app: &tauri::AppHandle) {
 
 fn refresh_window_titles(app: &tauri::AppHandle, language: Language) {
     for (label, message) in [
-        (SETTINGS, Message::SettingsTitle),
+        (MAIN_WINDOW, Message::MainTitle),
         (SAMPLES, Message::SamplesTitle),
     ] {
         if let Some(window) = app.get_webview_window(label)
@@ -702,6 +723,71 @@ fn check_for_updates_daily(app: tauri::AppHandle, preferences: Arc<preferences::
     }
 }
 
+#[tauri::command]
+fn recent_dictations(app: tauri::AppHandle) -> Vec<buttervoice_telemetry::RecentDictation> {
+    app.path()
+        .app_log_dir()
+        .map(|log_dir| buttervoice_telemetry::recent_dictations(&log_dir, RECENT_DICTATIONS))
+        .unwrap_or_default()
+}
+
+/// From this run, or from the history when it is kept.
+#[tauri::command]
+fn last_dictation(
+    dictations: tauri::State<'_, Dictations>,
+    history: tauri::State<'_, Arc<History>>,
+    preferences: tauri::State<'_, Arc<preferences::Store>>,
+) -> Option<String> {
+    let this_run = lock(&dictations).last_dictation_text().map(str::to_string);
+    this_run.or_else(|| {
+        preferences
+            .get()
+            .keep_history
+            .then(|| history.search("", 1).pop().map(|entry| entry.text))
+            .flatten()
+    })
+}
+
+#[tauri::command]
+fn copy_text(text: String) -> Result<(), ()> {
+    clipboard::copy(&text).then_some(()).ok_or(())
+}
+
+#[tauri::command]
+fn history_setup(preferences: tauri::State<'_, Arc<preferences::Store>>) -> bool {
+    preferences.get().keep_history
+}
+
+#[tauri::command]
+fn choose_keep_history(
+    on: bool,
+    preferences: tauri::State<'_, Arc<preferences::Store>>,
+    transcribers: tauri::State<'_, Arc<Transcribers>>,
+) -> Result<(), String> {
+    preferences
+        .change(|saved| saved.keep_history = on)
+        .map_err(|error| not_saved(error, &transcribers))
+}
+
+#[tauri::command]
+fn history_search(
+    query: String,
+    history: tauri::State<'_, Arc<History>>,
+) -> Vec<buttervoice_history::Entry> {
+    history.search(&query, HISTORY_SHOWN)
+}
+
+#[tauri::command]
+fn clear_history(
+    history: tauri::State<'_, Arc<History>>,
+    transcribers: tauri::State<'_, Arc<Transcribers>>,
+) -> Result<(), String> {
+    history.clear().map_err(|error| {
+        tracing::error!(%error, "the history could not be cleared");
+        Message::HistoryNotCleared.text(transcribers.display_language())
+    })
+}
+
 fn seconds_since_1970() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -743,18 +829,15 @@ fn add_menu_bar_item(app: &tauri::App, language: Language) -> tauri::Result<()> 
             } else if event.id() == MARK_BAD {
                 let latest = lock(&app.state::<Dictations>()).latest_dictation();
                 buttervoice_telemetry::record_marked_bad(latest);
-            } else if event.id() == INSTALL_UPDATE
-                && let Some(window) = app.get_webview_window(SETTINGS)
+            } else if event.id() == OPEN {
+                show_main_window(app, "home");
+            } else if event.id() == SETTINGS || event.id() == INSTALL_UPDATE {
+                // Settings shows the update and installs it.
+                show_main_window(app, "settings");
+            } else if event.id() == SAMPLES
+                && let Some(window) = app.get_webview_window(SAMPLES)
             {
-                // The settings window shows the update and installs it.
-                let _ = window.show();
-                let _ = window.set_focus();
-            } else if (event.id() == SETTINGS || event.id() == SAMPLES)
-                && let Some(window) = app.get_webview_window(event.id().as_ref())
-            {
-                if event.id() == SAMPLES {
-                    app.state::<Arc<Recorder>>().window_shown(true);
-                }
+                app.state::<Arc<Recorder>>().window_shown(true);
                 let _ = window.show();
                 let _ = window.set_focus();
             }
@@ -785,8 +868,23 @@ const QUIT: &str = "quit";
 const MARK_BAD: &str = "mark-bad";
 const COPY_LAST: &str = "copy-last";
 const STOP: &str = "stop-dictation";
-/// Both the menu item and the window it opens.
+const OPEN: &str = "open";
 const SETTINGS: &str = "settings";
+/// Home, the history and settings, in one window.
+const MAIN_WINDOW: &str = "main";
+const SHOW_SECTION: &str = "show-section";
+const DICTATION_FINISHED: &str = "dictation-finished";
+const HISTORY_FILE: &str = "history.jsonl";
+const RECENT_DICTATIONS: usize = 20;
+const HISTORY_SHOWN: usize = 200;
+
+fn show_main_window(app: &tauri::AppHandle, section: &str) {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+        let _ = app.emit_to(MAIN_WINDOW, SHOW_SECTION, section);
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
 
 /// The state behind the lock is only ever changed by whole method calls, so
 /// it is still usable after another thread panicked while holding it.
@@ -841,6 +939,8 @@ pub fn run() {
             )));
             app.manage(dictations.clone());
             let recorder = Arc::new(Recorder::new(app.path().app_data_dir()?.join("samples")));
+            let history = Arc::new(History::open(app.path().app_data_dir()?.join(HISTORY_FILE)));
+            app.manage(history.clone());
             app.manage(recorder.clone());
             app.manage(hud.clone());
             let commands = listen_for_the_dictation_key(
@@ -849,6 +949,7 @@ pub fn run() {
                 transcribers,
                 recorder,
                 preferences.clone(),
+                history,
                 app.handle().clone(),
             )?;
             app.manage(commands);
@@ -856,10 +957,10 @@ pub fn run() {
             app.manage(preferences);
             Ok(())
         })
-        // Closing the settings window only hides it, so it can be opened again.
+        // Closing a window only hides it, so it can be opened again.
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event
-                && (window.label() == SETTINGS || window.label() == SAMPLES)
+                && (window.label() == MAIN_WINDOW || window.label() == SAMPLES)
             {
                 api.prevent_close();
                 if window.label() == SAMPLES {
@@ -894,7 +995,14 @@ pub fn run() {
             choose_language,
             choose_provider,
             save_api_key,
-            forget_api_key
+            forget_api_key,
+            recent_dictations,
+            last_dictation,
+            copy_text,
+            history_setup,
+            choose_keep_history,
+            history_search,
+            clear_history
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
