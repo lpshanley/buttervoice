@@ -324,7 +324,15 @@ fn samples_start(
     speaker: String,
     recorder: tauri::State<'_, Arc<Recorder>>,
     transcribers: tauri::State<'_, Arc<Transcribers>>,
+    preferences: tauri::State<'_, Arc<preferences::Store>>,
 ) {
+    let label = speaker.trim();
+    if !label.is_empty()
+        && let Err(error) =
+            preferences.change(|saved| saved.sample_speaker = Some(label.to_string()))
+    {
+        tracing::warn!(%error, "the speaker label could not be remembered");
+    }
     let recorded_with = RecordedWith {
         speaker,
         app_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -337,6 +345,12 @@ fn samples_start(
         transcribers.dictation_language(),
         seconds_since_1970(),
     );
+}
+
+/// The label given last time, to start the field with.
+#[tauri::command]
+fn samples_speaker(preferences: tauri::State<'_, Arc<preferences::Store>>) -> String {
+    preferences.get().sample_speaker.unwrap_or_default()
 }
 
 fn what_the_system_says(name: &str) -> String {
@@ -869,6 +883,7 @@ pub fn run() {
             choose_microphone,
             samples_state,
             samples_start,
+            samples_speaker,
             samples_next,
             samples_skip,
             samples_back,

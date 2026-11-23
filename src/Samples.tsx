@@ -125,6 +125,9 @@ function Samples() {
 
   onSettled(() => {
     void refresh();
+    void invoke<string>("samples_speaker").then((last) => {
+      if (!speaker()) setSpeaker(last);
+    });
     const watching = listen("samples-changed", () => void refresh());
     return () => {
       void watching.then((stop) => stop());

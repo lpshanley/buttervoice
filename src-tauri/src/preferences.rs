@@ -21,6 +21,8 @@ pub struct Preferences {
     pub check_for_updates_daily: bool,
     /// Seconds since 1970.
     pub last_update_check: Option<u64>,
+    /// The label last given when recording samples, offered the next time.
+    pub sample_speaker: Option<String>,
 }
 
 /// The saved choices, shared by every part of the app that reads them. A
@@ -61,6 +63,7 @@ const MICROPHONE: &str = "microphone";
 const LOCAL_MODEL: &str = "local_model";
 const CHECK_FOR_UPDATES_DAILY: &str = "check_for_updates_daily";
 const LAST_UPDATE_CHECK: &str = "last_update_check";
+const SAMPLE_SPEAKER: &str = "sample_speaker";
 
 pub fn load(file: &Path) -> Preferences {
     let saved = std::fs::read_to_string(file)
@@ -82,6 +85,7 @@ pub fn load(file: &Path) -> Preferences {
         last_update_check: saved
             .as_ref()
             .and_then(|preferences| preferences.get(LAST_UPDATE_CHECK)?.as_u64()),
+        sample_speaker: text(SAMPLE_SPEAKER).map(str::to_string),
     }
 }
 
@@ -97,6 +101,7 @@ pub fn save(file: &Path, preferences: &Preferences) -> std::io::Result<()> {
         LOCAL_MODEL: preferences.local_model,
         CHECK_FOR_UPDATES_DAILY: preferences.check_for_updates_daily,
         LAST_UPDATE_CHECK: preferences.last_update_check,
+        SAMPLE_SPEAKER: preferences.sample_speaker,
     });
     std::fs::write(file, saved.to_string())
 }
@@ -122,6 +127,7 @@ mod tests {
             local_model: Some("parakeet-tdt-0.6b-v2".to_string()),
             check_for_updates_daily: false,
             last_update_check: Some(1_800_000_000),
+            sample_speaker: Some("LPS".to_string()),
         };
 
         save(&file, &chosen).unwrap();
@@ -145,6 +151,7 @@ mod tests {
                 local_model: None,
                 check_for_updates_daily: true,
                 last_update_check: None,
+                sample_speaker: None,
             }
         );
     }
@@ -187,6 +194,7 @@ mod tests {
                 local_model: None,
                 check_for_updates_daily: true,
                 last_update_check: None,
+                sample_speaker: None,
             }
         );
     }
