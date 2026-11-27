@@ -23,6 +23,9 @@ pub enum Kind {
     /// The same words under a condition worth isolating: a quiet voice,
     /// distance from the microphone, background noise.
     Conditions,
+    /// Clean words said with thinking sounds ("um", "hã") where the person
+    /// would pause, to check they are dropped and nothing else is.
+    Fillers,
     /// The key held with nothing said.
     Silence,
 }
@@ -105,13 +108,14 @@ struct SampleFile {
 }
 
 impl Kind {
-    pub const ALL: [Kind; 7] = [
+    pub const ALL: [Kind; 8] = [
         Kind::ReadSentence,
         Kind::ShortUtterance,
         Kind::LongDictation,
         Kind::HardWords,
         Kind::NaturalSpeech,
         Kind::Conditions,
+        Kind::Fillers,
         Kind::Silence,
     ];
 
@@ -123,6 +127,7 @@ impl Kind {
             Kind::HardWords => "hard_words",
             Kind::NaturalSpeech => "natural_speech",
             Kind::Conditions => "conditions",
+            Kind::Fillers => "fillers",
             Kind::Silence => "silence",
         }
     }

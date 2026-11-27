@@ -96,6 +96,26 @@
     "do": "Explain to a colleague how to get to your desk or your home office."
   },
   {
+    "kind": "fillers",
+    "say": "I think we should ship it on Friday.",
+    "do": "Say it with an “um” or “uh” wherever you would pause to think. Leave the words below as they are, without them."
+  },
+  {
+    "kind": "fillers",
+    "say": "I need a hammer and a few nails.",
+    "do": "Say it with an “um” or “uh” wherever you would pause to think. Leave the words below as they are, without them."
+  },
+  {
+    "kind": "fillers",
+    "say": "Ah, I see what you mean now.",
+    "do": "Say it with an “um” or “uh” wherever you would pause to think. Leave the words below as they are, without them."
+  },
+  {
+    "kind": "fillers",
+    "say": "Can you, like, check the build before lunch?",
+    "do": "Say it with an “um” or “uh” wherever you would pause to think. Leave the words below as they are, without them."
+  },
+  {
     "kind": "silence",
     "do": "Hold the key for about three seconds and say nothing."
   },

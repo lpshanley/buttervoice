@@ -20,8 +20,10 @@ use buttervoice_core::language::Language;
 use buttervoice_core::transcription::{Transcript, TranscriptionFailure};
 use buttervoice_grok::{DEFAULT_BASE_URL, FillerWords, GrokTranscriber};
 use buttervoice_local::LocalTranscriber;
+use buttervoice_replay::fillers::{FillerCheck, check_fillers};
 use buttervoice_replay::recordings::{self, Recording};
 use buttervoice_replay::report::{Report, replay};
+use buttervoice_samples::Kind;
 mod cost;
 
 use buttervoice_replay::summary::{Scored, Summary, by, by_kind, summarise};
@@ -383,6 +385,7 @@ fn score_one_model(folder: &Path, model: &str) -> Result<(), String> {
     for (kind, summary) in by_kind(&scored) {
         print_summary(name, kind.name(), &summary);
     }
+    print_filler_check(name, &check_fillers(&scored));
     let used = cost::so_far()?;
     let minutes = scored
         .iter()
@@ -415,6 +418,30 @@ fn input_name(input: InputKind) -> &'static str {
     match input {
         InputKind::BuiltIn => "built-in",
         InputKind::Other => "other",
+    }
+}
+
+/// What the app would type for a local transcript: the same rows with
+/// thinking sounds taken out, then every said word the filter took.
+fn print_filler_check(model: &str, check: &FillerCheck) {
+    print_summary(model, "without fillers", &summarise(&check.after));
+    for (kind, summary) in by_kind(&check.after) {
+        if kind == Kind::Fillers {
+            print_summary(model, "fillers, without fillers", &summary);
+        }
+    }
+    println!(
+        "{:<24} {:<36} {} dropped, {} of them said",
+        model,
+        "filler filter",
+        check.dropped,
+        check.wrongly_dropped.len()
+    );
+    for wrong in &check.wrongly_dropped {
+        println!(
+            "{:<24} {:<36} took {:?} from {:?}",
+            model, "filler filter", wrong.word, wrong.said
+        );
     }
 }
 

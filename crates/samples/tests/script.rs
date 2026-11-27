@@ -1,3 +1,4 @@
+use buttervoice_core::fillers::without_fillers;
 use buttervoice_core::language::Language;
 use buttervoice_samples::Kind;
 use buttervoice_samples::script::script;
@@ -61,7 +62,7 @@ fn the_scripts_ask_for_the_same_things_in_the_same_order_in_every_language() {
         shape(Language::English),
         shape(Language::BrazilianPortuguese)
     );
-    assert_eq!(shape(Language::English).len(), 24);
+    assert_eq!(shape(Language::English).len(), 28);
 }
 
 #[test]
@@ -76,4 +77,18 @@ fn the_two_languages_are_not_given_the_same_words() {
         first_words(Language::BrazilianPortuguese).as_deref(),
         Some("Você pode me mandar as anotações da reunião de hoje de manhã?")
     );
+}
+
+#[test]
+fn a_filler_prompt_asks_for_thinking_sounds_but_scores_against_words_without_them() {
+    for language in Language::ALL {
+        for prompt in script(language)
+            .into_iter()
+            .filter(|prompt| prompt.kind == Kind::Fillers)
+        {
+            let words = prompt.say.expect("a filler prompt gives the clean words");
+            assert_eq!(without_fillers(&words, language).dropped, 0, "{words}");
+            assert!(prompt.instruction.is_some(), "{words}");
+        }
+    }
 }

@@ -57,6 +57,7 @@
   "samples.kind.hard_words": "Tricky words",
   "samples.kind.natural_speech": "In your own words",
   "samples.kind.conditions": "A special condition",
+  "samples.kind.fillers": "With filler words",
   "samples.kind.silence": "Silence",
   "samples.heard": "Heard:",
   "microphone.heading": "Microphone",

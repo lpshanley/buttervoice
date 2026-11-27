@@ -13,6 +13,7 @@ type Kind =
   | "hard_words"
   | "natural_speech"
   | "conditions"
+  | "fillers"
   | "silence";
 
 type Prompt = {

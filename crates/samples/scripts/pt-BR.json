@@ -96,6 +96,26 @@
     "do": "Imagine que um colega precisa encontrar sua mesa ou o lugar onde você trabalha em casa. Explique como chegar lá."
   },
   {
+    "kind": "fillers",
+    "say": "Eu acho que a gente pode lançar na sexta.",
+    "do": "Diga com um “hã” ou “hum” onde você pararia para pensar. Deixe as palavras abaixo como estão, sem eles."
+  },
+  {
+    "kind": "fillers",
+    "say": "Eu tenho um carro e uma moto.",
+    "do": "Diga com um “hã” ou “hum” onde você pararia para pensar. Deixe as palavras abaixo como estão, sem eles."
+  },
+  {
+    "kind": "fillers",
+    "say": "É importante, é para amanhã.",
+    "do": "Diga com um “hã” ou “hum” onde você pararia para pensar. Deixe as palavras abaixo como estão, sem eles."
+  },
+  {
+    "kind": "fillers",
+    "say": "Está bom, né? Qual é o tipo de arquivo?",
+    "do": "Diga com um “hã” ou “hum” onde você pararia para pensar. Deixe as palavras abaixo como estão, sem eles."
+  },
+  {
     "kind": "silence",
     "do": "Segure a tecla por uns três segundos sem dizer nada."
   },
