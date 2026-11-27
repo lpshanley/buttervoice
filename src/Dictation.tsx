@@ -95,6 +95,13 @@ function Dictation() {
     await refreshMicrophones();
   }
 
+  const [dropFillers, setDropFillers] = createSignal(true);
+
+  async function chooseDropFillers(on: boolean) {
+    await attempt("choose_drop_filler_words", { on });
+    setDropFillers(await invoke<boolean>("filler_words_setup"));
+  }
+
   async function pickHotkey(key: Hotkey) {
     try {
       await chooseHotkey(key);
@@ -135,6 +142,7 @@ function Dictation() {
 
   onSettled(() => {
     void refreshMicrophones();
+    void invoke<boolean>("filler_words_setup").then(setDropFillers);
     // A headset may have been connected while the window was away.
     const watching = getCurrentWindow().onFocusChanged((event) => {
       if (event.payload) void refreshMicrophones();
@@ -347,6 +355,16 @@ function Dictation() {
         </For>
       </div>
       <p class="status">{t("hotkey.how")}</p>
+      <h2>{t("fillers.heading")}</h2>
+      <label class="switch">
+        <input
+          type="checkbox"
+          checked={dropFillers()}
+          onChange={(event) => void chooseDropFillers(event.currentTarget.checked)}
+        />
+        <span>{t("fillers.drop")}</span>
+      </label>
+      <p class="status">{t("fillers.what")}</p>
     </div>
   );
 }

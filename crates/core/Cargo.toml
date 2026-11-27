@@ -8,3 +8,4 @@ publish = false
 [dependencies]
 rtrb = "0.4.1"
 rubato = "5"
+unicode-normalization = "0.1"

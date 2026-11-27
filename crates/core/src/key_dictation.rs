@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use crate::DictationId;
 use crate::capture::{AudioStats, Captured, CapturedAudio, InputKind};
+use crate::fillers::without_fillers;
 use crate::hotkey::{HotkeyDecoder, HotkeyKey, KeyEdge};
 use crate::language::Language;
 use crate::recording::{Decision, Mode, RecordingControl, StopReason};
@@ -113,6 +114,7 @@ pub struct KeyDictations {
     second_tap_by: Option<Timestamp>,
     purpose_from_now: Purpose,
     last_dictation_text: Option<String>,
+    drops_fillers: bool,
 }
 
 impl KeyDictations {
@@ -125,6 +127,7 @@ impl KeyDictations {
             second_tap_by: None,
             purpose_from_now: Purpose::Dictation(Provider::Local),
             last_dictation_text: None,
+            drops_fillers: true,
         }
     }
 
@@ -149,6 +152,12 @@ impl KeyDictations {
     /// its own.
     pub fn set_purpose(&mut self, purpose: Purpose) {
         self.purpose_from_now = purpose;
+    }
+
+    /// Whether thinking sounds such as "um" are dropped from what this Mac
+    /// transcribes.
+    pub fn set_drops_fillers(&mut self, on: bool) {
+        self.drops_fillers = on;
     }
 
     /// The text of the last dictation, typed or not, held only in memory.
@@ -279,14 +288,13 @@ impl KeyDictations {
                     Typing::NotAttempted,
                 )));
             }
-            Ok(transcript) if !transcript.text.is_empty() => transcript,
-            Ok(blank) => {
-                return Some(AfterTranscription::Finished(self.finish(
-                    stopped,
-                    Some(stats),
-                    Transcription::Succeeded(blank),
-                    Typing::NotAttempted,
-                )));
+            Ok(mut transcript) => {
+                // Grok drops them itself when asked to, so only local
+                // transcripts go through the filter.
+                if self.drops_fillers && provider == Provider::Local {
+                    transcript.text = without_fillers(&transcript.text, language).text;
+                }
+                transcript
             }
             Err(failure) => {
                 return Some(AfterTranscription::Finished(self.finish(
@@ -297,6 +305,14 @@ impl KeyDictations {
                 )));
             }
         };
+        if transcript.text.is_empty() {
+            return Some(AfterTranscription::Finished(self.finish(
+                stopped,
+                Some(stats),
+                Transcription::Succeeded(transcript),
+                Typing::NotAttempted,
+            )));
+        }
         let text = transcript.text.clone();
         self.last_dictation_text = Some(text.clone());
         self.phase = Phase::Typing(stopped, stats, transcript);

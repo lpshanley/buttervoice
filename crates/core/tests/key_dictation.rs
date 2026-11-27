@@ -823,3 +823,78 @@ fn after_the_hotkey_is_changed_only_the_new_key_starts_capture() {
         Some(CaptureCommand::Start)
     );
 }
+
+fn transcribed_from(dictations: &mut KeyDictations, text: &str) -> Option<AfterTranscription> {
+    dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
+    dictations.transcription_finished(
+        Provider::Local,
+        "parakeet-ultra",
+        Language::English,
+        heard(text),
+        at_micros(2_392_500),
+    )
+}
+
+#[test]
+fn thinking_sounds_are_dropped_before_the_text_is_typed() {
+    let mut dictations = held_and_released();
+
+    assert_eq!(
+        transcribed_from(&mut dictations, "Um, hello there."),
+        to_type("Hello there.")
+    );
+}
+
+#[test]
+fn a_dictation_that_was_only_thinking_sounds_types_nothing() {
+    let mut dictations = held_and_released();
+
+    let finished = finished_without_typing(transcribed_from(&mut dictations, "Um."));
+
+    assert_eq!(finished.typing, Typing::NotAttempted);
+}
+
+#[test]
+fn a_sample_take_keeps_its_thinking_sounds_so_it_matches_what_was_said() {
+    let mut dictations = KeyDictations::new(HotkeyKey::RightOption, Mode::PushToTalk);
+    dictations.set_purpose(Purpose::SampleTake);
+    dictations.flags_changed(RIGHT_OPTION_DOWN, at_micros(1_000_000));
+    dictations.flags_changed(NO_MODIFIERS, at_micros(1_956_365));
+
+    let finished = finished_without_typing(transcribed_from(&mut dictations, "Um, hello."));
+
+    assert_eq!(
+        finished.transcription,
+        Transcription::Succeeded(Transcript {
+            text: "Um, hello.".to_string()
+        })
+    );
+}
+
+#[test]
+fn with_dropping_turned_off_the_text_is_typed_exactly_as_heard() {
+    let mut dictations = held_and_released();
+    dictations.set_drops_fillers(false);
+
+    assert_eq!(
+        transcribed_from(&mut dictations, "Um, hello there."),
+        to_type("Um, hello there.")
+    );
+}
+
+#[test]
+fn a_grok_transcript_is_typed_as_grok_sent_it_because_grok_drops_its_own_thinking_sounds() {
+    let mut dictations = held_and_released();
+    dictations.capture_stopped(Some(speech()), at_micros(1_980_000));
+
+    assert_eq!(
+        dictations.transcription_finished(
+            Provider::Grok,
+            "grok",
+            Language::English,
+            heard("Um, hello there."),
+            at_micros(2_392_500),
+        ),
+        to_type("Um, hello there.")
+    );
+}

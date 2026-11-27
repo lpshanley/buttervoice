@@ -158,5 +158,8 @@
   "hotkey.left_control": "Left ⌃",
   "hotkey.fn": "fn",
   "hotkey.side.left": "Left",
-  "hotkey.side.right": "Right"
+  "hotkey.side.right": "Right",
+  "fillers.heading": "Text",
+  "fillers.drop": "Drop filler words",
+  "fillers.what": "Leaves out “um”, “uh” and “hmm”. Words such as “like” stay."
 }

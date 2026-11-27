@@ -67,6 +67,10 @@ fn listen_for_the_dictation_key(
         let preferences = preferences.clone();
         move || recorder.purpose_for(preferences.get().provider)
     };
+    let drops_fillers_now = {
+        let preferences = preferences.clone();
+        move || preferences.get().drop_filler_words
+    };
     let microphone = microphone::spawn(
         {
             let preferences = preferences.clone();
@@ -183,6 +187,7 @@ fn listen_for_the_dictation_key(
                         let before = dictations.status();
                         let deadline_before = dictations.second_tap_deadline();
                         dictations.set_purpose(purpose_now());
+                        dictations.set_drops_fillers(drops_fillers_now());
                         let command = match event {
                             TapEvent::Ready { flags, at } => {
                                 tracing::info!("key listener ready");
@@ -859,6 +864,22 @@ fn choose_keep_history(
 }
 
 #[tauri::command]
+fn filler_words_setup(preferences: tauri::State<'_, Arc<preferences::Store>>) -> bool {
+    preferences.get().drop_filler_words
+}
+
+#[tauri::command]
+fn choose_drop_filler_words(
+    on: bool,
+    preferences: tauri::State<'_, Arc<preferences::Store>>,
+    transcribers: tauri::State<'_, Arc<Transcribers>>,
+) -> Result<(), String> {
+    preferences
+        .change(|saved| saved.drop_filler_words = on)
+        .map_err(|error| not_saved(error, &transcribers))
+}
+
+#[tauri::command]
 fn history_search(
     query: String,
     history: tauri::State<'_, Arc<History>>,
@@ -1190,6 +1211,8 @@ pub fn run() {
             copy_text,
             history_setup,
             choose_keep_history,
+            filler_words_setup,
+            choose_drop_filler_words,
             history_search,
             clear_history,
             usage_days,

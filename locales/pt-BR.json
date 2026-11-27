@@ -158,5 +158,8 @@
   "hotkey.left_control": "⌃ da esquerda",
   "hotkey.fn": "fn",
   "hotkey.side.left": "Esquerda",
-  "hotkey.side.right": "Direita"
+  "hotkey.side.right": "Direita",
+  "fillers.heading": "Texto",
+  "fillers.drop": "Remover sons de hesitação",
+  "fillers.what": "Tira “hã”, “hum” e “hmm”. Palavras como “tipo” e “né” ficam."
 }
