@@ -1,4 +1,5 @@
 use buttervoice_core::DictationId;
+use buttervoice_core::fillers::DroppedFillers;
 use buttervoice_core::key_dictation::FinishedDictation;
 use buttervoice_core::language::Language;
 use buttervoice_core::recording::StopReason;
@@ -17,6 +18,7 @@ fn finished(transcription: Transcription, typing: Typing) -> FinishedDictation {
         backend: Some("parakeet-ultra"),
         language: Some(Language::BrazilianPortuguese),
         transcription,
+        dropped_fillers: None,
         typing,
     }
 }
@@ -49,6 +51,7 @@ fn a_typed_dictation_is_kept_with_where_it_went() {
             language: Some("pt-BR".to_string()),
             backend: Some("parakeet-ultra".to_string()),
             app: Some(notes_app()),
+            heard: None,
         })
     );
 }
@@ -76,4 +79,20 @@ fn a_dictation_that_was_not_heard_is_not_kept() {
         Typing::NotAttempted,
     );
     assert_eq!(entry_for(&failed, 1, None), None);
+}
+
+#[test]
+fn a_dictation_that_lost_thinking_sounds_is_kept_with_what_was_heard() {
+    let dictation = FinishedDictation {
+        dropped_fillers: Some(DroppedFillers {
+            heard: "Hã, bom dia".to_string(),
+            count: 1,
+        }),
+        ..finished(heard("Bom dia"), Typing::Typed)
+    };
+
+    let entry = entry_for(&dictation, 1, None).expect("a typed dictation is kept");
+
+    assert_eq!(entry.text, "Bom dia");
+    assert_eq!(entry.heard.as_deref(), Some("Hã, bom dia"));
 }

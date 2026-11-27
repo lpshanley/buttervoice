@@ -30,6 +30,7 @@ fn said(text: &str, spoken: Duration, typing: Typing) -> FinishedDictation {
         transcription: Transcription::Succeeded(Transcript {
             text: text.to_string(),
         }),
+        dropped_fillers: None,
         typing,
     }
 }

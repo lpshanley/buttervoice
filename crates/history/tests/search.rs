@@ -10,6 +10,7 @@ fn dictated(text: &str, at: u64) -> Entry {
             name: "Slack".to_string(),
             bundle_id: Some("com.tinyspeck.slackmacgap".to_string()),
         }),
+        heard: None,
     }
 }
 

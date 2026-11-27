@@ -4,6 +4,7 @@ use buttervoice_core::DictationId;
 use buttervoice_core::capture::{
     AudioFormat, AudioStats, CaptureReport, Captured, CapturedAudio, InputKind,
 };
+use buttervoice_core::fillers::DroppedFillers;
 use buttervoice_core::hotkey::HotkeyKey;
 use buttervoice_core::key_dictation::{
     AfterCapture, AfterTranscription, CaptureCommand, DictationStatus, FinishedDictation,
@@ -880,6 +881,36 @@ fn with_dropping_turned_off_the_text_is_typed_exactly_as_heard() {
         transcribed_from(&mut dictations, "Um, hello there."),
         to_type("Um, hello there.")
     );
+}
+
+#[test]
+fn a_typed_dictation_keeps_what_was_heard_before_its_thinking_sounds_were_taken_out() {
+    let mut dictations = held_and_released();
+    transcribed_from(&mut dictations, "Um, hello, uh, there.");
+
+    let finished = dictations
+        .typing_finished(Ok(()), at_micros(2_400_000))
+        .expect("typing the text should finish the dictation");
+
+    assert_eq!(
+        finished.dropped_fillers,
+        Some(DroppedFillers {
+            heard: "Um, hello, uh, there.".to_string(),
+            count: 2
+        })
+    );
+}
+
+#[test]
+fn a_dictation_with_no_thinking_sounds_has_nothing_dropped() {
+    let mut dictations = held_and_released();
+    transcribed_from(&mut dictations, "Hello there.");
+
+    let finished = dictations
+        .typing_finished(Ok(()), at_micros(2_400_000))
+        .expect("typing the text should finish the dictation");
+
+    assert_eq!(finished.dropped_fillers, None);
 }
 
 #[test]

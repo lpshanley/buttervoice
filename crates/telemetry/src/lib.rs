@@ -170,6 +170,10 @@ pub fn record_dictation(dictation: &FinishedDictation) {
         transcription_failure = transcription_failure(&dictation.transcription),
         transcription_ms = summary.transcription.map(millis),
         transcript_chars = transcript_chars(&dictation.transcription),
+        fillers_dropped = dictation
+            .dropped_fillers
+            .as_ref()
+            .map(|dropped| dropped.count),
         typing = typing_outcome(dictation.typing),
         typing_failure = typing_failure(dictation.typing),
         key_up_to_text_typed_ms = summary.key_up_to_text_typed.map(millis),

@@ -27,6 +27,9 @@ pub struct Entry {
     pub language: Option<String>,
     pub backend: Option<String>,
     pub app: Option<App>,
+    /// What was heard, when thinking sounds were taken out of `text`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heard: Option<String>,
 }
 
 /// What is kept of a finished dictation, if anything: only text that was
@@ -40,6 +43,10 @@ pub fn entry_for(dictation: &FinishedDictation, at: u64, app: Option<App>) -> Op
             .map(|language| language.tag().to_string()),
         backend: dictation.backend.map(str::to_string),
         app,
+        heard: dictation
+            .dropped_fillers
+            .as_ref()
+            .map(|dropped| dropped.heard.clone()),
     })
 }
 

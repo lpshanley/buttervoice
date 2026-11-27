@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::DictationId;
 use crate::capture::{AudioStats, Captured, CapturedAudio, InputKind};
-use crate::fillers::without_fillers;
+use crate::fillers::{DroppedFillers, without_fillers};
 use crate::hotkey::{HotkeyDecoder, HotkeyKey, KeyEdge};
 use crate::language::Language;
 use crate::recording::{Decision, Mode, RecordingControl, StopReason};
@@ -73,6 +73,8 @@ pub struct FinishedDictation {
     pub backend: Option<&'static str>,
     pub language: Option<Language>,
     pub transcription: Transcription,
+    /// `None` when no thinking sounds were taken out of the transcript.
+    pub dropped_fillers: Option<DroppedFillers>,
     pub typing: Typing,
 }
 
@@ -85,6 +87,7 @@ struct Stopped {
     provider: Option<Provider>,
     backend: Option<&'static str>,
     language: Option<Language>,
+    dropped_fillers: Option<DroppedFillers>,
 }
 
 #[derive(Debug)]
@@ -292,7 +295,13 @@ impl KeyDictations {
                 // Grok drops them itself when asked to, so only local
                 // transcripts go through the filter.
                 if self.drops_fillers && provider == Provider::Local {
-                    transcript.text = without_fillers(&transcript.text, language).text;
+                    let cleaned = without_fillers(&transcript.text, language);
+                    if cleaned.dropped > 0 {
+                        stopped.dropped_fillers = Some(DroppedFillers {
+                            heard: std::mem::replace(&mut transcript.text, cleaned.text),
+                            count: cleaned.dropped,
+                        });
+                    }
                 }
                 transcript
             }
@@ -402,6 +411,7 @@ impl KeyDictations {
             backend: stopped.backend,
             language: stopped.language,
             transcription,
+            dropped_fillers: stopped.dropped_fillers,
             typing,
         }
     }
@@ -466,6 +476,7 @@ impl KeyDictations {
                     provider: None,
                     backend: None,
                     language: None,
+                    dropped_fillers: None,
                 });
                 Some(CaptureCommand::Stop)
             }

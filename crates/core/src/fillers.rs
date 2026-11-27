@@ -14,6 +14,14 @@ pub struct WithoutFillers {
     pub dropped: usize,
 }
 
+/// What was heard before thinking sounds were taken out of it, kept so a
+/// word taken out by mistake can be traced to the filter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DroppedFillers {
+    pub heard: String,
+    pub count: usize,
+}
+
 pub fn without_fillers(text: &str, language: Language) -> WithoutFillers {
     let has_lower_case = text.chars().any(char::is_lowercase);
     let mut words = Words::split(text);

@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use buttervoice_core::DictationId;
 use buttervoice_core::capture::{AudioFormat, AudioStats, InputKind};
+use buttervoice_core::fillers::DroppedFillers;
 use buttervoice_core::key_dictation::FinishedDictation;
 use buttervoice_core::language::Language;
 use buttervoice_core::recording::StopReason;
@@ -45,6 +46,7 @@ fn uneventful(summary: Summary) -> FinishedDictation {
         backend: None,
         language: None,
         transcription: Transcription::NotAttempted,
+        dropped_fillers: None,
         typing: Typing::NotAttempted,
     }
 }
@@ -280,4 +282,18 @@ fn the_start_of_a_dictation_is_logged_with_its_id() {
     assert_eq!(lines.len(), 1);
     assert_eq!(lines[0]["message"], "dictation started");
     assert_eq!(lines[0]["dictation_id"], 7);
+}
+
+#[test]
+fn the_line_counts_the_thinking_sounds_taken_out_but_never_says_them() {
+    let lines = lines_logged(&FinishedDictation {
+        dropped_fillers: Some(DroppedFillers {
+            heard: "Um, hello, uh, there.".to_string(),
+            count: 2,
+        }),
+        ..uneventful(Timeline::new(DictationId(19)).summary())
+    });
+
+    assert_eq!(lines[0]["fillers_dropped"], 2);
+    assert!(!lines[0].to_string().contains("hello"));
 }
