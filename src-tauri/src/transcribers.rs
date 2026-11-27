@@ -11,7 +11,7 @@ use buttervoice_core::capture::CapturedAudio;
 use buttervoice_core::key_dictation::Purpose;
 use buttervoice_core::language::Language;
 use buttervoice_core::transcription::{Provider, Transcript, TranscriptionFailure};
-use buttervoice_grok::GrokTranscriber;
+use buttervoice_grok::{FillerWords, GrokTranscriber};
 use buttervoice_local::fetch::{Expected, FetchError, fetch};
 use buttervoice_local::{LoadError, LocalTranscriber};
 
@@ -156,7 +156,15 @@ impl Transcribers {
             Ready::Grok(grok, _) => (
                 Provider::Grok,
                 GROK,
-                grok.transcribe(&audio.boosted_for_transcription(), language),
+                grok.transcribe(
+                    &audio.boosted_for_transcription(),
+                    language,
+                    if self.preferences.get().drop_filler_words {
+                        FillerWords::Dropped
+                    } else {
+                        FillerWords::Kept
+                    },
+                ),
             ),
             Ready::NoLocalModel => (
                 Provider::Local,

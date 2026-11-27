@@ -18,7 +18,7 @@ use buttervoice_core::capture::CapturedAudio;
 use buttervoice_core::capture::InputKind;
 use buttervoice_core::language::Language;
 use buttervoice_core::transcription::{Transcript, TranscriptionFailure};
-use buttervoice_grok::{DEFAULT_BASE_URL, GrokTranscriber};
+use buttervoice_grok::{DEFAULT_BASE_URL, FillerWords, GrokTranscriber};
 use buttervoice_local::LocalTranscriber;
 use buttervoice_replay::recordings::{self, Recording};
 use buttervoice_replay::report::{Report, replay};
@@ -234,10 +234,13 @@ fn run() -> Result<(), String> {
                 }
                 run.variant(variant.name, |audio| {
                     if variant.boosted {
-                        transcriber
-                            .transcribe(&audio.boosted_for_transcription(), Language::English)
+                        transcriber.transcribe(
+                            &audio.boosted_for_transcription(),
+                            Language::English,
+                            FillerWords::Dropped,
+                        )
                     } else {
-                        transcriber.transcribe(audio, Language::English)
+                        transcriber.transcribe(audio, Language::English, FillerWords::Dropped)
                     }
                 })?;
             }

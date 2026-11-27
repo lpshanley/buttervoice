@@ -33,6 +33,14 @@ fn service_code(language: Language) -> &'static str {
     }
 }
 
+/// Whether the service is to leave thinking sounds such as "um" in the
+/// text or take them out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FillerWords {
+    Dropped,
+    Kept,
+}
+
 #[derive(Deserialize)]
 struct SttResponse {
     text: String,
@@ -67,6 +75,7 @@ impl GrokTranscriber {
         &self,
         audio: &CapturedAudio,
         language: Language,
+        filler_words: FillerWords,
     ) -> Result<Transcript, TranscriptionFailure> {
         let file = multipart::Part::bytes(audio.to_wav())
             .file_name("dictation.wav")
@@ -76,6 +85,10 @@ impl GrokTranscriber {
         let mut form = multipart::Form::new()
             .text("language", service_code(language))
             .text("format", "true");
+        // Left out, the service drops them itself.
+        if filler_words == FillerWords::Kept {
+            form = form.text("filler_words", "true");
+        }
         if let Some(threshold) = self.vad_threshold {
             form = form.text("vad_threshold", threshold.to_string());
         }
